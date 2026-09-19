@@ -3,7 +3,7 @@
 //! What `--clear` is for is reaching a result screen without half an hour of playing well, so it is also how
 //! the ending, the records written on the way out and the screens after a run were reached at all. What makes
 //! it work on this game is `Th06c::make_invulnerable`, called before every one of the game's own updates:
-//! the player's state byte at `+0x73b8` is written to 3 with `0xf0` under it, and the hit at `0x14004c6ce` is
+//! the player's state byte at `+0x73b8` is written to 3 with `0xf0` under it, and the hit at `0x14004c78e` is
 //! gated on that byte reading nought.
 //!
 //! **And what makes these tests say anything is a hit that would really land.** `Fake::hit` leaves one
@@ -130,7 +130,7 @@ fn a_clear_on_demand_of_th06c_reaches_its_ending_with_no_death_in_it() {
 /// **The state and not the count**, because there are two states nothing can be hit in and `--clear` reaches
 /// only one of them: `make_invulnerable` writes 3 over a player who is playing or already untouchable and
 /// leaves a walk-in alone, so the frames after a stage boundary are the walk-in's own 1. What the hit at
-/// `0x14004c6ce` asks is whether the byte is nought, and the claim is that it never is.
+/// `0x14004c78e` asks is whether the byte is nought, and the claim is that it never is.
 #[test]
 fn a_clear_on_demand_of_th06c_leaves_its_player_in_no_state_a_hit_can_land_in() {
     in_its_own_process(|| {

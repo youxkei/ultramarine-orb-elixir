@@ -2652,9 +2652,9 @@ impl Game for Th08 {
             moves_its_window: None,
             shows_its_window: None,
             places_its_window: None,
+            restyles_its_window: None,
             reads_a_pad: None,
             makes_its_renderer: None,
-            frame_in_the_loop: None,
             // The four KERNEL32 imports, off the import table at 0x4b404c: `HeapAlloc` and `HeapFree` are
             // there and no ucrt of its own is.
             takes_its_memory: Memory::Kernel32Imports,

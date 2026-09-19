@@ -1,0 +1,76 @@
+# **The Extra's row of `chapters.rs` held against th06 1.02h, the half on th06c** — `extra-on-th06.yaml` is the
+# other, and `midstage-on-th06c.yaml` says what the pauses are for. Chapters 2, 3, 8 and 9, which is what th06
+# numbers the row's four as (`stage 7 chapter 8 at frame 9121 (script 5448): tl 5448`), the midboss's four
+# between them. The walk is the_extra_a_cleared_run_unlocked's, so the copy's records have to hold the Extra
+# unlocked — a_normal_mode_run_played_to_its_clear is what gets them there.
+#
+# **Driven as** `drive-a-run.sh <copy> th06c.exe extra-on-th06c.yaml --log=normal --pace=8 --no-resume` with
+# `shoot-the-pauses.sh <copy> th06c.exe 18 4 s7-tl2649 s7-tl3728 s7-tl5448 s7-tl7356` beside it.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 2, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { stage: 7, chapter: 1 }
+  give_up_after: 3600
+# s7-tl2649
+- play_until: { stage: 7, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s7-tl3728
+- play_until: { stage: 7, chapter: 3 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s7-tl5448
+- play_until: { stage: 7, chapter: 8 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s7-tl7356
+- play_until: { stage: 7, chapter: 9 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+- play_until: { frames: 600 }
+- quit: true

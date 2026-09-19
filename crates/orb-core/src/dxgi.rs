@@ -37,6 +37,9 @@ const IID_IDXGISWAPCHAIN: [u8; 16] = [
 const QUERY_INTERFACE: usize = 0;
 const RELEASE: usize = 2;
 const PRESENT: usize = 8;
+/// `IDXGISwapChain::ResizeBuffers`, after `GetBuffer`, `SetFullscreenState`, `GetFullscreenState` and
+/// `GetDesc` — see [`resizes_its_buffers`].
+const RESIZE_BUFFERS: usize = 13;
 const CREATE_SWAP_CHAIN_FOR_HWND: usize = 15;
 /// **And `IDXGISwapChain1::Present1`, which is the one a game built this decade uses.** It comes after
 /// that interface's own four — `GetDesc1`, `GetFullscreenDesc`, `GetHwnd`, `GetCoreWindow` — and a
@@ -159,6 +162,21 @@ unsafe extern "system" fn creates_a_swapchain(
         usize,
         *mut usize,
     ) -> i32 = unsafe { std::mem::transmute(original) };
+    if let Some(asked) = unsafe { the_description_asked(description) } {
+        THE_SIZE_ASKED.store(
+            (u64::from(asked.width) << 32) | u64::from(asked.height),
+            Ordering::Relaxed,
+        );
+        log!(
+            "frame: the game asks for a swapchain of {}x{} with {} buffer(s), scaling {} and swap \
+             effect {}",
+            asked.width,
+            asked.height,
+            asked.buffers,
+            asked.scaling,
+            asked.swap_effect,
+        );
+    }
     let answered = unsafe {
         original(
             factory,
@@ -178,6 +196,47 @@ unsafe extern "system" fn creates_a_swapchain(
         unsafe { take(made) };
     }
     answered
+}
+
+/// **The five numbers of a `DXGI_SWAP_CHAIN_DESC1` a launch says**, of the eleven the structure has.
+struct Asked {
+    width: u32,
+    height: u32,
+    buffers: u32,
+    scaling: u32,
+    swap_effect: u32,
+}
+
+/// **Where `DXGI_SWAP_CHAIN_DESC1` keeps each of those**, in bytes from its start: its width, height,
+/// format and stereo flag come to 16, `DXGI_SAMPLE_DESC`'s two to 24, and the buffers' usage, their count,
+/// the scaling and the swap effect follow a dword apiece. Forty-eight bytes the whole of it.
+const ITS_BUFFER_COUNT: usize = 28;
+const ITS_SCALING: usize = 32;
+const ITS_SWAP_EFFECT: usize = 36;
+const A_DESCRIPTION1: usize = 48;
+
+/// **What a `CreateSwapChainForHwnd` asked for**, read off the description it was handed, and `None` for a
+/// call handed none.
+///
+/// # Safety
+/// `description` must be null or a `DXGI_SWAP_CHAIN_DESC1`.
+unsafe fn the_description_asked(description: *const u8) -> Option<Asked> {
+    if description.is_null() {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(description, A_DESCRIPTION1) };
+    let dword = |at: usize| {
+        let mut word = [0u8; size_of::<u32>()];
+        word.copy_from_slice(&bytes[at..at + size_of::<u32>()]);
+        u32::from_le_bytes(word)
+    };
+    Some(Asked {
+        width: dword(0),
+        height: dword(size_of::<u32>()),
+        buffers: dword(ITS_BUFFER_COUNT),
+        scaling: dword(ITS_SCALING),
+        swap_effect: dword(ITS_SWAP_EFFECT),
+    })
 }
 
 /// **The swapchain kept and its `Present` taken over**, whichever way it was found.
@@ -206,6 +265,15 @@ pub unsafe fn take(swapchain: usize) -> bool {
             presents_nothing1 as *const () as usize,
         )
     };
+    let resize = unsafe {
+        mem::replace_word(
+            vtable + RESIZE_BUFFERS * size_of::<usize>(),
+            resizes_its_buffers as *const () as usize,
+        )
+    };
+    if let Some(resize) = resize {
+        ITS_RESIZE_BUFFERS.store(resize, Ordering::Relaxed);
+    }
     match (present, present1) {
         (Some(present), Some(present1)) => {
             SWAPCHAIN.store(swapchain, Ordering::Relaxed);
@@ -219,6 +287,63 @@ pub unsafe fn take(swapchain: usize) -> bool {
             false
         }
     }
+}
+
+/// The swapchain's own `ResizeBuffers`, as it was before orb wrote over that slot.
+static ITS_RESIZE_BUFFERS: AtomicUsize = AtomicUsize::new(0);
+
+/// **The size the game asked its swapchain for**, width above height, and nought where it asked none —
+/// see [`resizes_its_buffers`].
+static THE_SIZE_ASKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// **What sits in the swapchain's `ResizeBuffers` once orb has it**: nothing at all where the window is one
+/// orb plays in, its game draws at the size it asked for, and the buffers are that size already — and the
+/// game's own call otherwise.
+///
+/// **Because the game makes its buffers the window's size again when the window is resized**, and orb holds
+/// the window it plays in at a small client — see `crate::window::keeps_its_corner`. For a game that draws
+/// at the size it asked for — see `Game::draws_at_the_size_it_asked_for` — buffers made that small are a
+/// picture cut to the window's: a launch held at a `320x240` client showed the top-left of th06c's title
+/// and nothing else. Kept at the size asked, the swapchain stretches the whole picture onto the window it
+/// presents into — it was asked for with `scaling 0`, `DXGI_SCALING_STRETCH`.
+///
+/// **And th06nc is the other kind**, which lays its frame out over the size its buffers are: left at
+/// `1280x720` under a `320x240` window its title was a quarter of the window's width in its top-left
+/// corner, the game asking for `320x240` again on every frame. Its window is made small by its own mode.
+///
+/// # Safety
+/// The arguments are `IDXGISwapChain::ResizeBuffers`'s own.
+unsafe extern "system" fn resizes_its_buffers(
+    swapchain: usize,
+    buffers: u32,
+    width: u32,
+    height: u32,
+    format: u32,
+    flags: u32,
+) -> i32 {
+    let original = ITS_RESIZE_BUFFERS.load(Ordering::Relaxed);
+    if original == 0 {
+        return S_OK;
+    }
+    let original: unsafe extern "system" fn(usize, u32, u32, u32, u32, u32) -> i32 =
+        unsafe { std::mem::transmute(original) };
+    let asked = THE_SIZE_ASKED.load(Ordering::Relaxed);
+    let held = (asked >> 32) as u32 != 0
+        && unsafe { crate::window::plays_out_of_the_way() }
+        && unsafe { crate::runtime::the_game_draws_at_the_size_it_asked_for() };
+    // **And not made again at all where they are that size already**, which is every such call: made again
+    // at the same size, the call is one the swapchain refuses while anything holds a view of its buffers,
+    // and a launch whose buffers were made the asked size again closed on it. The game has let go of its
+    // own views to ask, and takes the same buffers back.
+    let (into_width, into_height) = ((asked >> 32) as u32, asked as u32);
+    if held && unsafe { the_size_of(swapchain) } == Some((into_width, into_height)) {
+        crate::detail!(
+            "frame: the game makes its swapchain's buffers {width}x{height} again, which are left \
+             {into_width}x{into_height}"
+        );
+        return S_OK;
+    }
+    unsafe { original(swapchain, buffers, width, height, format, flags) }
 }
 
 /// **Whether an object is a swapchain**, asked of the object itself.
@@ -411,23 +536,10 @@ const A_DESCRIPTION: usize = 72;
 /// # Safety
 /// Must run on the game's own thread, with the swapchain live.
 pub unsafe fn the_window() -> orb_api::Hwnd {
-    let swapchain = SWAPCHAIN.load(Ordering::Relaxed);
-    if swapchain == 0 {
-        return orb_api::Hwnd::NULL;
-    }
-    let Some(vtable) = mem::read_committed::<usize>(swapchain).filter(|vtable| *vtable != 0) else {
+    let Some(description) = (unsafe { its_own_description(SWAPCHAIN.load(Ordering::Relaxed)) })
+    else {
         return orb_api::Hwnd::NULL;
     };
-    let describes = mem::read_committed::<usize>(vtable + GET_DESC * size_of::<usize>());
-    let Some(describes) = describes.filter(|describes| *describes != 0) else {
-        return orb_api::Hwnd::NULL;
-    };
-    let describes: unsafe extern "system" fn(usize, *mut u8) -> i32 =
-        unsafe { std::mem::transmute(describes) };
-    let mut description = [0u8; A_DESCRIPTION];
-    if unsafe { describes(swapchain, description.as_mut_ptr()) } < 0 {
-        return orb_api::Hwnd::NULL;
-    }
     let mut handle = [0u8; size_of::<usize>()];
     handle.copy_from_slice(&description[OUTPUT_WINDOW..OUTPUT_WINDOW + size_of::<usize>()]);
     orb_api::Hwnd(usize::from_le_bytes(handle))
@@ -451,6 +563,24 @@ pub unsafe fn the_window() -> orb_api::Hwnd {
 /// # Safety
 /// Must run on the game's own thread, with the swapchain live.
 pub unsafe fn the_size_of(swapchain: usize) -> Option<(u32, u32)> {
+    let description = unsafe { its_own_description(swapchain) }?;
+    let dword = |at: usize| {
+        let mut bytes = [0u8; size_of::<u32>()];
+        bytes.copy_from_slice(&description[at..at + size_of::<u32>()]);
+        u32::from_le_bytes(bytes)
+    };
+    match (dword(0), dword(size_of::<u32>())) {
+        (0, _) | (_, 0) => None,
+        size => Some(size),
+    }
+}
+
+/// **What the swapchain says of itself**, through its own `GetDesc`. `None` where no swapchain was taken,
+/// where the slot is empty, or where the ask fails.
+///
+/// # Safety
+/// Must run on the game's own thread, with `swapchain` live or nought.
+unsafe fn its_own_description(swapchain: usize) -> Option<[u8; A_DESCRIPTION]> {
     if swapchain == 0 {
         return None;
     }
@@ -463,15 +593,7 @@ pub unsafe fn the_size_of(swapchain: usize) -> Option<(u32, u32)> {
     if unsafe { describes(swapchain, description.as_mut_ptr()) } < 0 {
         return None;
     }
-    let dword = |at: usize| {
-        let mut bytes = [0u8; size_of::<u32>()];
-        bytes.copy_from_slice(&description[at..at + size_of::<u32>()]);
-        u32::from_le_bytes(bytes)
-    };
-    match (dword(0), dword(size_of::<u32>())) {
-        (0, _) | (_, 0) => None,
-        size => Some(size),
-    }
+    Some(description)
 }
 
 pub fn hands_over_without_waiting(without: bool) {

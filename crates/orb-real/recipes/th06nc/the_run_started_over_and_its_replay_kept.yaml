@@ -12,8 +12,8 @@
 # shape had the decide it was still holding answer the resume question itself. See
 # `the_run_picked_up_in_the_stage_it_walked_into`, where that happened.
 #
-# **What says the fresh run played on is the stage's own clock**, not a second chapter: this game has one
-# chapter a stage until `game/th06nc/chapters.rs` is filled.
+# **What says the fresh run played on is the stage's own clock**, not a second chapter: the run is played
+# on for less than the stage's first chapter lasts.
 - wait_until: { screen: 2 }
   give_up_after: 36000
 - wait_until: { frames: 60 }

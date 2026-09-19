@@ -39,7 +39,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use orb_api::{clock, fs};
 use serde::{Deserialize, Serialize};
 
-use crate::game::{Question, State};
+use crate::game::{Frame, Kind, Question, State};
 
 /// One frame of a launch, as orb's update saw it.
 ///
@@ -90,6 +90,15 @@ pub struct Record {
     /// Defaulted for the reason [`Record::picture`] is.
     #[serde(default)]
     pub the_field: Option<TheField>,
+    /// **Where the player was on the frame the rules last read**, and `None` where they read none.
+    ///
+    /// Which is what two runs of one stretch are held against each other by: the whole Extra and a pick-up of
+    /// its chapter 7 parted at stage frame `8385` on the word pressed, the game's own numbers agreeing, and a
+    /// trace with the words and the seed alone cannot say where either player went from there.
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub at: Option<(f32, f32)>,
 }
 
 /// **Every bullet on the field on one frame of the card a launch named**, with the player beside them — which
@@ -105,6 +114,107 @@ pub struct TheField {
     /// How far into the card the frame is, as the game counts it.
     pub card_frames: i32,
     pub bullets: Vec<ABulletOverAHit>,
+    /// **And every laser**, which a card that sweeps the field with them is measured by and a bullet's box
+    /// cannot stand for.
+    ///
+    /// Defaulted for the reason [`Record::picture`] is, a trace of th08 carrying none.
+    #[serde(default)]
+    pub beams: Vec<ABeamOnTheField>,
+    /// **And where the boss is**, which a card whose way through follows her about is measured by — the
+    /// strategy wiki's for `禁忌「レーヴァテイン」` begins `フランが左へ行くので`.
+    ///
+    /// Defaulted for the reason [`TheField::beams`] is.
+    #[serde(default)]
+    pub boss: Option<(f32, f32)>,
+    /// **And every body on the field, solid or not**, which a card whose enemies come for the player is
+    /// measured by — th06c's `秘弾「そして誰もいなくなるか？」` hit a run walking its edge with two bodies
+    /// `37` across on it, the boss standing still at `192,80` the whole card.
+    ///
+    /// Defaulted for the reason [`TheField::beams`] is.
+    #[serde(default)]
+    pub bodies: Vec<ABodyOnTheField>,
+}
+
+/// One body of [`TheField`], as [`Frame`] hands it over.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ABodyOnTheField {
+    pub slot: u32,
+    pub at: (f32, f32),
+    pub half: (f32, f32),
+    pub solid: bool,
+}
+
+impl TheField {
+    /// **The field as a bot is handed it**, for a game whose bullets have no word of their own worth tracing
+    /// past what [`Frame`] already carries: each bullet's box and its state as the kind, and every beam as it
+    /// goes across.
+    pub fn of(frame: &Frame, card: u32, card_frames: i32) -> Self {
+        let bullets = frame
+            .hazards
+            .iter()
+            .filter_map(|hazard| match hazard.kind {
+                Kind::Bullet { state, .. } => Some(ABulletOverAHit {
+                    slot: hazard.slot as u32,
+                    at: hazard.at,
+                    size: (hazard.half.0 * 2.0, hazard.half.1 * 2.0),
+                    kind: state,
+                    hidden: 0,
+                }),
+                _ => None,
+            })
+            .collect();
+        let beams = frame
+            .beams
+            .iter()
+            .map(|beam| ABeamOnTheField {
+                slot: beam.slot as u32,
+                origin: beam.origin,
+                angle: beam.angle,
+                frames: beam.frames,
+                near: beam.near,
+                far: beam.far,
+                half_across: beam.half_across,
+                fires_in: beam.fires_in,
+                fading: beam.fading,
+            })
+            .collect();
+        let bodies = frame
+            .hazards
+            .iter()
+            .filter_map(|hazard| match hazard.kind {
+                Kind::Body { solid } => Some(ABodyOnTheField {
+                    slot: hazard.slot as u32,
+                    at: hazard.at,
+                    half: hazard.half,
+                    solid,
+                }),
+                _ => None,
+            })
+            .collect();
+        TheField {
+            card,
+            at: frame.at,
+            card_frames,
+            bullets,
+            beams,
+            boss: frame.boss,
+            bodies,
+        }
+    }
+}
+
+/// One laser of [`TheField`], as [`crate::game::Beam`] hands it over.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ABeamOnTheField {
+    pub slot: u32,
+    pub origin: (f32, f32),
+    pub angle: f32,
+    pub frames: i32,
+    pub near: f32,
+    pub far: f32,
+    pub half_across: f32,
+    pub fires_in: i32,
+    pub fading: bool,
 }
 
 /// **Every enemy and every bullet within reach of the player on the frame a hit is seen**, with the words the
@@ -166,6 +276,8 @@ struct Tracing {
     over_a_hit: Option<OverAHit>,
     /// The field read since the last record, where the card a launch named was up — see [`the_field`].
     the_field: Option<TheField>,
+    /// Where the player was when the rules last read, since the last record — see [`the_player_at`].
+    at: Option<(f32, f32)>,
 }
 
 /// **The card a launch wants the field of**, `Config::trace_the_field_in`, and -1 for none — set once as the
@@ -215,6 +327,7 @@ pub fn open(path: &Path) {
         picture: None,
         over_a_hit: None,
         the_field: None,
+        at: None,
     });
     ON.store(true, Ordering::Release);
     crate::log!("trace: every frame written to {}", path.display());
@@ -264,15 +377,21 @@ pub fn over_a_hit(what: OverAHit) {
     }
 }
 
-/// Says which card's frames want the whole field, `None` for none — see [`TheField`].
+/// Says which card's frames want the whole field, `None` for none — see [`TheField`], and [`NO_CARD`].
 pub fn wants_the_field_in(card: Option<u32>) {
     THE_FIELD_IN.store(card.map_or(-1, i64::from), Ordering::Relaxed);
 }
 
+/// **The number that names the frames no card is up on**, for a launch that wants the field of a stretch that
+/// is not a card — th06c's Extra's midstage, whose stream pinned the run against a wall under either place a
+/// recipe held it at. `--trace-the-field-in=none`'s.
+pub const NO_CARD: u32 = orb_config::args::NO_CARD;
+
 /// **Whether the field is wanted on a frame `card` is up on**, which is what a game asks before it walks its
-/// bullets for it: nothing is wanted where no trace is being written.
+/// bullets for it: nothing is wanted where no trace is being written. `None` is a frame no card is up on,
+/// wanted where [`NO_CARD`] was named.
 pub fn the_field_is_wanted_in(card: Option<u32>) -> bool {
-    on() && card.is_some_and(|card| i64::from(card) == THE_FIELD_IN.load(Ordering::Relaxed))
+    on() && i64::from(card.unwrap_or(NO_CARD)) == THE_FIELD_IN.load(Ordering::Relaxed)
 }
 
 /// **Keeps the field for the next record** — see [`TheField`] — and drops it where no trace is being written.
@@ -282,6 +401,17 @@ pub fn the_field(what: TheField) {
     }
     if let Some(tracing) = tracing().as_mut() {
         tracing.the_field = Some(what);
+    }
+}
+
+/// **Keeps where the player was for the next record** — see [`Record::at`] — and drops it where no trace is
+/// being written.
+pub fn the_player_at(at: (f32, f32)) {
+    if !on() {
+        return;
+    }
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.at = Some(at);
     }
 }
 
@@ -322,6 +452,7 @@ pub fn frame(
             picture: tracing.picture.take(),
             over_a_hit: tracing.over_a_hit.take(),
             the_field: tracing.the_field.take(),
+            at: tracing.at.take(),
         };
         // Named, so that any MessagePack reader prints a record back without being told the shape —
         // the same choice `resume` made for the file a run is left in.
@@ -412,6 +543,7 @@ mod tests {
             picture: None,
             over_a_hit: None,
             the_field: None,
+            at: Some((192.0, 384.0)),
         }
     }
 

@@ -12,7 +12,9 @@
 //! first act is that the fight is already won has nothing to retry.
 
 use crate::fake::th07::Fake;
-use crate::fake::{Display, Launched, READS_KEYS_AFTER, Work, in_its_own_process};
+use crate::fake::{
+    Display, Launched, READS_KEYS_AFTER, Work, in_its_own_process, the_frame_chapter_began_on,
+};
 use orb_config::LogLevel;
 use orb_sim::keys;
 
@@ -153,6 +155,46 @@ fn a_fight_of_th07_is_a_chapter_at_its_arrival_at_every_attack_and_at_the_waves_
         assert!(
             died.contains("died in chapter 7"),
             "the chapter the defeat closed is the one a retry goes back to: {died}",
+        );
+    });
+}
+
+/// **A death in the nonspell after a card goes back to that nonspell and not to the card**: the retry puts the
+/// run back on the frame the nonspell's chapter began on, with no card up — th06nc's own run went back past it
+/// to the card's start while that game's fight had no nonspell chapter after a card.
+#[test]
+fn a_death_in_the_nonspell_after_a_card_of_th07_goes_back_to_that_nonspell() {
+    in_its_own_process(|| {
+        let game = fighting("th07-a-death-after-a-card");
+        let log = game.log();
+
+        on(&game);
+        game.the_boss_arrives();
+        chapter(&game, 2, "a midboss nonspell");
+        on(&game);
+        game.a_card_starts(MIDBOSS_CARD, MIDBOSS_CARD_NAME);
+        chapter(&game, 3, "a midboss spellcard");
+        on(&game);
+        game.the_card_is_over();
+        game.the_attack_changes();
+        chapter(&game, 4, "a midboss nonspell");
+        let began = the_frame_chapter_began_on(&log.lines(), 1, 4);
+
+        on(&game);
+        game.dies();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 4"));
+        game.press_until(keys::Z, "the retry answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+        let back = game.state();
+        assert!(
+            (began..=began + 1).contains(&back.stage_frames),
+            "the retry put the run on frame {} of the stage, where the nonspell's chapter began on frame {began}",
+            back.stage_frames,
+        );
+        assert_eq!(
+            back.spellcard, None,
+            "the retry put the run back with a card up, which is the card's chapter and not the nonspell's",
         );
     });
 }

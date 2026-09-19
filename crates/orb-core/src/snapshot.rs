@@ -178,9 +178,9 @@ pub fn hold_back_nothing(on: bool) {
 /// `heap1.3`, `reserve2` — which is how a bisection inside the game's memory is expressed.
 ///
 /// **Offsets and not addresses, because the exe is built with ASLR.** A static of th06nc is written down
-/// as `0x140aa1e90` and lives wherever the loader put the image, so an address on a command line names
+/// as `0x140aee0b0` and lives wherever the loader put the image, so an address on a command line names
 /// nothing; `.data` is one source, and an offset into it is the same span whatever base a launch came up
-/// at. `.data` begins at `0x140323000`, so the enemy manager is `0x140aa1e90 - 0x140323000 = 0x77ee90`
+/// at. `.data` begins at `0x14036d000`, so the enemy manager is `0x140aee0b0 - 0x14036d000 = 0x7810b0`
 /// in.
 ///
 /// **And a source rather than only `.data`, because the fault moved out of it.** th06nc's chapter retries

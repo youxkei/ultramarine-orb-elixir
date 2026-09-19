@@ -1,10 +1,10 @@
 //! **The screen a run of th06nc ends at is the game's to walk, and orb writes one state into it.**
 //!
-//! That screen is several one after another, off the jump table at `0x140072824`, and a launch of the real
+//! That screen is several one after another, off the jump table at `0x140073ef4`, and a launch of the real
 //! game walked them: **9** the name entry over the ranking, which the job a run ends into builds it in
-//! (`0x14007a25e`); **15** the offer to save a replay, which the entry's own end hands on to
-//! (`0x140071105`); then `16, 10, 12, 14`, a decide each, the question standing drawn throughout and its
-//! answer taken at fourteen; and **17** the way out, `0x14006e43e`, which fades the screen and writes the
+//! (`0x14007bdde`); **15** the offer to save a replay, which the entry's own end hands on to
+//! (`0x1400727d5`); then `16, 10, 12, 14`, a decide each, the question standing drawn throughout and its
+//! answer taken at fourteen; and **17** the way out, `0x14006fb0e`, which fades the screen and writes the
 //! front end into the supervisor's wanted state.
 //!
 //! **Only the offer is orb's business.** A Pointdevice run has nothing the *game* could put in a replay —
@@ -19,7 +19,7 @@
 //!
 //! **And the four states between the offer and the way out are what the laid-out game owes.** The real
 //! screen animates the question through `16, 10, 12` and takes the answer at `14`, where
-//! `0x140071e26` raises it over a replay slot that already holds a `T6RP`; this game has the offer as one
+//! `0x1400734f3` raises it over a replay slot that already holds a `T6RP`; this game has the offer as one
 //! state, because that one is what orb reaches and every path to the others goes through it. A test that
 //! walked the four would be asserting `fake::th06nc` rather than the game.
 

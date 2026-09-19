@@ -397,6 +397,15 @@ const AFTER_THE_LAST_SPELL: u32 = 120;
 /// to the end of the run, the chapter it was asked to be left in never reached. Long enough to hold
 /// Eirin's Last Spell and the frames after it, which are hers. This file's own numbers.
 const THE_BOSS_FIGHTS_FOR: u32 = 900;
+/// **And her fight a real boss's: a nonspell, a card, and the nonspell after it**, the attack timer put back to
+/// nought as each attack begins — which is what orb reads a fight's chapters by, the card ending saying nothing
+/// of its own. A fight with no card in it had no nonspell after a card to die in, and
+/// `a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell` nothing to be about. Card 3 is the one
+/// stage 1's boss put up first on the real game, `spell=3`; the frames are this file's own, each past the
+/// shortest a chapter may be.
+const HER_CARD: usize = 3;
+const HER_CARD_AFTER: u32 = 240;
+const HER_CARD_LASTS: u32 = 240;
 const THE_BOSSS_SLOT: usize = 0;
 const THE_BOSS_STANDS_AT: (f32, f32) = (192.0, 96.0);
 const THE_BOSSS_LIFE: i32 = 60_000;
@@ -1973,9 +1982,12 @@ impl Fake {
             && !self.the_boss_is_up.get()
         {
             self.the_boss_is_up.set(true);
+            // **The count first and the boss over it**: `enemies_alive` writes its slots' flags whole, and
+            // written after, it took the boss's own bit off the slot she is in — so no fight of this file's
+            // stages had a boss orb could read, `State::boss_life` and `boss_attack_frames` both `None`.
+            self.image.enemies_alive(1);
             self.image
                 .a_boss_is_fighting(THE_BOSSS_SLOT, THE_BOSS_STANDS_AT, THE_BOSSS_LIFE);
-            self.image.enemies_alive(1);
             self.image.the_stream_reads_the_track(THE_FIGHTS_TRACK);
         }
         // **And beaten before the stage ends**, the frames between being the stage's own clear — which is
@@ -1988,6 +2000,24 @@ impl Fake {
         {
             self.image.no_boss_is_fighting();
             self.image.enemies_alive(0);
+        }
+        // **And her fight a real boss's** — see [`HER_CARD`]. By the card being up or not rather than by one
+        // frame, the run's clock being one a conversation can step over.
+        if state.stage != EIRINS_STAGE
+            && let Some(last) = self.stage_frames.get()
+            && self.image.a_boss_is_up()
+        {
+            let arrived = last.saturating_sub(THE_BOSS_FIGHTS_FOR);
+            let card_up = self.state().spellcard.is_some();
+            let from = arrived + HER_CARD_AFTER;
+            let to = from + HER_CARD_LASTS;
+            if (from..to).contains(&into_the_stage) && !card_up {
+                self.image.a_card_is_up(HER_CARD);
+                self.image.the_boss_has_attacked_for(THE_BOSSS_SLOT, 0);
+            } else if into_the_stage >= to && card_up {
+                self.image.no_card_is_up();
+                self.image.the_boss_has_attacked_for(THE_BOSSS_SLOT, 0);
+            }
         }
         // **And Eirin's Last Spell up for her stage's end** — see [`THE_LAST_SPELL`].
         if state.stage == EIRINS_STAGE
@@ -2104,8 +2134,15 @@ impl Fake {
         let far = (dx * dx + dy * dy).sqrt().max(1.0);
         let step = (dx / far * BULLET_SPEED, dy / far * BULLET_SPEED);
         let mut bullets = self.bullets.borrow_mut();
-        let slot = bullets.len() % BULLET_SLOTS_USED;
-        bullets.retain(|bullet| bullet.slot != slot);
+        // **The first slot no bullet of this stage is in**, as the manager's own allocation takes one, and not
+        // the count of those in flight: with one up, that count named that bullet's own slot and took it off
+        // the field — a bullet is `185` frames from the top to where the player stands and one came every
+        // `120`, so none ever reached a player past the stage's start.
+        let Some(slot) =
+            (0..BULLET_SLOTS_USED).find(|slot| bullets.iter().all(|bullet| bullet.slot != *slot))
+        else {
+            return;
+        };
         bullets.push(Bullet {
             slot,
             at: BULLETS_FROM,

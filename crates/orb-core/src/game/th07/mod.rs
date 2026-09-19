@@ -2975,12 +2975,12 @@ impl Game for Th07 {
             // Nor a show or a place, the same as th06: nothing hides this game's window either.
             shows_its_window: None,
             places_its_window: None,
+            restyles_its_window: None,
             // Nor a pad read, the same as th06: its own is stood in front of and answered with a word.
             reads_a_pad: None,
             // Nothing: this game's present is an address `Th07::frame_calls` carries, its renderer
             // being Direct3D 8's and made before orb could answer anything about it.
             makes_its_renderer: None,
-            frame_in_the_loop: None,
             // The same CRT as th06's, linked the same way: a heap of the game's own behind the six
             // `KERNEL32.dll` entries. See `orb::memtrack`.
             takes_its_memory: Memory::Kernel32Imports,

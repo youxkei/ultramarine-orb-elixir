@@ -239,6 +239,94 @@ fn the_dialog_frame_the_game_wrote_over_is_put_back() {
     });
 }
 
+/// **And the frame is never taken off at all where the game writes its styles through the name it looked
+/// up**, which is how the game enters its window mode: the extended style without the frame and then the
+/// style with `WS_VISIBLE` in it. Put back a frame later, a window was on the screen as an ordinary one
+/// before orb showed it, and a window manager placed it as it places any other window.
+#[test]
+fn the_games_own_styles_keep_the_dialog_frame_and_the_window_hidden() {
+    in_its_own_process(|| {
+        let game = playing_it("th06nc-the-bots-window-restyled");
+        let window = game.creates_its_window();
+
+        game.restyles_its_window();
+        assert_eq!(
+            game.sim().windows().ex_style(window) & (DIALOG | TOOL),
+            DIALOG | TOOL,
+            "the game's own extended style took the dialog frame off:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert!(
+            !game.sim().windows().is_visible(window),
+            "the game's own style put the window orb plays in on the screen:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And still shown by orb in the end, framed.
+        assert!(
+            shown_on_the_frame(&game, window).is_some(),
+            "the window whose style was written was never shown:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            game.sim().windows().ex_style(window) & (DIALOG | TOOL),
+            DIALOG | TOOL,
+            "the window orb showed is not framed as a dialog",
+        );
+    });
+}
+
+/// And once orb has shown it, the game's style reaches the host whole, and its extended style still keeps
+/// the frame: a window manager takes an ordinary window whenever it becomes one.
+#[test]
+fn the_games_own_styles_keep_the_dialog_frame_once_orb_has_shown_it() {
+    in_its_own_process(|| {
+        let game = playing_it("th06nc-the-bots-window-restyled-when-shown");
+        let window = game.creates_its_window();
+        shown_on_the_frame(&game, window).unwrap_or_else(|| {
+            panic!(
+                "the window orb plays in was never shown:\n  {}",
+                game.log().lines().join("\n  "),
+            )
+        });
+
+        game.restyles_its_window();
+        assert_eq!(
+            game.sim().windows().ex_style(window) & (DIALOG | TOOL),
+            DIALOG | TOOL,
+            "the game's own extended style took the dialog frame off a window already shown:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            game.sim().windows().style(window) & VISIBLE,
+            VISIBLE,
+            "the style the game wrote once orb had shown the window lost its WS_VISIBLE",
+        );
+    });
+}
+
+/// And a launch somebody plays has the game's styles written as the game wrote them.
+#[test]
+fn the_styles_of_a_window_somebody_plays_th06nc_in_are_the_games_own() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th06nc-not-the-bots-window-restyled",
+            Work::wandering(WORK_US),
+            |config| {
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let window = game.creates_its_window();
+        game.restyles_its_window();
+        assert_eq!(
+            game.sim().windows().ex_style(window),
+            THE_GAMES_OWN,
+            "a window somebody plays in was not left the extended style its game wrote",
+        );
+    });
+}
+
 /// And shown once it has held that corner — once, and not again on every frame after it.
 #[test]
 fn it_is_shown_once_its_corner_has_held() {
@@ -312,6 +400,50 @@ fn a_window_something_moved_is_put_back_before_it_is_shown() {
             shown_on >= THE_CORNER_HOLDS_FOR,
             "the window was shown on frame {shown_on} of holding its corner again, before it had held \
              it for {THE_CORNER_HOLDS_FOR}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And left the size the game asked for**, `1280x720` here: this game's window is made small by its own
+/// window mode, which lays the frame out for that size — and held at th06c's small client the real one read
+/// a null texture on its first frame — see `orb_core::window`'s `the_size_it_plays_at`.
+#[test]
+fn a_window_orb_plays_th06nc_in_keeps_the_size_the_game_asked_for() {
+    in_its_own_process(|| {
+        let game = playing_it("th06nc-the-bots-window-its-size");
+        game.creates_its_window();
+        let asked = the_only_window(&game).client;
+        game.frames(AND_NO_LONGER_THAN);
+        let client = the_only_window(&game).client;
+        assert_eq!(
+            (client.width(), client.height()),
+            (asked.width(), asked.height()),
+            "the window orb plays in was made another size than the game asked for:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// And a launch somebody plays has its buffers made the size its game asks, whatever that is.
+#[test]
+fn the_buffers_of_a_game_somebody_plays_are_made_the_size_it_asks() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th06nc-not-the-bots-buffers",
+            Work::wandering(WORK_US),
+            |config| {
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.creates_its_window();
+        game.frame();
+        let client = the_only_window(&game).client;
+        assert_eq!(
+            game.the_swapchains_buffers(),
+            (client.width() as u32, client.height() as u32),
+            "the buffers of a game somebody plays were not made the size it asked:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

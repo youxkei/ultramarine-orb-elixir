@@ -151,12 +151,14 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
 /// run sat idle. Measured: 181s of a 181s run was this one test, eleven tests on eight threads. Split, the
 /// wall clock is the longest chain instead, which is the Normal clear and the Extra that continues it.
 ///
-/// Eleven and not sixteen, the five chains longer than one case holding seven of them between them.
-const CHAINS: [&str; 11] = [
+/// Fewer than the cases, a case that continues another being played in that one's chain.
+const CHAINS: [&str; 14] = [
     "a_run_left_in_its_second_chapter",
     "a_death_answered_by_the_chapter_again",
     "a_chapter_taken_again_without_a_death",
     "a_chapter_further_back_taken_again",
+    "a_death_answered_by_a_chapter_further_back",
+    "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
     "the_stage_taken_again_from_its_start",
     "the_run_given_up_at_the_retry",
     "a_chapter_of_the_stage_after_the_first",
@@ -164,6 +166,7 @@ const CHAINS: [&str; 11] = [
     "a_normal_mode_run_nothing_is_kept_of",
     "a_run_played_to_its_clear",
     "a_normal_mode_run_played_to_its_clear",
+    "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
 ];
 
 /// The cases of the chain that starts at `head` — see `orb_real::chains_of`, which is what makes one.
@@ -269,6 +272,12 @@ fn a_chapter_of_th06c_further_back_taken_again() {
     the_chain_passes("a_chapter_further_back_taken_again");
 }
 
+/// And the same list over a death, the question the hit raised answered by the recipe and not the rules.
+#[test]
+fn a_death_of_th06c_answered_by_a_chapter_further_back() {
+    the_chain_passes("a_death_answered_by_a_chapter_further_back");
+}
+
 #[test]
 fn the_stage_of_th06c_taken_again_from_its_start() {
     the_chain_passes("the_stage_taken_again_from_its_start");
@@ -299,9 +308,21 @@ fn a_run_of_th06c_played_to_its_clear() {
     the_chain_passes("a_run_played_to_its_clear");
 }
 
-/// And the Extra that clear unlocked, which continues it in the directory its records were left in — so the
-/// two are one chain and the longest of the eleven.
+/// And the Extra that clear unlocked, played twice, which continues it in the directory its records were left
+/// in — so the three are one chain and the longest of them.
 #[test]
 fn a_normal_mode_run_of_th06c_played_to_its_clear_and_the_extra_it_unlocked() {
     the_chain_passes("a_normal_mode_run_played_to_its_clear");
+}
+
+#[test]
+fn a_normal_run_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb() {
+    the_chain_passes("a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb");
+}
+
+/// A death in the nonspell after a card, answered by that nonspell again — the laid-out midboss's card and
+/// the attack after it.
+#[test]
+fn a_death_in_the_nonspell_after_a_card_of_th06c_answered_by_that_nonspell() {
+    the_chain_passes("a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell");
 }

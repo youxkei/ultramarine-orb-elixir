@@ -2,7 +2,7 @@
 //! captures the run had put back with it.**
 //!
 //! This game keeps sixty-four card records of its own, and its stage callback fills them from the generator
-//! 2048 draws deep before the file is parsed over them — `0x140024230` to `0x1400247e5`. Two things of orb's
+//! 2048 draws deep before the file is parsed over them — `0x1400243f0` to `0x1400249a5`. Two things of orb's
 //! touch them where a run is picked up:
 //!
 //! - **`Th06c::count_card_attempt`** adds one to the record of the card that is up, because picking a run up
@@ -164,7 +164,7 @@ fn picked_up(name: &str, files: &[(PathBuf, Vec<u8>)]) -> Box<Fake> {
 /// **Which the playback's own card start is what makes possible.** The rebuild of a picked-up stage fills
 /// all sixty-four records from the generator — the callback's 2048 draws — so nothing in the array is a name
 /// until a card starts in that stage; the buttons fed then reach the frame the card started on and the
-/// game's own start at `0x1400149c9` writes its name in. `set_captures_keeping_names` is what leaves that
+/// game's own start at `0x140014c99` writes its name in. `set_captures_keeping_names` is what leaves that
 /// name standing while it puts the counts back, and without it the landing would be asked about a record
 /// whose bytes are noise.
 #[test]

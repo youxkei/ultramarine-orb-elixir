@@ -46,59 +46,6 @@ pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
     Ok(())
 }
 
-/// **The same hook over `_beginthreadex`**, for a game whose threads are the universal CRT's — see
-/// `orb_core::game::Threads::BeginThreadEx`. The CRT makes the thread with `CreateThread` inside
-/// `ucrtbase.dll`, which is an import of that DLL's and not the exe's, so the exe's own entry is the one
-/// orb can stand in front of.
-///
-/// # Safety
-/// As [`install`].
-pub unsafe fn install_beginthreadex(module: usize) -> Result<(), hook::Error> {
-    let previous = unsafe {
-        hook::install_import(
-            module,
-            "api-ms-win-crt-runtime-l1-1-0.dll",
-            "_beginthreadex",
-            hook::address(beginthreadex as _),
-        )
-    }?;
-    BEGINTHREADEX.store(previous, Ordering::Relaxed);
-    Ok(())
-}
-
-static BEGINTHREADEX: AtomicUsize = AtomicUsize::new(0);
-
-/// `_beginthreadex(security, stack_size, start_address, arglist, initflag, thrdaddr)`, answering the
-/// thread's handle as a `uintptr_t` and nought where it made none.
-type BeginThreadEx = unsafe extern "C" fn(
-    *const c_void,
-    u32,
-    Option<unsafe extern "system" fn(*mut c_void) -> u32>,
-    *const c_void,
-    u32,
-    *mut u32,
-) -> usize;
-
-unsafe extern "C" fn beginthreadex(
-    security: *const c_void,
-    stack_size: u32,
-    start: Option<unsafe extern "system" fn(*mut c_void) -> u32>,
-    arglist: *const c_void,
-    initflag: u32,
-    id_out: *mut u32,
-) -> usize {
-    let original: BeginThreadEx =
-        unsafe { std::mem::transmute(BEGINTHREADEX.load(Ordering::Relaxed)) };
-    let thread = unsafe { original(security, stack_size, start, arglist, initflag, id_out) };
-    if thread != 0 {
-        let id = unsafe { GetThreadId(thread as HANDLE) };
-        if id != 0 && !orb_api::thread::registered(id) {
-            log!("threads: cannot open the game's thread {id}");
-        }
-    }
-    thread
-}
-
 unsafe extern "system" fn create_thread(
     attributes: *const c_void,
     stack_size: usize,

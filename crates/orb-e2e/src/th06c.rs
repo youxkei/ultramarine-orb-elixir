@@ -3,10 +3,11 @@
 //! A th06c laid out from what has been read of `th06c.exe`, orb attached to `Th06c`, and orb's own frame
 //! loop in place of the game's own frame — which is the only frame a launch of this game has, the game
 //! handing its two walks and everything around them over. What the e2e tests below ask is that the loop
-//! composes th06c's frame: the update, the sound's catch-up, the draw and the present in orb's order, the
-//! viewport put in place before the update and the picture finished after the draw, through the calls the
-//! game handed over. Beside that, one field at a time: the scene, the stage, the run's own numbers, the
-//! player's states, the fight, and the score file the mode forks through `fopen`.
+//! composes th06c's frame: the update, the sound's catch-up, the draw, the sprites it queued flushed and the
+//! present in orb's order, the view put in place before the update and the picture finished after the draw,
+//! through the calls the game handed over. Beside that, one field at a time: the scene, the stage, the run's
+//! own numbers, the player's states, the fight, and the score file the mode forks through the `CreateFileW`
+//! the game's `fopen` ends in.
 //!
 //! **The mode itself is `a_pointdevice_run_of_th06c.rs`**, which plays a run of the same laid-out game
 //! through the whole of it by a recipe — the question, a chapter, a death, the retry, the run left and
@@ -17,7 +18,9 @@
 //! constants `Th06c` reads. `cargo xtask real` on the copy of the install is what says.
 
 use crate::fake::th06c::Fake;
-use crate::fake::{DRAW, Display, Launched, PRESENT, SOUND, UPDATE, Work, in_its_own_process};
+use crate::fake::{
+    DRAW, Display, FLUSH, Launched, PRESENT, SOUND, UPDATE, Work, in_its_own_process,
+};
 use orb_core::game::th06c::Th06c;
 use orb_core::game::{CountedDeath, Game};
 
@@ -71,7 +74,11 @@ fn orb_paces_a_launch_of_th06c_with_no_run_in_it() {
         game.frame();
         game.forget_asked();
         game.frame();
-        assert_eq!(game.asked(), vec![UPDATE, DRAW, PRESENT]);
+        // **The draw's sprites flushed as the job is done and before the picture is finished**, which is
+        // what this game's own walk of the draw chain does after every job: its sprites are queued into a
+        // batch of the renderer's, and a batch left there is drawn under whatever the next job set — or,
+        // after the last, not in this frame at all.
+        assert_eq!(game.asked(), vec![UPDATE, DRAW, FLUSH, PRESENT]);
 
         // And the sound's own place in that order, on a frame with music behind it: between the update and
         // the draw, as this game's own frame has it, with the count cleared and the track seeked by the
@@ -80,7 +87,7 @@ fn orb_paces_a_launch_of_th06c_with_no_run_in_it() {
         game.image().the_music_is_behind_by(2);
         game.forget_asked();
         game.frame();
-        assert_eq!(game.asked(), vec![UPDATE, SOUND, DRAW, PRESENT]);
+        assert_eq!(game.asked(), vec![UPDATE, SOUND, DRAW, FLUSH, PRESENT]);
         assert_eq!(
             game.image().the_music_is_behind_by_now(),
             0,

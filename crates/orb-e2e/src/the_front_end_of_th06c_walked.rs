@@ -183,7 +183,7 @@ fn the_extra_item_of_th06c_walks_two_selects_into_a_run_of_its_own() {
 
 /// And the front end rebuilt after a run comes back through this game's own logo.
 ///
-/// **Asked for the way the game asks for it**, which is the supervisor's own state: `0x140050ce9` is the
+/// **Asked for the way the game asks for it**, which is the supervisor's own state: `0x140050d79` is the
 /// screen a run ends at writing one into it, and that is the whole of how a run gets back to the title.
 #[test]
 fn the_front_end_of_th06c_rebuilt_after_a_run_comes_back_through_its_logo() {

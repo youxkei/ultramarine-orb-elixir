@@ -3,13 +3,13 @@
 //!
 //! Two readings off the exe, both in `th06c/asm.md`:
 //!
-//! - **The calc walk reads an element's `+0x28` after its callback has returned**, `0x140025559` against the
-//!   call at `0x140025538`, and the chain is a list in priority order. So a job registered by the job being
+//! - **The calc walk reads an element's `+0x28` after its callback has returned**, `0x140025709` against the
+//!   call at `0x1400256e8`, and the chain is a list in priority order. So a job registered by the job being
 //!   run — which is what a scene building itself is — is reached in that same walk, and a scene gets its own
 //!   first update on the frame it was built on. Which is why `State::stage_frames` reads **one** and not
 //!   nought on the first frame orb sees a stage.
 //! - **And nothing of a transition zeroes the word a run acts on.** Three places in the whole exe write
-//!   `0x14090a110` or `0x14090a114`: the front end's own state nought, where `th06TL.dat` is loaded; the
+//!   `0x140955390` or `0x140955394`: the front end's own state nought, where `th06TL.dat` is loaded; the
 //!   input job's copy and read; and the replay playback. So where th06 1.02h clears the pair at the end of
 //!   every state of its supervisor — `the_frame_a_scene_is_built_on.rs`, whose third test is that clear —
 //!   this game carries the keys straight across a transition, and the new scene's first update acts on
@@ -43,7 +43,7 @@ const A_TRANSITION: u32 = 60;
 /// the front end's own build is given on top of.
 const THE_LOGO: u32 = 60;
 
-/// The bit this game's own read leaves for down, which the walk at `0x14004ac69` tests second of the four.
+/// The bit this game's own read leaves for down, which the walk at `0x14004ad29` tests second of the four.
 const DOWN: u16 = 0x0020;
 
 fn launched(name: &str) -> Box<Fake> {

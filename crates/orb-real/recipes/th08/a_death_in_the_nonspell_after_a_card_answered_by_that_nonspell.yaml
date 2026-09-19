@@ -1,0 +1,38 @@
+# A run of th08 hit on purpose in the first attack a boss moves to after a card, and the death answered by the
+# rules with the chapter again — which has to put the run back at that attack's own start and not at the
+# card's. th06nc's case of this name is where this was first missed, and says why the card and not a
+# chapter's number is what the hit is aimed by. The walk is a_death_answered_by_the_chapter_again's.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# The first card of the run.
+- play_until: { card: true }
+  give_up_after: 18000
+# Hit in each chapter's first attempt and not in its retry: the card first, and then the attack after it.
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { frames: 9000 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

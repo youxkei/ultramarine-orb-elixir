@@ -2,9 +2,9 @@
 //! is put together again — for the one thing orb does to it that the game does not, which is to put the
 //! copy the game reads once at startup together out of two files.
 //!
-//! **Because this game reads its file once and never again**, as th06c does. `0x14006ca60` answers the
+//! **Because this game reads its file once and never again**, as th06c does. `0x14006e140` answers the
 //! file as one parsed block and five places ask it, but what it parses each time is the raw bytes at
-//! `[0x140c22148]` with their length in `[0x140c21f6c]` — read once — so the fork of the game's own
+//! `[0x140c6e368]` with their length in `[0x140c6e18c]` — read once — so the fork of the game's own
 //! `fopen` (`crate::score`) reaches one read, made before anybody has been asked which mode the launch
 //! is. What that read landed in is the file both modes' writes would be built on, which is the thing the
 //! fork exists to stop.
@@ -13,12 +13,12 @@
 //! the records of runs out of the mode's own file, and the `CLRD` records that light the front end's
 //! items out of the game's, since a stage reached is a stage reached whichever mode reached it.
 //!
-//! **The header and the cipher are th06c's byte for byte**, read off `0x14006ca60`: the key is seeded
+//! **The header and the cipher are th06c's byte for byte**, read off `0x14006e140`: the key is seeded
 //! from the byte at `+1`, every byte from `+2` on is `xor`ed with the key and the key is then the key
-//! plus the plain byte just decrypted rotated right by five (`add r9b,cl; ror r9b,5` at `0x14006cad0`),
+//! plus the plain byte just decrypted rotated right by five (`add r9b,cl; ror r9b,5` at `0x14006e1b0`),
 //! a sixteen-bit sum of the plain bytes from `+4` on sits in the word at `+2`, `+8` is the offset the
 //! first record is at and `+0x10` the file's length, and the first record must be `TH6K`
-//! (`0x14006cb20`). What differs is the record version — `0x15` where th06c's is `0x10` — and the
+//! (`0x14006e200`). What differs is the record version — `0x15` where th06c's is `0x10` — and the
 //! bodies.
 
 /// The header every file begins with: a byte, the key's seed, the checksum, `0x10`, a byte of noise, the
@@ -34,7 +34,7 @@ const ENCIPHERED_FROM: usize = 2;
 const SUMMED_FROM: usize = 4;
 
 /// One record: four letters, its size twice as words, the version, and its own bytes from `+0xc` —
-/// walked by the first size, `0x14006cb28` advancing by the word at `+0x4`.
+/// walked by the first size, `0x14006e208` advancing by the word at `+0x4`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Record {
     pub bytes: Vec<u8>,
@@ -44,7 +44,7 @@ pub struct Record {
 const RECORD_HEADER: usize = 0xc;
 
 /// **The version, `0x15`.** Written as the one byte at `+0x8` — `mov BYTE PTR [rsi+0x8],0x15` at
-/// `0x14003ab5f` for a `CATK` and `0x14003adb4` for a `CLRD` — and what the three bytes after it hold
+/// `0x14003c3ef` for a `CATK` and `0x14003c627` for a `CLRD` — and what the three bytes after it hold
 /// is not read: a `CLRD` is memset before its header goes in, so they are nought there, and a `CATK` is
 /// laid over `0xc0` words of the generator's, so they are noise. Nothing of the exe reads them; a record
 /// built here writes nought, which is what a `CLRD` of the game's own holds.
@@ -68,7 +68,7 @@ pub fn record(magic: &[u8; 4], body: &[u8]) -> Record {
     Record { bytes }
 }
 
-/// The record every file opens with, `TH6K`: its header and nothing after it — the one `0x14006cb20`
+/// The record every file opens with, `TH6K`: its header and nothing after it — the one `0x14006e200`
 /// looks for before it walks any of the rest.
 pub fn th6k() -> Record {
     record(b"TH6K", &[])
@@ -78,11 +78,11 @@ pub fn th6k() -> Record {
 /// [`CLEARED`] being a clear: `0x18` bytes, the two arrays of five at `+0xc` and `+0x11` and the
 /// difficulty at `+0x16`.
 ///
-/// **Read off both ends.** The game builds four of them in memory at `0x14003ad90` — `0x18` bytes, the
+/// **Read off both ends.** The game builds four of them in memory at `0x14003c603` — `0x18` bytes, the
 /// version at `+0x8`, `0x01010101` into `+0xc` and `+0x11` and `1` into `+0x10` and `+0x15` — lays the
-/// file's own over them by that `+0x16` at `0x14003adfc`, writes a stage into the two arrays at
-/// `0x14003afaa` and `0x14003afda` as a stage is counted on, and writes [`CLEARED`] into them at
-/// `0x14002ca5d` and `0x14002ca9e`.
+/// file's own over them by that `+0x16` at `0x14003c676`, writes a stage into the two arrays at
+/// `0x14003c825` and `0x14003c855` as a stage is counted on, and writes [`CLEARED`] into them at
+/// `0x14002d40d` and `0x14002d44e`.
 pub fn clrd(difficulty: u8, reached_with_retries: [u8; 5], reached_without: [u8; 5]) -> Record {
     let mut body = Vec::with_capacity(RECORD_HEADER);
     body.extend_from_slice(&reached_with_retries);
@@ -92,7 +92,7 @@ pub fn clrd(difficulty: u8, reached_with_retries: [u8; 5], reached_without: [u8;
     record(b"CLRD", &body)
 }
 
-/// What a clear is written as in those arrays, `cmp BYTE PTR [...],0x63` at `0x14002ca3f`.
+/// What a clear is written as in those arrays, `cmp BYTE PTR [...],0x63` at `0x14002d3ef`.
 pub const CLEARED: u8 = 0x63;
 
 /// One card's record: `0x180` bytes, and where in a record's body the four fields the file's own read
@@ -108,13 +108,13 @@ const CATK_NAME_BYTES: usize = CATK_ATTEMPTS - CATK_NAME;
 /// bytes' sum at `+0x12`, the name from `+0x18` with its terminator, and the attempts at `+0x3c`.
 ///
 /// **Read off the read and not off a write, this build serialising none of them** — see
-/// `Th06nc::writes_its_own_records`. The layout at `0x14003ab00` writes the magic, `0x180`/`0x180`, the
-/// version and the index into all 134 records in memory, and `0x14006cc40` lays a file's own over them:
+/// `Th06nc::writes_its_own_records`. The layout at `0x14003c390` writes the magic, `0x180`/`0x180`, the
+/// version and the index into all 134 records in memory, and `0x14006e310` lays a file's own over them:
 /// `0x180` bytes off the magic into the record the word at `+0x10` names. So what a file holding a count
 /// gives the game is one of these, and it is `Image::the_files_card_records_are_laid_over` that lays it.
 ///
-/// **The name is in it because the count is only read beside one**: `0x140027af0` holds the sum at
-/// `+0x12` against the name at `+0x18`, and where the two disagree `0x140027afa` puts the count back to
+/// **The name is in it because the count is only read beside one**: `0x1400279a0` holds the sum at
+/// `+0x12` against the name at `+0x18`, and where the two disagree `0x1400279aa` puts the count back to
 /// nought — so a record carrying attempts and no name is a record the game clears.
 ///
 /// # Panics
@@ -135,8 +135,8 @@ pub fn catk(card: u16, name: &str, attempts: u16) -> Record {
 }
 
 /// Whether any `CLRD` among `records` says a run has cleared the game, which is what the front end reads
-/// to offer the Extra: `0x14002bfc0` onwards walks the four records in memory at stride `0x18` from
-/// `0x1404ff100` — the first one's `+0xc` — and asks `0x63` of both arrays of each.
+/// to offer the Extra: `0x14002c950` onwards walks the four records in memory at stride `0x18` from
+/// `0x140549d50` — the first one's `+0xc` — and asks `0x63` of both arrays of each.
 pub fn a_clear_is_among(records: &[Record]) -> bool {
     records.iter().any(|record| {
         record.magic() == b"CLRD"
@@ -228,7 +228,7 @@ pub fn encode(records: &[Record], seed: u8) -> Vec<u8> {
 /// not there, which for the mode's own is a mode nothing has been written in yet.
 ///
 /// The `TH6K` the file opens with comes first whichever file it is taken from, and is made where neither
-/// holds one — `0x14006cb20` walking nothing without it.
+/// holds one — `0x14006e200` walking nothing without it.
 pub fn the_copy_the_mode_reads(own: Option<&[u8]>, modes: Option<&[u8]>) -> Vec<u8> {
     let own = own.and_then(decode).unwrap_or_default();
     let modes = modes.and_then(decode).unwrap_or_default();
@@ -256,7 +256,7 @@ mod tests {
 
     /// A ranking record with the four fields of its body that are read: the score as a qword at `+0xc`,
     /// the shot at `+0x14`, the difficulty at `+0x15` and the mode at `+0x16` — the four the stage's own
-    /// build matches on at `0x14003aca0` onwards. The `0x78` bytes are what `0x14006c52d` builds one as;
+    /// build matches on at `0x14003c520` onwards. The `0x78` bytes are what `0x14006dc1d` builds one as;
     /// what the rest of them hold is not read, so they are nought here.
     fn hscr(score: u64, shot: u8, difficulty: u8, mode: u8) -> Record {
         let mut body = score.to_le_bytes().to_vec();
@@ -301,8 +301,8 @@ mod tests {
     }
 
     /// **The version is this build's `0x15` and not th06c's `0x10`**, which is the byte every record of
-    /// the file carries and the one the exe checks before it takes a record for its own: `0x14003aca8`
-    /// asks it of an `HSCR` and `0x14003adee` of a `CLRD`.
+    /// the file carries and the one the exe checks before it takes a record for its own: `0x14003c528`
+    /// asks it of an `HSCR` and `0x14003c668` of a `CLRD`.
     #[test]
     fn the_version_in_a_record_is_this_builds_own() {
         assert_eq!(RECORD_VERSION, 0x15);

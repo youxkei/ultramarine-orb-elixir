@@ -1,0 +1,47 @@
+# 更に前からやり直す over a death: a run of th06nc played clean into the third chapter of its first stage, hit on
+# purpose there, and the retry question the death raised answered with the chapters behind the one it died
+# in — the nearest of them chosen and confirmed, so the run comes back in a chapter it had already played
+# through, on the frame that chapter began on, and plays it again up to the one it died in.
+#
+# **The recipe answers the question and not the rules** — see th06's recipe of this name — and the three
+# answers, the walk to the run and the wait on the boss before the third chapter are
+# a_chapter_further_back_taken_again.yaml's, and for its reasons.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 3600
+- play_until: { boss: true }
+  give_up_after: 18000
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- answer: { question: retry, item: 1 }
+  give_up_after: 18000
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

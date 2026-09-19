@@ -576,6 +576,40 @@ pub unsafe extern "system" fn create_file_a(
     let Some(directory) = theirs(path) else {
         return unsafe { original(name, access, share, security, disposition, flags, template) };
     };
+    match the_open(access, &text(path), || {
+        let ours = forked(directory);
+        (text(&ours).into_owned(), ours)
+    }) {
+        Opened::Refused => INVALID_HANDLE as *mut c_void,
+        Opened::Theirs => unsafe {
+            original(name, access, share, security, disposition, flags, template)
+        },
+        Opened::Ours(ours) => unsafe {
+            original(
+                ours.as_ptr(),
+                access,
+                share,
+                security,
+                disposition,
+                flags,
+                template,
+            )
+        },
+    }
+}
+
+/// What an open of the game's score file becomes: refused, the game's own, or orb's file with the name it
+/// is to be opened by.
+enum Opened<Name> {
+    Refused,
+    Theirs,
+    Ours(Name),
+}
+
+/// **The decision over an open of the score file, and the line saying which it was**, the same for each
+/// of the entries a game opens the file through — which differ in how the name is spelt and in nothing
+/// else. `ours` makes orb's name for the file, as text for the line and in the spelling the open takes.
+fn the_open<Name>(access: u32, path: &str, ours: impl FnOnce() -> (String, Name)) -> Opened<Name> {
     // The open is refused rather than the write being sent somewhere else, because the game asks
     // for the file once, checks the open, and drops what its write returned — `WriteDataToFile` and
     // its one caller at 0x42bc1a, as the module doc says. So a refusal is a file that stays as it was, and a game that carries
@@ -592,19 +626,15 @@ pub unsafe extern "system" fn create_file_a(
                 "this run had nothing able to hit the player"
             },
         );
-        return INVALID_HANDLE as *mut c_void;
+        return Opened::Refused;
     }
     // Written whichever file the open lands in, so that no fact about this file has to be read out
     // of a line that is not there: an open that was left alone and an open that never happened look
     // the same in a log that only says when one was swapped, and telling those two apart is most of
     // what anybody reads these lines for.
     if !redirected() {
-        log!(
-            "score: {} opened as the game's own, {}",
-            text(path),
-            asked(access)
-        );
-        return unsafe { original(name, access, share, security, disposition, flags, template) };
+        log!("score: {path} opened as the game's own, {}", asked(access));
+        return Opened::Theirs;
     }
     // orb's file is made by the game writing it — which the ranking screen does on its way out,
     // whether a score was entered into it or the ranking was only looked at — and until then there
@@ -614,94 +644,111 @@ pub unsafe extern "system" fn create_file_a(
     // `score.dat` says has been cleared was cleared by runs nobody could rewind. The cost of
     // not copying is what such a file has unlocked — practice on a stage that has been reached,
     // the Extra stage — since the menu lights those from the file the mode points at.
-    let ours = forked(directory);
+    let (said, ours) = ours();
     log!(
-        "score: {} opened in place of the game's own, {}",
-        text(&ours),
+        "score: {said} opened in place of the game's own, {}",
         asked(access)
     );
-    unsafe {
-        original(
-            ours.as_ptr(),
-            access,
-            share,
-            security,
-            disposition,
-            flags,
-            template,
-        )
-    }
+    Opened::Ours(ours)
 }
 
-/// The game's own `fopen`, for a game whose opens are the universal CRT's — see
-/// `crate::game::FileOpen::Fopen`.
-static FOPEN: AtomicUsize = AtomicUsize::new(0);
+/// The game's own `CreateFileW`, for a game whose opens are a statically linked UCRT's — see
+/// `crate::game::FileOpen::CreateFileW`.
+static CREATE_FILE_W: AtomicUsize = AtomicUsize::new(0);
 
-/// `fopen(path, mode)`, answering a `FILE*` and null where it opened nothing.
-pub type Fopen = unsafe extern "C" fn(*const u8, *const u8) -> *mut c_void;
+/// `CreateFileW`, the same arguments as [`CreateFileA`] with the name in UTF-16.
+pub type CreateFileW = unsafe extern "system" fn(
+    *const u16,
+    u32,
+    u32,
+    *const c_void,
+    u32,
+    u32,
+    *mut c_void,
+) -> *mut c_void;
 
-/// Says which function [`fopen`] calls through — the same answer [`install_over`] is, for the other
-/// import.
+/// Says which function [`create_file_w`] calls through — the same answer [`install_over`] is, for the
+/// wide entry.
 ///
 /// # Safety
-/// `original` must be the game's own `fopen` and outlive the last open it makes.
-pub unsafe fn install_over_fopen(original: Fopen) {
-    FOPEN.store(original as usize, Ordering::Relaxed);
+/// `original` must be the game's own `CreateFileW` and outlive the last open it makes.
+pub unsafe fn install_over_create_file_w(original: CreateFileW) {
+    CREATE_FILE_W.store(original as usize, Ordering::Relaxed);
 }
 
-/// **The same fork over `fopen`**, for a game that opens its score file through the universal CRT.
+/// **The same fork over `CreateFileW`**, for a game whose every `fopen` is its own CRT's and ends here.
 ///
-/// **The mode string stands in for the access mask.** What [`create_file_a`] reads `GENERIC_WRITE` off is
-/// its access argument; `fopen` says the same thing in its mode — `w`, `a` or a `+` is an open that writes
-/// and `r` alone is one that reads — so the mode is read into the mask the rest of this file decides on, and
-/// nothing below the decision is written twice. A refused open answers null, which is what the CRT answers
-/// for a file it could not open and what a game reads as a first launch.
+/// **In UTF-16 throughout, and never through the code page.** The name the game gave is widened already,
+/// so the directory is kept as the units it came in and orb's own name is put after them in the same
+/// units: a directory named in Japanese reaches the open as the game's own call would have, where a round
+/// trip through bytes would have to know which code page to narrow it back into.
 ///
 /// # Safety
-/// The arguments are `fopen`'s own, and an [`install_over_fopen`] must have run first — without one the
-/// original this calls through is null.
-pub unsafe extern "C" fn fopen(name: *const u8, mode: *const u8) -> *mut c_void {
-    let original: Fopen = unsafe { std::mem::transmute(FOPEN.load(Ordering::Relaxed)) };
-    let Some(path) = (unsafe { given(name) }) else {
-        return unsafe { original(name, mode) };
+/// The arguments are `CreateFileW`'s own, and an [`install_over_create_file_w`] must have run first —
+/// without one the original this calls through is null.
+pub unsafe extern "system" fn create_file_w(
+    name: *const u16,
+    access: u32,
+    share: u32,
+    security: *const c_void,
+    disposition: u32,
+    flags: u32,
+    template: *mut c_void,
+) -> *mut c_void {
+    let original: CreateFileW =
+        unsafe { std::mem::transmute(CREATE_FILE_W.load(Ordering::Relaxed)) };
+    let Some(path) = (unsafe { given_wide(name) }) else {
+        return unsafe { original(name, access, share, security, disposition, flags, template) };
     };
-    let Some(directory) = theirs(path) else {
-        return unsafe { original(name, mode) };
+    let Some(directory) = theirs_wide(path) else {
+        return unsafe { original(name, access, share, security, disposition, flags, template) };
     };
-    let access = match unsafe { given(mode) } {
-        Some(mode) if mode.iter().any(|byte| matches!(byte, b'w' | b'a' | b'+')) => GENERIC_WRITE,
-        _ => GENERIC_READ,
-    };
-    if refused(access) {
-        log!(
-            "score: nothing written, {}",
-            if WATCHED.load(Ordering::Relaxed) {
-                "this run is one an attempt is being watched in"
-            } else {
-                "this run had nothing able to hit the player"
-            },
-        );
-        return std::ptr::null_mut();
+    match the_open(access, &String::from_utf16_lossy(path), || {
+        let ours = forked_wide(directory);
+        (String::from_utf16_lossy(&ours[..ours.len() - 1]), ours)
+    }) {
+        Opened::Refused => INVALID_HANDLE as *mut c_void,
+        Opened::Theirs => unsafe {
+            original(name, access, share, security, disposition, flags, template)
+        },
+        Opened::Ours(ours) => unsafe {
+            original(
+                ours.as_ptr(),
+                access,
+                share,
+                security,
+                disposition,
+                flags,
+                template,
+            )
+        },
     }
-    if !redirected() {
-        log!(
-            "score: {} opened as the game's own, {}",
-            text(path),
-            asked(access)
-        );
-        return unsafe { original(name, mode) };
-    }
-    let ours = forked(directory);
-    log!(
-        "score: {} opened in place of the game's own, {}",
-        text(&ours),
-        asked(access)
-    );
-    unsafe { original(ours.as_ptr(), mode) }
 }
 
-/// `GENERIC_READ`, the other of the two the game asks with — what an `fopen` for reading is read as.
-const GENERIC_READ: u32 = 0x8000_0000;
+/// [`theirs`] over a name in UTF-16: the directory the game named its score file in, and `None` for
+/// every other path.
+pub fn theirs_wide(path: &[u16]) -> Option<&[u16]> {
+    let cut = path
+        .iter()
+        .rposition(|unit| *unit == u16::from(b'\\') || *unit == u16::from(b'/'))
+        .map_or(0, |at| at + 1);
+    let (directory, name) = path.split_at(cut);
+    let wanted = THEIRS.to_bytes();
+    (name.len() == wanted.len()
+        && name.iter().zip(wanted).all(|(unit, byte)| {
+            u8::try_from(*unit).is_ok_and(|unit| unit.eq_ignore_ascii_case(byte))
+        }))
+    .then_some(directory)
+}
+
+/// [`forked`] in UTF-16: orb's file in that directory, terminated.
+pub fn forked_wide(directory: &[u16]) -> Vec<u16> {
+    let mut ours = Vec::with_capacity(directory.len() + OURS.len() + 1);
+    ours.extend_from_slice(directory);
+    ours.extend(OURS.iter().map(|byte| u16::from(*byte)));
+    ours.push(0);
+    ours
+}
 
 /// The path the game gave, as its own bytes without the terminator, and `None` for a null
 /// pointer or a string with no terminator inside [`LIMIT`].
@@ -726,12 +773,61 @@ unsafe fn given(name: *const u8) -> Option<&'static [u8]> {
     None
 }
 
+/// [`given`] for a name in UTF-16: its units without the terminator.
+///
+/// # Safety
+/// `name` must be null or a readable NUL-terminated wide string.
+unsafe fn given_wide(name: *const u16) -> Option<&'static [u16]> {
+    if name.is_null() {
+        return None;
+    }
+    for length in 0..LIMIT {
+        if unsafe { *name.add(length) } == 0 {
+            return Some(unsafe { std::slice::from_raw_parts(name, length) });
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        GENERIC_READ, GENERIC_WRITE, fork, forked, reading_unlocks, redirected, refuse_writes,
-        refused, text, theirs,
+        GENERIC_WRITE, fork, forked, forked_wide, reading_unlocks, redirected, refuse_writes,
+        refused, text, theirs, theirs_wide,
     };
+
+    /// `GENERIC_READ`, the other of the two access bits the game asks with.
+    const GENERIC_READ: u32 = 0x8000_0000;
+
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().collect()
+    }
+
+    /// The same fork over a name in UTF-16, the directory kept in the units it came in — Japanese
+    /// included, which a round trip through the game's code page would have had to narrow.
+    #[test]
+    fn the_game_score_file_named_in_utf16_is_forked_where_the_game_asked_for_it() {
+        for (asked, ours) in [
+            ("score.dat", "pointdevice_score.dat\0"),
+            (r"C:\東方\score.dat", "C:\\東方\\pointdevice_score.dat\0"),
+            ("data/SCORE.DAT", "data/pointdevice_score.dat\0"),
+        ] {
+            assert_eq!(
+                theirs_wide(&wide(asked)).map(forked_wide),
+                Some(wide(ours)),
+                "{asked}"
+            );
+        }
+        for asked in [
+            "scoreboard.dat",
+            "score.dat.bak",
+            "pointdevice_score.dat",
+            "東.dat",
+            "",
+        ] {
+            assert!(theirs_wide(&wide(asked)).is_none(), "{asked}");
+        }
+    }
 
     /// Pointdevice mode sends the whole file to orb's — the ranking, and the spell cards a run has
     /// captured beside it — except the one read the front end's unlocks come out of, which is the

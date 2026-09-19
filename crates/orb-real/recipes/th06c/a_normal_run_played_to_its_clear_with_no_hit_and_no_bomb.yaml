@@ -1,0 +1,56 @@
+# A run of the rewindable mode played from the title to its clear on Normal with the bomb forbidden, for a clear
+# with no hit and no bomb: a_run_played_to_its_clear's walk aimed at Normal — the difficulty select's second item —
+# the way a_normal_mode_run_played_to_its_clear aims at it, and the rules left to themselves through all six
+# stages, no card of them wanting a way of its own.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- bombs: false
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# The whole run in one step, bounded by frames — see a_run_played_to_its_clear.yaml, which has why the entry
+# and not the run's end is what it has to end at.
+- play_until: { frames: 216000 }
+- name: ORB
+  give_up_after: 3600
+- press: [decide]
+  frames: 6
+  until: { question: keep_replay }
+  give_up_after: 7200
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

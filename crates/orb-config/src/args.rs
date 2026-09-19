@@ -197,9 +197,9 @@ pub struct Options {
     /// names which of the things the game took — data, heap1.3, reserve2 — and data is the default
     ///
     /// **Which is how a bisection inside the game's memory is written.** The exe is built with ASLR — a
-    /// static written down as `0x140aa1e90` lives wherever the loader put the image — so what names a span
-    /// across launches is an offset and not an address. th06nc's `.data` begins at `0x140323000`, so its
-    /// enemy manager is `--hold-back-at=77ee90+10c100`.
+    /// static written down as `0x140aee0b0` lives wherever the loader put the image — so what names a span
+    /// across launches is an offset and not an address. th06nc's `.data` begins at `0x14036d000`, so its
+    /// enemy manager is `--hold-back-at=7810b0+10c100`.
     ///
     /// **And the source goes in front where the span is not `.data`'s**: `--hold-back-at=heap1.3:0+7800`
     /// is the first `0x7800` bytes of the third region of the first heap the game allocated from, which is
@@ -275,8 +275,15 @@ pub struct Options {
 
     /// put every bullet on the field into that trace, frame by frame, for as long as this spell card is
     /// up — where each is, its size, its kind and whether its script is hiding it — which is what a card
-    /// is measured by before a way of dodging it is written. Nothing without `--trace`
-    #[arg(long, require_equals = true, value_name = "CARD", help_heading = FAULT)]
+    /// is measured by before a way of dodging it is written — or `none`, for every frame no card is up on,
+    /// which is how a stage's own stretch between its cards is measured. Nothing without `--trace`
+    #[arg(
+        long,
+        require_equals = true,
+        value_name = "CARD",
+        value_parser = a_card_or_none,
+        help_heading = FAULT,
+    )]
     trace_the_field_in: Option<u32>,
 
     /// keep the files orb writes of its own — the run left unfinished, its replay, the name it
@@ -525,6 +532,20 @@ const COLLECT_SPEED: u32 = 64;
 /// hit them — so what is left to see is the run going by.
 const CLEAR_SPEED: u32 = 64;
 
+/// **The number `--trace-the-field-in=none` is read as**, which names the frames no card is up on — past every
+/// card a game numbers, so that no card is taken for none.
+pub const NO_CARD: u32 = u32::MAX;
+
+/// `--trace-the-field-in`'s value: a card by its number, or `none` for [`NO_CARD`].
+fn a_card_or_none(value: &str) -> Result<u32, String> {
+    match value {
+        "none" => Ok(NO_CARD),
+        number => number
+            .parse()
+            .map_err(|_| format!("`{number}` is neither a card's number nor `none`")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Options;
@@ -627,13 +648,13 @@ mod tests {
         assert!(!with("").hold_back_nothing);
         assert!(with("--hold-back-nothing").hold_back_nothing);
         // **And the spans inside `.data`**, in hex and as offsets, which is what a bisection of nine
-        // megabytes of statics is written in: `0x140aa1e90 - 0x140323000` is th06nc's enemy manager. A
+        // megabytes of statics is written in: `0x140aee0b0 - 0x14036d000` is th06nc's enemy manager. A
         // span with no source named is that one's, `.data` being what every span written before the
         // source existed meant.
         assert!(with("").hold_back_at.is_empty());
         assert_eq!(
-            with("--hold-back-at=77ee90+10c100").hold_back_at,
-            [("data".to_owned(), 0x77_ee90, 0x10_c100)],
+            with("--hold-back-at=7810b0+10c100").hold_back_at,
+            [("data".to_owned(), 0x78_10b0, 0x10_c100)],
         );
         assert_eq!(
             with("--hold-back-at=0x10+0x20 --hold-back-at=30+40").hold_back_at,
@@ -761,6 +782,18 @@ mod tests {
         assert!(super::CommandLine::try_parse_from(["orb", "--log", "verbose"]).is_err());
     }
 
+    /// The field of a card is asked for by its number, and the field of every frame no card is up on by
+    /// `none`.
+    #[test]
+    fn the_field_is_traced_in_a_card_or_where_none_is_up() {
+        assert_eq!(with("--trace-the-field-in=62").trace_the_field_in, Some(62));
+        assert_eq!(
+            with("--trace-the-field-in=none").trace_the_field_in,
+            Some(super::NO_CARD)
+        );
+        assert_eq!(config().trace_the_field_in, None);
+    }
+
     #[test]
     fn what_cannot_be_read_says_so() {
         for option in [
@@ -769,6 +802,7 @@ mod tests {
             "--speed=fast",
             "--speed=0",
             "--log=loud",
+            "--trace-the-field-in=all",
         ] {
             let error = Options::from_command_line(option).unwrap_err();
             let name = option.split('=').next().unwrap();

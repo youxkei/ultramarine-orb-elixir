@@ -299,6 +299,17 @@ pub enum Dodge {
     /// th08's Extra Last Spell `「インペリシャブルシューティング」`, whose eight waves come at the same frames of
     /// the card every launch: dodged by that schedule — see `orb_bot::cards`.
     ImperishableShooting,
+    /// th06c's `禁忌「レーヴァテイン」`, a sword that swings round the boss and then across the whole field
+    /// from either edge by turns: waited out at the edge each swing across ends at, and at the full step —
+    /// see `orb_bot::cards`.
+    Laevateinn,
+    /// th06c's `禁弾「過去を刻む時計」`, two clocks of four laser hands at once whose centres cross the field
+    /// opposite ways: waited out at the bottom, under the high clock's reach and out of the low one's across
+    /// from its centre — see `orb_bot::cards`.
+    Clock,
+    /// th06c's `秘弾「そして誰もいなくなるか？」`, fire that piles up behind a run that stays anywhere: walked round the
+    /// whole field clockwise, a corner at a time — see `orb_bot::cards`.
+    AndThenThereWereNone,
     /// Fire that fills the field and piles against its right: waited for left of the middle.
     LeftOfTheMiddle,
     /// Fire that fills the field and piles against its left: waited for right of the middle.
@@ -319,6 +330,9 @@ impl Dodge {
             Dodge::WithoutTheItems => "without_the_items",
             Dodge::Focused => "focused",
             Dodge::ImperishableShooting => "imperishable_shooting",
+            Dodge::Laevateinn => "laevateinn",
+            Dodge::Clock => "clock",
+            Dodge::AndThenThereWereNone => "and_then_there_were_none",
             Dodge::LeftOfTheMiddle => "left_of_the_middle",
             Dodge::RightOfTheMiddle => "right_of_the_middle",
         }
@@ -1210,6 +1224,9 @@ mod tests {
             ("without_the_items", Dodge::WithoutTheItems),
             ("focused", Dodge::Focused),
             ("imperishable_shooting", Dodge::ImperishableShooting),
+            ("laevateinn", Dodge::Laevateinn),
+            ("clock", Dodge::Clock),
+            ("and_then_there_were_none", Dodge::AndThenThereWereNone),
             ("left_of_the_middle", Dodge::LeftOfTheMiddle),
             ("right_of_the_middle", Dodge::RightOfTheMiddle),
         ] {

@@ -5,10 +5,10 @@
 //! `cargo xtask real` walks this menu by pressing at it, so a laid-out menu that lands on another item
 //! reaches a screen the case is not about. Where each number comes from, off `th06nc.exe`:
 //!
-//! - **Ten items**, which `0x14004d1f0` steps the cursor through and whose second — the Extra — is
+//! - **Ten items**, which `0x14004e950` steps the cursor through and whose second — the Extra — is
 //!   stepped over where none of the clear records' bytes at `+0xd2a1` onwards is `0x63`. A fresh launch's
 //!   taps of down went `0, 2, 3 … 9`.
-//! - **And the decide ignored for twenty frames**, `0x14004832d` comparing `[front end + 0x9638]` with
+//! - **And the decide ignored for twenty frames**, `0x140049a8d` comparing `[front end + 0x9638]` with
 //!   `0x14` and leaving the menu's own case for anything under it — which is what every recipe's six-frame
 //!   tap is repeated past, and what `Th06nc::menu_takes_a_press` answers a count for.
 //!

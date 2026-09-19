@@ -156,8 +156,8 @@ pub const KNOWN: &[Known] = &[
         exe: "th06c.exe",
         cfg: "th06.cfg",
         builds: &[Build {
-            md5: "acadbc0cabf3bade16c22fb884957bcd",
-            version: "the Steam build of md5 acadbc0c",
+            md5: "3d01e7d946556d3a28a738064a8efdc7",
+            version: "the Steam build of md5 3d01e7d9",
         }],
         game: &th06c::Th06c,
     },
@@ -167,8 +167,8 @@ pub const KNOWN: &[Known] = &[
         exe: "th06nc.exe",
         cfg: "th06.cfg",
         builds: &[Build {
-            md5: "b0cc28ec904e9efce2439ad857c938b5",
-            version: "the Steam build of md5 b0cc28ec, ver 1.03",
+            md5: "fe47d9c26828e4671a2d2e4bf00af5a4",
+            version: "the Steam build of md5 fe47d9c2",
         }],
         game: &th06nc::Th06nc,
     },
@@ -612,6 +612,14 @@ pub struct Hooks {
     ///
     /// `None` for a game that places its window through neither, which is th06 and th07.
     pub places_its_window: Option<Lookup>,
+    /// **And the name it asks for to write that window's styles**, a style write being both a frame taken
+    /// off and a show: th06c and th06nc write their window mode's extended style — no dialog frame — and
+    /// then a style with `WS_VISIBLE` in it, which put the window orb plays in on the screen as an ordinary
+    /// window before orb had shown it. See `orb_core::window::set_window_long_w`.
+    ///
+    /// `None` for a game whose window's styles are its `CreateWindowExA` arguments alone, which is th06 and
+    /// th07.
+    pub restyles_its_window: Option<Lookup>,
     /// **The name it asks for to read a pad**, which orb answers by being one.
     ///
     /// **A pad rather than the keys, because a pad is read the same way whatever screen is up.** This
@@ -631,10 +639,6 @@ pub struct Hooks {
     /// taken over and orb's is the one that reaches the display. `None` for a game whose frame is its
     /// own, and for the two whose present is an address `FrameCalls` already carries.
     pub makes_its_renderer: Option<Lookup>,
-    /// **The frame of a game whose frame is a stretch of its loop and not a function**, and the code
-    /// orb stands in that stretch with — see [`FrameInTheLoop`]. `None` for a game whose frame is a
-    /// function [`Hooks::render`] can stand in, which is every other game.
-    pub frame_in_the_loop: Option<FrameInTheLoop>,
     /// **How the game takes its memory from the OS**, which is where a chapter's snapshot learns what a
     /// run is a copy of — see [`Memory`], and `orb::memtrack`, which stands in front of the imports named.
     pub takes_its_memory: Memory,
@@ -658,18 +662,21 @@ pub enum Memory {
     /// and nothing else allocates from. th06 1.02h and th07 are built this way, and the hooks over those six
     /// entries notice the heap and the reservations as the game takes them.
     Kernel32Imports,
-    /// `malloc`, `free` and `realloc` out of `api-ms-win-crt-heap-l1-1-0.dll`: the universal CRT, whose
-    /// `malloc` is the *process* heap — the one D3D11, DXGI, Steam and every other module in the process
-    /// allocate from too, so a copy of it is a copy of theirs and a restore of it rewinds them. So orb
-    /// stands in front of those imports and routes them to a heap it made for the game alone; every `new`
-    /// in the exe reaches `malloc` through the exe's own `operator new`, which is what makes the allocator's
-    /// own imports the whole of it. th06c and th06nc are built this way — neither imports a `Heap*` or
-    /// `VirtualAlloc` at all.
+    /// `GetProcessHeap`, `HeapReAlloc` and `HeapFree` in the exe's own `KERNEL32.dll` imports and no
+    /// `HeapCreate`: the universal CRT linked statically, whose `malloc` is `HeapAlloc` on the heap
+    /// `GetProcessHeap` answered it once at startup — which is the *process* heap, the one D3D11, DXGI,
+    /// Steam and every other module in the process allocate from too, so a copy of it is a copy of theirs
+    /// and a restore of it rewinds them. So what orb answers is that one question, with a heap made for
+    /// the game alone, and every allocation the CRT makes after it lands there with no call of it stood in
+    /// front of. th06c and th06nc are built this way: th06c asks from one place, `0x1402adf64`, and keeps
+    /// the answer at `0x140955178`; th06nc asks at `0x1402e72d4` and keeps it at `0x140abac18`.
     ///
-    /// **And which of those imports an exe has is the exe's own business**: th06nc has all three where
-    /// th06c has two, and the third one had nothing in front of it — see `orb::memtrack`'s `realloc`,
-    /// which is a hazard read off the exe rather than a fault any launch has been watched going through.
-    UcrtImports,
+    /// **The question and not the allocations**, because the allocations have no one entry to stand at:
+    /// `malloc`, `calloc`, `realloc`, `_aligned_malloc`, the CRT's own stdio buffers and its locale
+    /// tables are each a function of the exe's, and what they share is the handle the CRT asked for. The
+    /// builds before these imported `malloc`, `free` and `realloc` out of the universal CRT's DLL, and
+    /// what stood in front of those went with them.
+    ProcessHeapImport,
 }
 
 /// **The import a game makes its threads through**, which is how orb learns which threads are the game's own:
@@ -677,11 +684,9 @@ pub enum Memory {
 /// not — see `orb::threads`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Threads {
-    /// `CreateThread` in the exe's `KERNEL32.dll` imports, which is th06 1.02h's and th07's.
+    /// `CreateThread` in the exe's `KERNEL32.dll` imports, which is every game's: th06 1.02h's and th07's
+    /// own calls, and the one call inside the `_beginthreadex` th06c's and th06nc's CRT links into the exe.
     CreateThread,
-    /// `_beginthreadex` out of `api-ms-win-crt-runtime-l1-1-0.dll`, which is what a UCRT build's threads go
-    /// through and the only thread call th06c and th06nc import.
-    BeginThreadEx,
 }
 
 /// **The import a game opens a file through**, which is where the score file is sent to the mode's own — see
@@ -691,28 +696,10 @@ pub enum FileOpen {
     /// `CreateFileA` in the exe's `KERNEL32.dll` imports, which both of th06 1.02h's paths to the file end
     /// at, and th07's.
     CreateFileA,
-    /// `fopen` out of `api-ms-win-crt-stdio-l1-1-0.dll`, which is every file th06c and th06nc open — the
-    /// score file, the replays and the data archives alike. The UCRT's own `CreateFileW` under it is in
-    /// `ucrtbase.dll`'s imports and not the exe's, so the exe's entry is the one orb can reach.
-    Fopen,
-}
-
-/// **A frame inline in the game's own loop**, which is th06nc's: `main` calls the calc chain's walk,
-/// the sound's catch-up, the draw frame and the timing one after another inside its loop, and nothing
-/// of that is a function the loop calls once round.
-///
-/// **So what stands in it is a stub of the game module's own and not [`runtime::render`]**. A jump
-/// written where the walk was called lands in code that has to leave the loop's own frame as it found
-/// it and go back into the loop at a place the loop can carry on from — which is a jump and not a
-/// return, since nothing pushed a return address. The stub calls `runtime::render` for the frame and
-/// jumps where the game module says, and the patch is the fourteen bytes the jump takes.
-///
-/// [`runtime::render`]: crate::runtime::render
-pub struct FrameInTheLoop {
-    /// Where the frame's stretch begins, and the bytes there.
-    pub patch: Patch,
-    /// The stub the jump lands in, which is the game module's own.
-    pub stub: usize,
+    /// `CreateFileW` in the exe's `KERNEL32.dll` imports, which is where every `fopen` of a UCRT linked
+    /// statically ends — the path widened out of the game's code page on the way. th06c's and th06nc's:
+    /// the score file, the replays and the data archives alike.
+    CreateFileW,
 }
 
 /// A patch, and where the argument of the function under it arrives.
@@ -1188,6 +1175,18 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn d3d_device(&self) -> Device;
+
+    /// **Whether the game draws every frame at the size its swapchain was made**, whatever size its window
+    /// is — which is what `crate::dxgi::resizes_its_buffers` keeps a swapchain's buffers at the size asked
+    /// for, while a launch orb plays holds the window small.
+    ///
+    /// `false` for a game that draws at whatever size its buffers are, which is every game with no
+    /// swapchain and th06nc: that one lays its frame out over the size it last made its buffers, and a
+    /// launch playing it is made small by its own window mode instead — see `Th06nc::prepare_frame`'s
+    /// `320x180 out of the game's own 1280x720`.
+    fn draws_at_the_size_it_asked_for(&self) -> bool {
+        false
+    }
 
     /// **Whether [`Game::d3d_device`] is a device orb draws through**, and so whether a null one is a
     /// frame to hand back.
@@ -1718,13 +1717,13 @@ pub trait Game {
     ///
     /// **th07 loses them there too and has a hook for it; th06nc has this instead**, and the difference is
     /// only where the read can be bracketed: th07's is inside the save [`Hooks::card_records_read`] stands
-    /// over, and th06nc's is `0x14006cc40(the parsed file, manager + 0x968)` at `0x14003ad68` — on the
+    /// over, and th06nc's is `0x14006e310(the parsed file, manager + 0x968)` at `0x14003c5e7` — on the
     /// run-start branch of the stage build `Hooks::stage_begun` *already* stands over, after the loop at
-    /// `0x14003ab00` has laid all 134 records out. So answering true asks `runtime::the_stage_begun` to
+    /// `0x14003c390` has laid all 134 records out. So answering true asks `runtime::the_stage_begun` to
     /// put the note a run's end left back once the original returns, and to spend it there.
     ///
     /// **A question rather than one more `Hooks` entry**, because there is nothing left to patch: the jump
-    /// is written, and `0x14006cc40` itself could not take one — twelve bytes of prologue stand before its
+    /// is written, and `0x14006e310` itself could not take one — twelve bytes of prologue stand before its
     /// `jne` where a 64-bit jump needs fourteen.
     fn its_run_build_lays_its_file_over_the_cards(&self) -> bool {
         false
@@ -1751,7 +1750,7 @@ pub trait Game {
     /// until then lands in the game's own, which is where the unlocks the title lights its items from belong,
     /// and the mode's own records are read over it at that first settling and every one after —
     /// [`Game::read_what_the_modes_file_records`], which for such a game is the whole of the fork's second
-    /// half. th06c is the game this is `true` for: its read at `0x14002c158` is inline in its startup and not a
+    /// half. th06c is the game this is `true` for: its read at `0x14002c239` is inline in its startup and not a
     /// function a jump could be written over.
     ///
     /// `false` for a game that opens the file at every screen that wants it, whose bracket is the callback's.
@@ -2988,6 +2987,10 @@ pub struct Reached {
     /// and nothing between cards or on a game that keeps no such clock. What a way of dodging one card by its
     /// own schedule reads.
     pub card_frames: Option<i32>,
+    /// **The stage's own frame**, `State::stage_frames`, and nothing off a run — which the count the shot's
+    /// let-go is timed by starts again from wherever it starts or goes back, so that a run picked up at a
+    /// chapter lets go on the frames the run it was written by did.
+    pub stage_frames: Option<u32>,
 }
 
 /// The questions of orb's own a recipe can wait for, by the names it writes them as.

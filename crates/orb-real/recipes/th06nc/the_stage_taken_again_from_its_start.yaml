@@ -9,10 +9,10 @@
 # answered 3 got `retry: item 3 is past the 3 way(s) on`.
 #
 # **And the question is raised sixty frames in so that both games agree about that.** A fight is a chapter
-# of its own wherever `game/th06nc/chapters.rs` is empty, so a run asked past one has a chapter behind it
-# and four ways — the laid-out game's midboss arrives at frame 400. The real game's is later than that: a
-# launch that played 1,802 frames of its first stage was asked to start over `in chapter 1` and read
-# `boss=` false on every line of the way. Sixty frames is before either.
+# of its own, so a run asked past one has a chapter behind it and four ways — the laid-out game's midboss
+# arrives at frame 400. The real game's is later than that: a launch that played 1,802 frames of its first
+# stage was asked to start over `in chapter 1` and read `boss=` false on every line of the way. Sixty
+# frames is before either, and before the first row of `game/th06nc/chapters.rs`.
 #
 # **And the item asks before it acts**, so the confirmation behind it is answered はい — item 0 of the
 # question it raises of its own.

@@ -227,14 +227,13 @@ fn attach() {
     // to put back, and a game orb takes no snapshot of has nothing for them to watch. A `return` on the
     // failure is right for a game that does — a launch that would rewind against half a reading is worse
     // than one that does not start — and for th06c it ended the attach before the keyboard read was
-    // hooked: that exe is linked against the UCRT, whose `KERNEL32.dll` import list has no `HeapCreate`
-    // in it, so the install could not find the entry it patched. Which entries a game's allocator and its
-    // threads go through is the game's to say now — see `Game::rewinds`, `orb_core::game::Memory` and
-    // `orb_core::game::Threads`.
+    // hooked: that exe's `KERNEL32.dll` import list has no `HeapCreate` in it, so the install could not
+    // find the entry it patched. Which entries a game's allocator and its threads go through is the
+    // game's to say now — see `Game::rewinds`, `orb_core::game::Memory` and `orb_core::game::Threads`.
     if config.track_memory && game.rewinds() {
         let installed = match patches.takes_its_memory {
             game::Memory::Kernel32Imports => unsafe { memtrack::install(exe) },
-            game::Memory::UcrtImports => unsafe { memtrack::install_ucrt(exe) },
+            game::Memory::ProcessHeapImport => unsafe { memtrack::install_process_heap(exe) },
         };
         match installed {
             Ok(()) => {
@@ -253,7 +252,6 @@ fn attach() {
         }
         let installed = match patches.makes_its_threads {
             game::Threads::CreateThread => unsafe { threads::install(exe) },
-            game::Threads::BeginThreadEx => unsafe { threads::install_beginthreadex(exe) },
         };
         match installed {
             Ok(()) => log!("thread hook installed over {:?}", patches.makes_its_threads),
@@ -358,17 +356,6 @@ fn attach() {
         }
         _ => {}
     }
-    // **And a frame that is a stretch of the game's loop**, stood in with the game module's own stub
-    // rather than `render` — see `orb_core::game::FrameInTheLoop`. What `RENDER` is left holding is the
-    // trampoline over those fourteen bytes, which nothing may call: they hold a `call rel32` copied out
-    // of the loop, and `render`'s own fallbacks — no runtime, no device where one is drawn through, no
-    // walk — are the three things such a game's attach cannot leave it with.
-    match patches.frame_in_the_loop {
-        Some(frame) if config.frame_hooks && config.own_frame_loop => {
-            hooks.push(("frame loop", frame.patch, frame.stub, &RENDER));
-        }
-        _ => {}
-    }
     // The name the game asks for its keyboard read by, where it asks for one: taken here and installed
     // below with the window's, one entry answering both.
     let mut looked_up_read = None;
@@ -426,6 +413,10 @@ fn attach() {
             .places_its_window
             .filter(|_| plays_itself)
             .map(|looked_up| looked_up.name),
+        window_restyled: patches
+            .restyles_its_window
+            .filter(|_| plays_itself)
+            .map(|looked_up| looked_up.name),
         // **And the clocks, for a game orb paces no frame of.** `--pace` shortens the wait between one
         // frame and the next from inside the frame, and a game orb is not inside waits on its own — so
         // what that number does here is scale the clock the game does the waiting by. Named without
@@ -450,6 +441,7 @@ fn attach() {
         looked_up.window_moved,
         looked_up.window_shown,
         looked_up.window_placed,
+        looked_up.window_restyled,
         looked_up.millis,
         looked_up.ticks,
         looked_up.counter,

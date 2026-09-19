@@ -55,18 +55,18 @@ const ITS_BYTES: usize = 0x1_0000;
 const ITS_OWN_BYTE: u8 = 0xa5;
 
 /// **How long the allocator's own state is**, which is what the third test looks for in the restore's own
-/// skip line: `Th06nc`'s `THE_ALLOCATORS_OWN_BLOCK`, `0x14079e240`..`0x1407a6660`. Written out here
+/// skip line: `Th06nc`'s `THE_ALLOCATORS_OWN_BLOCK`, `0x1407e91e0`..`0x1407f1600`. Written out here
 /// because a test expects it, the constant itself being the game module's own.
 const THE_ALLOCATORS_OWN_BYTES: usize = 0x8420;
 
 /// **The length of the object pointer a draw releases through, and the count beside it** — the qword at
-/// `0x14093d728` and the dword at `0x14093d730`, which is `game::th06nc`'s `THE_DRAWS_OWN_OBJECT`.
+/// `0x1409886c8` and the dword at `0x1409886d0`, which is `game::th06nc`'s `THE_DRAWS_OWN_OBJECT`.
 /// Written out here for this file's own reason: a number read off the code under test is one the test
 /// agrees with whatever either says.
 const THE_DRAWS_OWN_OBJECTS_BYTES: usize = 0xc;
 
 /// **And how long the object a conversation runs in is**, for the test below: `Th06nc`'s
-/// `THE_CONVERSATIONS_BYTES`, the size `0x140041ce7` asks the CRT's `malloc` for. Written out here for
+/// `THE_CONVERSATIONS_BYTES`, the size `0x1400435a7` asks the CRT's `malloc` for. Written out here for
 /// the same reason as the length above.
 const THE_CONVERSATIONS_BYTES: usize = 0x4228;
 
@@ -250,7 +250,7 @@ fn a_region_of_th06nc_that_appeared_after_the_chapter_is_not_written_back_over()
 ///
 /// **Held to the whole allocation's length**, `0x4228`, because that is the decision the fix makes: the
 /// span a bisect measured was the object's first `0x2000`, and what goes into `live_handles` is the
-/// allocation `0x140041ce7` asks `malloc` for. A launch of the real game with this range held back
+/// allocation `0x1400435a7` asks `malloc` for. A launch of the real game with this range held back
 /// retried stage 2's first chapter twenty-nine times where every launch before it died there.
 #[test]
 fn the_conversation_of_th06nc_is_not_written_back_over() {
@@ -322,7 +322,7 @@ fn the_allocators_own_state_of_th06nc_is_not_written_back_over() {
 /// restore fault of this game and the one cdb had to catch: with the renderer's objects and its counts
 /// both held back, a launch still died at `th06nc+0x270e69` — `jmp qword ptr [rax+10h]` with `rax`
 /// reading `0xa78`, the vtable of an object whose pointer a restore had put back. The static that held it
-/// is `0x14093d728`, twelve bytes with the count that gates the release beside it. See
+/// is `0x1409886c8`, twelve bytes with the count that gates the release beside it. See
 /// `Th06nc::live_handles`, `game::th06nc`'s `THE_DRAWS_OWN_OBJECT` and this change's own description.
 ///
 /// **Held to its length in the restore's own skip line**, the way the allocator's is: the span is a

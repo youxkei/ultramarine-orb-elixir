@@ -47,6 +47,16 @@ launch of one is driven and watched.
     `orb: no game orb knows is in …; it knows 東方紅魔郷.exe 1.02h, th07.exe …`. Theirs is
     `cargo build --release --target x86_64-pc-windows-gnu -p orb-launcher`, copied in by hand —
     `orb_real::Game::target` is what the harness picks it by, and `xtask/src/real.rs` builds it that way.
+- **Never start the Steam client, and launch th06c and th06nc with `--without-steam`.** A launch playing
+  itself takes Steam out already (`Config::without_steam_wanted`, `orb::steam`) — its log says
+  `steam: this launch reaches Steam not at all` — so the client has nothing to do with it, and starting one
+  for a launch is starting a program on the user's machine that they did not ask for. The flag says it
+  outright rather than leaving it to the default. The user asked for this after a session started Steam
+  on the strength of a note saying the game needs it running, which holds of a launch orb is not in.
+- **And launch through a recipe, which is what makes the window a dialog in the corner**: a launch with
+  `--autoplay` is one nobody is playing, and `orb_core::window` frames its window with `DIALOG_EX_STYLE` —
+  off the taskbar, out of alt-tab, in the top-left corner of the screen. `window-style.ps1` says whether it
+  took: `dialog-frame True off-the-taskbar True`, read on both th06 and th06c on 2026-09-26.
 - Run one game at a time. Ask `scripts/game.sh gone <game-exe>` before a launch and `scripts/game.sh close
   <game-exe>` after a launch of your own that is over or has gone wrong. The exe to name is the game's
   (`game::KNOWN` in `orb-core`).
@@ -196,6 +206,11 @@ Leave it playing in these:
   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/skills/driving-orb-with-autoplay/scripts/shot.ps1 -Exe th06c.exe -Out <C:\path\to.png>`
   (`-Exe th06nc.exe` for the other),
   with the recipe holding that screen for longer than one poll interval.
+  - **And a point inside a run is held by the game's own pause**: `press: [menu]`, a
+    `wait_until: { frames: 2400 }` and `press: [decide]` to let it go, with
+    `bash .claude/skills/driving-orb-with-autoplay/scripts/shoot-the-pauses.sh <copy> <game-exe> <first wait step> <steps apart> <label>...`
+    in the background, which takes the window once per wait off the trace. The field stays drawn under the
+    pause menu's three lines. `game/th06c/midstage-on-th06c.yaml` is one written this way.
 - **`--shot-every=<seconds>` keeps the back buffer in the trace as the launch runs**, and
   `orb-real picture <trace> <out.bmp> [<frame>]` writes one of them out — the newest, or the first taken on
   or after a frame — so that a screen kept can actually be looked at. A 32-bit BMP, which reads as an image.
@@ -258,7 +273,7 @@ span's own shortlist, since a byte the run has not touched is one a restore writ
 **And what names the block is not the bisect**: `restore: 11 static(s) of .data point into heap1.1:
 +0x74bc08=…` is said once a launch per source, and a static that points into the span is a name `asm.md`
 and a disassembly can look up. That is what turned th06nc's stage 2 from a span into
-`[0x140a6ec08]`, the object a conversation runs in, in one launch.
+`[0x140abae28]`, the object a conversation runs in, in one launch.
 
 ## Across launches
 

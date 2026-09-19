@@ -46,10 +46,10 @@
   give_up_after: 3600
 # **Three decides stand between the name and the title, so the decide is tapped until the title is up** — the
 # way th06's own recipe walks the same screens. The name's decide opens the stats (the screen's state 15),
-# which takes a decide of its own once it has been up ninety frames (`0x14005349f`) and fades for thirty more
-# (state 16, `0x14005346a`) into the question about saving a replay (state 10), which takes a decide once up
-# eighty frames (`0x140053264`) — on いいえ, its cursor coming up off nought, so that decide is the way out
-# (`0x1400532f9`, to state 2 and the exit). A launch that pressed decide exactly twice here sat in that question
+# which takes a decide of its own once it has been up ninety frames (`0x14005352f`) and fades for thirty more
+# (state 16, `0x1400534fa`) into the question about saving a replay (state 10), which takes a decide once up
+# eighty frames (`0x1400532ed`) — on いいえ, its cursor coming up off nought, so that decide is the way out
+# (`0x140053389`, to state 2 and the exit). A launch that pressed decide exactly twice here sat in that question
 # for the rest of its bound with nothing written; one that tapped the bomb there sat the same way, the bomb
 # being read by none of the three. Tapped rather than counted because the fades' lengths are the game's.
 - press: [decide]

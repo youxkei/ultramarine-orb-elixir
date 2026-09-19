@@ -11,11 +11,14 @@
 //! all true and no pass over th06c could step. It excludes the demo alone now, and `State::in_game` is the
 //! reading a run of somebody's own answers. `th06c.rs`'s own replay test is the three answers written down.
 //!
-//! **And the boundaries are the fight's**, this game's midstage table being empty until a pass fills it:
-//! the stage's own start, the midboss's arrival, the card it puts up and the attack after it. Which is what
-//! a pass has to step between before there is a table at all — see `a_chapter_table_collected_for_th06c`.
+//! **And the boundaries are the fight's**: the stage's own start, the midboss's arrival, the card it puts up
+//! and the attack after it. The midstage table's first boundary of stage one — th06 1.02h's rows, carried
+//! across in `game::th06c::chapters` — is past where a stage this short ends, so what is stepped between here
+//! is the fight alone; a boundary of the table beginning a chapter is `a_chapter_out_of_th06cs_table`'s, and
+//! a pass judging one is `a_chapter_table_collected_for_th06c`'s.
 
 use orb_config::LogLevel;
+use orb_core::game::th06c::chapters::MIDSTAGE;
 
 use crate::fake::th06c::{ATTACK_CHANGES, CARD_STARTS, Fake, MIDBOSS_ARRIVES};
 use crate::fake::{Display, Launched, Work, in_its_own_process};
@@ -64,6 +67,14 @@ fn judging(name: &str) -> Box<Fake> {
             config.during_replay = true;
             config.log_level = LogLevel::Verbose;
         },
+    );
+    // What makes the fight the whole of this stage's boundaries: a row of the table inside it would be a
+    // chapter between two of the fight's, and every count of presses below would be one out.
+    assert!(
+        MIDSTAGE[0]
+            .iter()
+            .all(|boundary| boundary.frame > STAGE_FRAMES as i32),
+        "stage one's row of the table has a boundary inside a stage of {STAGE_FRAMES} frames",
     );
     game.stages_last(STAGE_FRAMES);
     game.fires_at_the_player(false);

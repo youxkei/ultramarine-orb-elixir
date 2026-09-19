@@ -31,29 +31,23 @@ use orb_api::Kind;
 use orb_sim::{Sim, Space};
 
 /// The game's static data, as the real one is: **one range**, the `.data` section's own virtual size —
-/// `0x140323000` and `0x906660` bytes, which is what orb reads out of the PE and writes in the log every
-/// run: `.data 0x7ff707553000..0x7ff707e59660 (9463392 bytes)`. This is the range a chapter is a copy of,
-/// and every static below is inside it.
-const DATA: Range<usize> = 0x1_4032_3000..0x1_40c2_9660;
+/// `0x14036d000` and `0x908884` bytes, which is what orb reads out of the PE and writes in the log every
+/// run — `.data <base>..<base + 0x908884> (9472132 bytes)`. This is the range a chapter is a copy of, and
+/// every static below is inside it.
+const DATA: Range<usize> = 0x1_4036_d000..0x1_40c7_5884;
 
 /// Stands for the game's own code, so that a pointer into it reads as a live COM object's vtable and one
 /// anywhere else reads as the stale pointer left in a block the allocator did not scrub. The first page of
 /// `.text`, which the section table puts at `0x140001000`.
 const CODE: Range<usize> = 0x1_4000_1000..0x1_4000_2000;
 
-/// **The page of the import table the game's `malloc` and `free` are on**, `0x1402c0370` and `0x1402c0378`
-/// — see `super::MALLOC_IMPORT`. An image page, as the real one is; a laid-out game writes functions of
-/// its own into the two entries, since the block the game reads its score file out of is taken through
-/// them. `.rdata`'s own first page, the section table putting it at `0x1402c0000`.
-const IMPORT_TABLE_PAGE: Range<usize> = 0x1_402c_0000..0x1_402c_1000;
-
 /// **The page of `.rdata` the game's table from a virtual key to its own key index is on**, which the
 /// write orb makes into the game's keys walks — see `super::THE_TABLE_OF_KEYS`. An image page rather than
 /// data, as the section is: no snapshot copies it and no restore writes it.
-const KEY_TABLE_PAGE: Range<usize> = 0x1_402c_1000..0x1_402c_2000;
+const KEY_TABLE_PAGE: Range<usize> = 0x1_402f_6000..0x1_402f_7000;
 
 /// **The keys this game is played with, as its own table maps them**: the virtual key, and the
-/// DirectInput scan code the game keeps that key at — read out of the table at `0x1402c1200`, whose 110
+/// DirectInput scan code the game keeps that key at — read out of the table at `0x1402f6060`, whose 110
 /// entries are six bytes apiece and whose `A` is `0x41 -> 0x1e`. The nine orb presses and no others, since
 /// what the table is for here is orb's writes reaching the buffer the game plays off.
 ///
@@ -80,10 +74,10 @@ const NO_MORE_KEYS: u16 = 0xffff;
 /// The front end, which orb reaches through the callback of the element it registers: long enough to hold
 /// the field furthest into it, the state at `+0x168b0`.
 const FRONT_END: Range<usize> = 0x1_5000_0000..0x1_5001_7000;
-/// The screen a run ends at, `0xbb48` bytes at `0x14007a218`, reached through the chain element it
+/// The screen a run ends at, `0xbb48` bytes at `0x14007bd98`, reached through the chain element it
 /// registers and through nothing else.
 const RESULT_SCREEN: Range<usize> = 0x1_5002_0000..0x1_5002_c000;
-/// The chain elements: `0x40` bytes apiece, `0x140055c4e` allocating the front end's and `0x14006dd38`
+/// The chain elements: `0x40` bytes apiece, `0x1400573ae` allocating the front end's and `0x14006f408`
 /// the screen a run ends at's. One block of them, a slot each — see [`Element`].
 const ELEMENTS: Range<usize> = 0x1_5003_0000..0x1_5003_1000;
 const ELEMENT_BYTES: usize = 0x40;
@@ -94,14 +88,15 @@ const ELEMENT_BYTES: usize = 0x40;
 const HEAP: Range<usize> = 0x1_5004_0000..0x1_5014_0000;
 const HEAP_GIVEN: usize = HEAP.start;
 const HEAP_FIRST_BLOCK: usize = HEAP.start + 0x10;
-/// **The renderer's own block**, `0x27108` bytes off the game's `malloc`, which `super::THE_RENDERER`
-/// points at and which a restore leaves alone — see `Game::live_handles`.
-const RENDERERS_BLOCK: Range<usize> = 0x1_5015_0000..0x1_5017_8000;
+/// **The renderer's own block**, `super::THE_RENDERERS_BLOCK` bytes off the game's `malloc`, which
+/// `super::THE_RENDERER` points at and which a restore leaves alone — see `Game::live_handles`. What the
+/// laid-out game keeps in it is the batch its draws queue their sprites into.
+const RENDERERS_BLOCK: Range<usize> = 0x1_501b_0000..0x1_501b_0000 + super::THE_RENDERERS_BLOCK;
 
 /// **The object a conversation runs in**, which the stage's own asset load fills on the real game and
 /// which `super::THE_DIALOGUE` points at.
 ///
-/// **`super::THE_CONVERSATIONS_BYTES` long, which is the real allocation's own size** — `0x140041ce7`
+/// **`super::THE_CONVERSATIONS_BYTES` long, which is the real allocation's own size** — `0x1400435a7`
 /// asks `malloc` for `0x4228` — where this was `0x4000`, enough for the field furthest into it that is
 /// read. What made the size matter is `Game::live_handles`: it holds the whole allocation back off the
 /// pointer, so a block laid out shorter than the real one is a hold-back running past its own region,
@@ -141,6 +136,8 @@ const PRESENT: usize = 8;
 /// `GetDesc`, after `IDXGISwapChain`'s own `GetBuffer`, `SetFullscreenState` and `GetFullscreenState` —
 /// which is how orb reads the window this game plays in.
 const GET_DESC: usize = 12;
+/// `ResizeBuffers`, after `GetDesc` — what the game makes its buffers the window's size again through.
+const RESIZE_BUFFERS: usize = 13;
 const PRESENT1: usize = 22;
 /// And `IDXGIFactory2::CreateSwapChainForHwnd`, after `IUnknown`'s three, `IDXGIObject`'s four,
 /// `IDXGIFactory`'s five and `IDXGIFactory1`'s two — the slot orb writes over.
@@ -155,6 +152,7 @@ enum Element {
     Player = 3,
     ResultScreen = 4,
     Ending = 5,
+    Draw = 6,
 }
 
 impl Element {
@@ -163,37 +161,37 @@ impl Element {
     }
 }
 
-/// The element's own priority, its first word: `0x140067fa7` writes the player's as seven and the insert
-/// right after it keeps the list in that order — `cmp WORD PTR [rax],si; jg` at `0x140067fb3`, which is
+/// The element's own priority, its first word: `0x1400696b7` writes the player's as seven and the insert
+/// right after it keeps the list in that order — `cmp WORD PTR [rax],si; jg` at `0x1400696c3`, which is
 /// what says the list is sorted ascending and an element goes in front of the first one above it.
 const ELEMENT_PRIORITY: usize = 0x0;
-/// And the link back, which the same insert writes: `0x140067fcb` reads `[rax+0x20]` as the element before
-/// and `0x140067fd8` writes this one into its `+0x28`. Nothing of orb's follows it — a walk of the chain
+/// And the link back, which the same insert writes: `0x1400696db` reads `[rax+0x20]` as the element before
+/// and `0x1400696e8` writes this one into its `+0x28`. Nothing of orb's follows it — a walk of the chain
 /// reads `super::chain::NEXT` alone — and it is written here because the game writes it.
 const ELEMENT_PREVIOUS: usize = 0x20;
 
 /// **The calc chain's jobs, by the callback each element carries** — the addresses of the game's own
 /// callbacks, because that is what orb matches on: `what_a_job_runs_on` finds the screen a run ends at by
-/// `0x14006e3a0` and `the_chain_holds` the ending by `0x14002bac0`. A game laid out by hand dispatches on
+/// `0x14006fa70` and `the_chain_holds` the ending by `0x14002c450`. A game laid out by hand dispatches on
 /// these to functions of its own — see `fake::th06nc::Fake::job`.
 ///
-/// Read off a launch's own `chain:` lines: `3 job(s): 0x140079c70 0x1400090d0 0x140075af0` before anything
-/// is up, `0x140047940` arriving with the front end and a stage's eight after it.
+/// Read off a launch's own `chain:` lines: `3 job(s): 0x14007b7f0 0x140009800 0x140077250` before anything
+/// is up, `0x1400490a0` arriving with the front end and a stage's eight after it.
 pub mod chain_job {
-    pub const SUPERVISOR: usize = 0x1_4007_9c70;
-    pub const FRONT_END: usize = 0x1_4004_7940;
+    pub const SUPERVISOR: usize = 0x1_4007_b7f0;
+    pub const FRONT_END: usize = 0x1_4004_90a0;
     /// The game manager's own update, the first of a stage's eight.
-    pub const GAME_MANAGER: usize = 0x1_4003_a210;
+    pub const GAME_MANAGER: usize = 0x1_4003_baa0;
     /// **And the player's own, the third of them** — which is what says a stage is running at all: this
     /// game's `in_a_stage` asks whether the chain holds *this* callback and not the manager's, the
     /// manager's element being registered a frame before the rest of a stage's arrive.
-    pub const PLAYER: usize = 0x1_4006_8820;
-    pub const RESULT_SCREEN: usize = 0x1_4006_e3a0;
-    pub const ENDING: usize = 0x1_4002_bac0;
+    pub const PLAYER: usize = 0x1_4006_9f30;
+    pub const RESULT_SCREEN: usize = 0x1_4006_fa70;
+    pub const ENDING: usize = 0x1_4002_c450;
 }
 
-/// **What a callback of the calc chain answers**, read off the walk at `0x14003beba` onwards: two calls it
-/// again, nought takes the element out through `0x1400126e0`, three ends the walk with the frame carrying
+/// **What a callback of the calc chain answers**, read off the walk at `0x14003d73a` onwards: two calls it
+/// again, nought takes the element out through `0x140012e10`, three ends the walk with the frame carrying
 /// on, and one — like anything else the walk has no case for — moves on to the next element and counts as
 /// an element that ran. Four and five also end the walk, and six starts it over from the head; neither is
 /// answered here.
@@ -206,20 +204,20 @@ pub mod chain_result {
 
 /// And their priorities, in the order a walk reaches them: the supervisor first at nought, the front end
 /// at two, an ending at three, a stage's manager at four and the screen a run ends at at thirteen. Each is
-/// the number its own registration writes into [`ELEMENT_PRIORITY`] — `0x14007a5a1` writing nought from a
-/// cleared register, `0x140055cee` two, `0x14002b97e` three, `0x14003a84d` loading four, and
-/// `0x14007a264` passing thirteen to the register at `0x14006dd20`.
+/// the number its own registration writes into [`ELEMENT_PRIORITY`] — `0x14007c101` writing nought from a
+/// cleared register, `0x14005744e` two, `0x14002c30e` three, `0x14003c0dd` loading four, and
+/// `0x14007bde4` passing thirteen to the register at `0x14006f3f0`.
 const CALC_SUPERVISOR: u16 = 0;
 const CALC_FRONT_END: u16 = 2;
 const CALC_ENDING: u16 = 3;
 const CALC_GAME_MANAGER: u16 = 4;
-/// And the player's own seven, which `0x140067fa7` writes into the element its registration allocated.
+/// And the player's own seven, which `0x1400696b7` writes into the element its registration allocated.
 const CALC_PLAYER: u16 = 7;
 const CALC_RESULT_SCREEN: u16 = 13;
 
 /// **The supervisor's states**, by the number `super::supervisor::STATE` holds: one the front end, two a
 /// run, three the stage after one, seven the screen a run that finished ends at and eight a run given up
-/// — `0x14007a27c` writing one into the state wanted, and `super::STATE_RUN`,
+/// — `0x14007bdfc` writing one into the state wanted, and `super::STATE_RUN`,
 /// `super::STATE_THE_RUNS_OWN_END` and `super::STATE_RUN_OVER` where the other three are read. The
 /// remaining seven of the twelve its job dispatches on are not read.
 const SCENE_FRONT_END: i32 = 1;
@@ -257,8 +255,8 @@ pub const MENU_ITEM_PRACTICE: i32 = 2;
 pub const MENU_ITEM_REPLAYS: i32 = super::front_end::ITEM_REPLAYS;
 
 /// **The result screen's states**, by the number `super::result_screen::STATE` holds: nine the name entry
-/// a played run opens in and seventeen the way out a run asked for no name takes, which `0x14007a25e`
-/// chooses between on `[0x1404f27b4]`; twelve the ranking, written at `0x14000c699` by the machine a run
+/// a played run opens in and seventeen the way out a run asked for no name takes, which `0x14007bdde`
+/// chooses between on `[0x14053d404]`; twelve the ranking, written at `0x14000cdc9` by the machine a run
 /// over puts up; and fifteen the offer to save a replay, which the name entry's own end item hands on to
 /// and which `Game::skip_replay_prompt` writes the way out over — a launch walked
 /// `9, 15, 16, 10, 12, 14` with a decide each and photographed the question at fifteen.
@@ -296,7 +294,7 @@ const ENEMY_IS_THE_BOSS: u8 = 0x08;
 /// A bullet's one hitting state, `super::bullet::FLYING`'s number.
 const BULLET_FLYING: u16 = 1;
 
-/// `'CATK'`, which every card record carries from the layout at `0x14003ab00`.
+/// `'CATK'`, which every card record carries from the layout at `0x14003c390`.
 const CATK_MAGIC: u32 = u32::from_le_bytes(*b"CATK");
 /// The record's own two size words, `0x180` and `0x180`, and its version — `0x15` here, where th06c's is
 /// `0x10` over a record a quarter of the size.
@@ -307,12 +305,12 @@ const CATK_VERSION: u8 = 0x15;
 const CATK_INDEX: usize = 0x10;
 const CATK_ATTEMPTS: usize = 0x3c;
 /// And the name the card's own start copies in at `+0x18`, with the low byte of its own bytes' sum at
-/// `+0x12` — the pair `0x140027af0` compares before it counts an attempt.
+/// `+0x12` — the pair `0x1400279a0` compares before it counts an attempt.
 const CATK_NAME: usize = 0x18;
 const CATK_NAME_SUM: usize = 0x12;
 const CATK_NAME_BYTES: usize = CATK_ATTEMPTS - CATK_NAME;
-/// **The cap the file's own read holds a count down to**, `0x270f` — `0x14006cd23` and `0x14006cd2d`
-/// hold the words at `+0x3c` and `+0x3e` against it, and `0x140027b7e` holds the attempts against the
+/// **The cap the file's own read holds a count down to**, `0x270f` — `0x14006e3f3` and `0x14006e3fd`
+/// hold the words at `+0x3c` and `+0x3e` against it, and `0x140027a2e` holds the attempts against the
 /// same as the game counts one. What the word after the attempts *is* has not been read, th06's record
 /// keeping a capture count beside its attempts and nothing of this build having been read as one, so it
 /// stands here by its offset alone.
@@ -339,11 +337,6 @@ impl Image {
         let space = sim.space();
         space.map(DATA.start, DATA.len(), Kind::Private);
         space.map(CODE.start, CODE.len(), Kind::Image);
-        space.map(
-            IMPORT_TABLE_PAGE.start,
-            IMPORT_TABLE_PAGE.len(),
-            Kind::Image,
-        );
         space.map(KEY_TABLE_PAGE.start, KEY_TABLE_PAGE.len(), Kind::Image);
         space.map(FRONT_END.start, FRONT_END.len(), Kind::Private);
         space.map(RESULT_SCREEN.start, RESULT_SCREEN.len(), Kind::Private);
@@ -405,15 +398,16 @@ impl Image {
     }
 
     /// **Hands over every call orb makes into this game's code**, in place of the addresses `Th06nc`
-    /// holds: the calc walk, the draw, the frame's own end, the three of the music's catch-up, and the
-    /// three the window's own sizing makes. All nine together, because orb's frame makes them all: a game
-    /// that handed over fewer would be jumping into memory nothing has mapped part way through one frame —
-    /// which is what the window's three did before they were here, on the first frame of every e2e test.
+    /// holds: the calc walk, the camera, the frame's own end, the three of the music's catch-up, and the
+    /// three the window's own sizing makes — and the draw's own, see [`Image::hands_over_the_draws_own_calls`].
+    /// All together, because orb's frame makes them all: a game that handed over fewer would be jumping
+    /// into memory nothing has mapped part way through one frame — which is what the window's three did
+    /// before they were here, on the first frame of every e2e test.
     #[allow(clippy::too_many_arguments)]
     pub fn hands_over_the_frames_own_calls(
         &self,
         run_calc_chain: usize,
-        draws_the_frame: usize,
+        moves_the_camera: usize,
         ends_the_frame: usize,
         where_the_music_is: usize,
         how_long_the_track_is: usize,
@@ -423,7 +417,7 @@ impl Image {
         sizes_the_picture: usize,
     ) {
         super::set_run_calc_chain(run_calc_chain);
-        super::set_draws_the_frame(draws_the_frame);
+        super::set_moves_the_camera(moves_the_camera);
         super::set_ends_the_frame(ends_the_frame);
         super::set_where_the_music_is(where_the_music_is);
         super::set_how_long_the_track_is(how_long_the_track_is);
@@ -433,7 +427,57 @@ impl Image {
         super::set_sizes_the_picture(sizes_the_picture);
     }
 
-    /// And the game's own run start, `0x14004dbc0`, which orb calls where it writes a run into being —
+    /// **And the calls the draw makes**, the frame's own inline copy of what was a function of its own —
+    /// see `super::walks_the_draw`: its start, the viewport read and set, the clear, the take-out of an
+    /// element, the sprites flushed and the screenshot's path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn hands_over_the_draws_own_calls(
+        &self,
+        begins_the_draw: usize,
+        reads_the_viewport: usize,
+        sets_the_viewport: usize,
+        clears: usize,
+        takes_an_element_out: usize,
+        flushes_the_sprites: usize,
+        takes_the_screenshot: usize,
+    ) {
+        super::set_begins_the_draw(begins_the_draw);
+        super::set_reads_the_viewport(reads_the_viewport);
+        super::set_sets_the_viewport(sets_the_viewport);
+        super::set_clears(clears);
+        super::set_takes_an_element_out(takes_an_element_out);
+        super::set_flushes_the_sprites(flushes_the_sprites);
+        super::set_takes_the_screenshot(takes_the_screenshot);
+    }
+
+    // ---- the renderer and the draw chain ----
+
+    /// **Sprites a draw has queued**, `count` vertices more in the renderer's batch — which is how every one
+    /// of this game's draws hands its sprites over.
+    pub fn queues_sprites(&self, count: i32) {
+        let queued = RENDERERS_BLOCK.start + super::renderer::QUEUED;
+        let now = self.space().read::<i32>(queued);
+        self.space().write::<i32>(queued, now + count);
+    }
+
+    /// How many vertices the renderer's batch holds, not yet drawn.
+    pub fn the_sprites_queued(&self) -> i32 {
+        self.space()
+            .read::<i32>(RENDERERS_BLOCK.start + super::renderer::QUEUED)
+    }
+
+    /// **The draw chain's one job**, registered at the head as the real game's own jobs are — whatever a
+    /// laid-out game draws with.
+    pub fn registers_in_the_draw_chain(&self, callback: usize, on: usize) {
+        let space = self.space();
+        let elem = Element::Draw.at();
+        space.write::<usize>(elem + super::chain::CALLBACK, callback);
+        space.write::<usize>(elem + super::chain::ON, on);
+        space.write::<usize>(elem + super::chain::NEXT, 0);
+        space.write::<usize>(super::THE_DRAW_CHAIN + super::chain::NEXT, elem);
+    }
+
+    /// And the game's own run start, `0x14004f320`, which orb calls where it writes a run into being —
     /// see `Th06nc::start_a_run`. Apart from the nine above because nothing of the frame calls it.
     pub fn hands_over_the_run_start(&self, run_start: usize) {
         super::set_run_start(run_start);
@@ -1195,12 +1239,12 @@ impl Image {
     /// left.
     ///
     /// **The boss bit belongs to `enemy::SOLIDITY` and not to `enemy::MORE_FLAGS`**, both being `0x8` of
-    /// their own byte: `0x140037d90` and `0x140037fd0` test it at `+0xbd`, where `+0xbe`'s `0x8` is what
+    /// their own byte: `0x1400396b0` and `0x1400398f0` test it at `+0xbd`, where `+0xbe`'s `0x8` is what
     /// makes a body pass through the player. Written into the wrong one of the two, a boss laid out here
     /// was never the slot `sight::the_boss_the_fights_own_slot` finds — so `State::boss_present` read
     /// clear through a fight nothing else could tell from one, which is what
     /// `th06nc::every_number_a_stage_of_th06nc_is_played_with_reads_back_as_the_game_put_it` caught.
-    pub fn a_boss_is_fighting(&self, life: i32) {
+    pub fn a_boss_is_fighting(&self, life: i32, attack_frames: i32) {
         let space = self.space();
         let slot = super::ENEMY_MANAGER + super::enemy_manager::ENEMIES;
         space.write::<u8>(slot + super::enemy::FLAGS, ENEMY_IN_USE);
@@ -1209,7 +1253,21 @@ impl Image {
             ENEMY_SOLID_AND_TESTED | ENEMY_IS_THE_BOSS,
         );
         space.write::<i32>(slot + super::enemy::LIFE, life);
+        space.write::<i32>(slot + super::enemy::TIMER, attack_frames);
         self.enemies_alive(1);
+    }
+
+    pub fn the_bosses_attack_has_run_for(&self) -> i32 {
+        self.space()
+            .read::<i32>(super::ENEMY_MANAGER + super::enemy_manager::ENEMIES + super::enemy::TIMER)
+    }
+
+    /// **The boss's attack a frame further on**, which the game's own countdown at `0x140038870` steps once an
+    /// update — its life and everything else of it left as they are.
+    pub fn the_bosses_attack_runs_on(&self) {
+        let timer = super::ENEMY_MANAGER + super::enemy_manager::ENEMIES + super::enemy::TIMER;
+        self.space()
+            .write::<i32>(timer, self.the_bosses_attack_has_run_for() + 1);
     }
 
     pub fn no_boss_is_fighting(&self) {
@@ -1285,16 +1343,16 @@ impl Image {
     }
 
     /// **The file's own card records laid over the ones in memory, as a run's first stage lays them** —
-    /// `0x14006cc40(the parsed file, manager + 0x968)`, called from `0x14003ad68` on that build's
+    /// `0x14006e310(the parsed file, manager + 0x968)`, called from `0x14003c5e7` on that build's
     /// run-start branch and nowhere else, which is the read a run that counted an attempt loses it to.
     ///
     /// Of each record of the file that is a `CATK` carrying this build's version, the whole
-    /// [`super::CARD_BYTES`] go over the record the word at `+0x10` names — the copy at `0x14006ccc0` is
+    /// [`super::CARD_BYTES`] go over the record the word at `+0x10` names — the copy at `0x14006e390` is
     /// three turns of `0x80` bytes off the magic — and the two words at `+0x3c` and `+0x3e` are then held
-    /// down to [`MOST_ATTEMPTS`] by `0x14006cd23` and `0x14006cd2d`.
+    /// down to [`MOST_ATTEMPTS`] by `0x14006e3f3` and `0x14006e3fd`.
     ///
     /// **And a record naming a card this build has not got ends the walk rather than being skipped**:
-    /// `0x14006cca0`'s `jae` on `0x86` jumps to the function's own way out, so the records after it are
+    /// `0x14006e370`'s `jae` on `0x86` jumps to the function's own way out, so the records after it are
     /// not laid down either.
     ///
     /// Two things that read does are not done here, neither being read by orb and neither established:
@@ -1365,12 +1423,11 @@ impl Image {
 
     // ---- the heap and the score file ----
 
-    /// The two entries of the import table the game takes and gives blocks back through, which is where
-    /// the copy of the score file is put.
+    /// The game's `malloc` and `free`, functions of its own exe: what orb calls for a block of the heap the
+    /// copy of the score file is put in.
     pub fn hands_over_its_heap(&self, malloc: usize, free: usize) {
-        let space = self.space();
-        space.write::<usize>(super::MALLOC_IMPORT, malloc);
-        space.write::<usize>(super::FREE_IMPORT, free);
+        super::set_mallocs(malloc);
+        super::set_frees(free);
     }
 
     /// A block off that heap, given out from the front and never taken back — what a laid-out game's own
@@ -1423,7 +1480,7 @@ impl Image {
     }
 
     /// **And the frame before's word**, which is the dword after it: the supervisor's own job copies this
-    /// one into it at `0x140079d2c` before the read, so an edge is a bit set here and not there.
+    /// one into it at `0x14007b8ac` before the read, so an edge is a bit set here and not there.
     pub fn the_word_before_is(&self, word: u32) {
         self.space()
             .write::<u32>(super::INPUT_THE_RUN_ACTS_ON + size_of::<u32>(), word);
@@ -1515,12 +1572,14 @@ impl Image {
         describes: usize,
         present: usize,
         present1: usize,
+        resize_buffers: usize,
     ) -> usize {
         let space = self.space();
         for (slot, function) in [
             (QUERY_INTERFACE, query_interface),
             (RELEASE, release),
             (GET_DESC, describes),
+            (RESIZE_BUFFERS, resize_buffers),
             (PRESENT, present),
             (PRESENT1, present1),
         ] {
@@ -1577,8 +1636,8 @@ impl Image {
         self.space().read::<u32>(THE_MEDIAS_WORD)
     }
 
-    /// **And a word just below that block**, which a restore therefore puts back: `0x1405b24a0`, under the
-    /// `0x1405b24b4` nothing of this game's reaches below.
+    /// **And a word just below that block**, which a restore therefore puts back: `0x1405fd440`, under the
+    /// `0x1405fd454` nothing of this game's reaches below.
     pub fn the_word_below_the_medias_queues_is(&self, word: u32) {
         self.space().write::<u32>(BELOW_THE_MEDIAS_QUEUES, word);
     }
@@ -1588,9 +1647,9 @@ impl Image {
     }
 }
 
-/// The first of the media's five queue locks — `0x1405b2580`, initialised at `0x1400c53dd` — whose own
+/// The first of the media's five queue locks — `0x1405fd520`, initialised at `0x1400c70bd` — whose own
 /// first word is what an e2e test writes. Inside [`super::THE_MEDIAS_QUEUES`].
-const THE_MEDIAS_WORD: usize = 0x1_405b_2580;
-/// And a word below that block, `0x1405b24a0`: nothing in the exe references anything between
-/// `0x1405b2300` and `0x1405b24b4`, so this one is the game's own memory and comes back like any other.
-const BELOW_THE_MEDIAS_QUEUES: usize = 0x1_405b_24a0;
+const THE_MEDIAS_WORD: usize = 0x1_405f_d520;
+/// And a word below that block, `0x1405fd440`: nothing in the exe references anything between
+/// `0x1405fd2a0` and `0x1405fd454`, so this one is the game's own memory and comes back like any other.
+const BELOW_THE_MEDIAS_QUEUES: usize = 0x1_405f_d440;

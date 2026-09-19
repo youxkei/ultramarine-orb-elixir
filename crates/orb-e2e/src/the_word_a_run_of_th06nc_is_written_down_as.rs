@@ -10,8 +10,8 @@
 //! makes this about the word: the pause goes in through the read orb feeds, and the run comes back from a
 //! chapter taken on the other side of it.
 //!
-//! **This game keeps two words**, the one a run acts on at `0x140a6ec60` and the frame before it at
-//! `0x140a6ec64`, where th06c keeps one — see `th06nc/asm.md`, and
+//! **This game keeps two words**, the one a run acts on at `0x140abae80` and the frame before it at
+//! `0x140abae84`, where th06c keeps one — see `th06nc/asm.md`, and
 //! `the_frame_a_scene_of_th06nc_is_built_on` for what a transition does to the pair.
 //! `the_word_a_run_of_th06c_is_written_down_as` and `the_word_a_run_of_th07_is_written_down_as` are the same
 //! claim over the other builds.

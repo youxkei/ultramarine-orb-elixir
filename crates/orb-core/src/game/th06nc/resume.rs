@@ -4,30 +4,30 @@
 //! games' numbers is what let a field go into th06's file without being raised — see `th06::resume`.
 //!
 //! **And its field set is read off the stage's own build rather than off a replay's restore**, which is
-//! where the other three games' came from. th06nc's replay loader `0x14004d680` puts back four things of
+//! where the other three games' came from. th06nc's replay loader `0x14004ede0` puts back four things of
 //! the header — the character, the shot, the difficulty and the stage — and two of the stage's own
-//! record, its `+0xd` lives and `+0xe` bombs, and nothing else: the rank at `0x1404ff27c` is only ever
-//! read in this exe, and the seed's copy at `0x1404ff268` is only ever read. What decides what a stage
-//! of this game starts with is therefore the build, `0x14003a9c0`, and the one field of it that matters
+//! record, its `+0xd` lives and `+0xe` bombs, and nothing else: the rank at `0x140549ecc` is only ever
+//! read in this exe, and the seed's copy at `0x140549eb8` is only ever read. What decides what a stage
+//! of this game starts with is therefore the build, `0x14003c250`, and the one field of it that matters
 //! is **which of its two paths ran**:
 //!
 //! - where the state asked of the supervisor is 3 — a stage following the one before it, read at
-//!   `0x14003a9ec` out of `0x140c21d9c`, which is `supervisor::WANTED` — `0x14003af12` raises the drawn
+//!   `0x14003c27c` out of `0x140c6dfbc`, which is `supervisor::WANTED` — `0x14003c78d` raises the drawn
 //!   score to the counted one, clears the pause menu, counts the stage on, and leaves the score, the
 //!   point items, the power, **the point item's own value**, the lives, the bombs, the extra lives and
 //!   the deaths where they are. Those eight are what a stage carries, so those eight are what a stage
 //!   picked up has to be given.
 //!
 //!   **The point item's value was the one of the eight this module was written without**, and what
-//!   found it was the replay's own stage record: `0x14006b91a` puts `[record + 0x10]` back into
-//!   `0x1404ff0dd`, which the item walk steps while the power is full and indexes a table of what an
-//!   item is worth by. `0x14003aadd` writes it nought on the *other* path only, so it carries — see
+//!   found it was the replay's own stage record: `0x14006d019` puts `[record + 0x10]` back into
+//!   `0x140549d2d`, which the item walk steps while the power is full and indexes a table of what an
+//!   item is worth by. `0x14003c36d` writes it nought on the *other* path only, so it carries — see
 //!   [`game_manager::POINT_ITEM_VALUE`](super::game_manager::POINT_ITEM_VALUE).
 //! - the other path writes every one of them: the power nought or eight, the extra lives nought or four,
 //!   the field, the card records and the clear records.
 //!
-//! **And two of th06c's ten are not here.** The rank is written from the table at `0x1403084e0` by
-//! difficulty at `0x14003b16b` on both paths, so it does not carry and putting one back would be writing
+//! **And two of th06c's ten are not here.** The rank is written from the table at `0x14034e0e0` by
+//! difficulty at `0x14003c9eb` on both paths, so it does not carry and putting one back would be writing
 //! over what the build is about to decide; and no field of this game has been read as the power items
 //! th06 counts towards the next step of the score.
 //!
@@ -46,7 +46,7 @@ use crate::resume::{Kept, MAX_STAGE_FRAMES};
 ///
 /// The eight the build's stage-following path leaves alone — see the module doc — and the seed, which
 /// that path leaves alone too and the build's common tail then copies out of the generator at
-/// `0x14003b171`.
+/// `0x14003c9f1`.
 ///
 /// **`deny_unknown_fields`, which is what makes another game's numbers no numbers of this one.** Every
 /// name here is a name th06c's struct has too, and its two extra ones — the rank and the count of power
@@ -57,7 +57,7 @@ use crate::resume::{Kept, MAX_STAGE_FRAMES};
 #[serde(deny_unknown_fields)]
 pub struct Numbers {
     /// **A qword**, this game counting its score in eight bytes where th06 counts it in four: every bonus
-    /// is added to it with an `add QWORD PTR`, `0x140011237` and six more.
+    /// is added to it with an `add QWORD PTR`, `0x140011967` and six more.
     pub score: u64,
     /// What the generator was seeded with as the stage began. The whole of why the buttons alone are not
     /// enough: the game takes this from wherever the generator had got to, so a stage played again from a
@@ -74,7 +74,7 @@ pub struct Numbers {
     /// How many extra lives the score has already paid for, so the next one is not paid twice.
     pub extra_lives: i8,
     /// **The game's own count and not orb's**, which is where th06c differs: that exe keeps none and orb
-    /// counts the player's state for it, and this one steps a dword up at `0x140068b1a`.
+    /// counts the player's state for it, and this one steps a dword up at `0x14006a22a`.
     pub deaths: i32,
 }
 

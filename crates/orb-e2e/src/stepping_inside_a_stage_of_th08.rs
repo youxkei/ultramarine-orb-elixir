@@ -6,7 +6,8 @@
 //! back onto it.
 //!
 //! **The boundaries are the stage's table and its fight**: the stage's own start, the midstage table's first
-//! row at script 790, and the stage's own boss arriving — see `fake::th08`'s `THE_BOSS_FIGHTS_FOR`. **And the
+//! row at script 790, the stage's own boss arriving, and the card she puts up and the nonspell after it — see
+//! `fake::th08`'s `THE_BOSS_FIGHTS_FOR` and `HER_CARD`. **And the
 //! wall at the far end is her going down**, which this game's stage does some frames before its next stage is
 //! built — the scene staying the run's across the build, the way th07's does — so what a step forward comes
 //! to rest on is the stage won.
@@ -145,6 +146,15 @@ fn a_step_forward_inside_a_stage_of_th08_does_not_leave_it() {
         let (_, row, boss) = the_boundaries(&game);
         game.press(HOLD);
 
+        // Forward over the rest of her fight first, which has two more starts: the card she puts up and the
+        // nonspell after it.
+        let card = steps(&game, NEXT);
+        let after = steps(&game, NEXT);
+        assert!(
+            boss < card && card < after,
+            "the steps forward over her fight did not each move on: {boss}, {card}, {after}",
+        );
+
         let held = game.log().written();
         game.press(NEXT);
         assert!(
@@ -162,8 +172,10 @@ fn a_step_forward_inside_a_stage_of_th08_does_not_leave_it() {
         );
         // And back from that wall, which is what makes it a place to be rather than one a pass loses the
         // stage from: every chapter of the stage is still a snapshot orb holds.
-        assert_eq!(steps(&game, BACK), boss, "a step back from the wall");
-        assert_eq!(steps(&game, BACK), row, "two presses back from the wall");
+        assert_eq!(steps(&game, BACK), after, "a step back from the wall");
+        assert_eq!(steps(&game, BACK), card, "two presses back from the wall");
+        assert_eq!(steps(&game, BACK), boss, "three presses back from the wall");
+        assert_eq!(steps(&game, BACK), row, "four presses back from the wall");
     });
 }
 

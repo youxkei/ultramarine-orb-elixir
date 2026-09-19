@@ -1,0 +1,44 @@
+# 更に前からやり直す over a death: a run played clean into its third chapter, hit on purpose there, and the
+# retry question the death raised answered with the chapters behind the one it died in — the nearest of them
+# chosen and confirmed, so the run comes back in a chapter it had already played through, on the frame that
+# chapter began on, and plays it again up to the one it died in.
+#
+# **The recipe answers the question and not the rules**: the rules take orb's offer to retry the frame it
+# comes up, with the chapter again, everywhere but under a step that answers it itself — see
+# `orb_bot::a_step_answers_the_retry` — so the hits are turned on and the next step is that answer, which is
+# the step the death lands under.
+#
+# The three answers are a_chapter_further_back_taken_again.yaml's, and the front end is walked as it walks it.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# The third chapter, so that the list has a chapter behind the one died in as well as the stage's own start.
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- answer: { question: retry, item: 1 }
+  give_up_after: 18000
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# And no chance of a hit on the way back up, so that the chapter died in is reached again.
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

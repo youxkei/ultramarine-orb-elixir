@@ -210,6 +210,208 @@ fn a_playback_of_th06c_says_every_frames_own_line_where_the_log_is_verbose() {
     });
 }
 
+/// **A playback of th06c puts its run back inside the one frame of the host it began on**, nothing of the run
+/// being played forward drawn: every record the trace takes of it carries that frame's own number. It was
+/// three hundred updates to a frame of the host once, each frame drawing, which on the real game was the run
+/// fast-forwarded on the screen at two frames a second — and a pick-up is asked to be back at once and draw
+/// nothing on the way.
+#[test]
+fn a_playback_of_th06c_puts_its_run_back_inside_one_frame_of_the_host() {
+    in_its_own_process(|| {
+        const THE_OLD_UPDATES_A_FRAME: u32 = 300;
+        let files = a_run_left_behind("th06c-playback-one-frame-left");
+        let recipe = format!(
+            "{TO_A_RUN}\
+- press: [decide]
+  frames: 6
+  until: {{ question: resume }}
+  give_up_after: 1800
+- answer: {{ question: resume, item: 0 }}
+  give_up_after: 600
+- play_until: {{ frames: 60 }}
+- leave: true
+- wait_until: {{ frames: 300 }}
+- quit: true
+"
+        );
+        let game = Fake::attach_finding(
+            Display::agreed(120),
+            "th06c-playback-one-frame",
+            &files,
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(recipe);
+                config.log_level = LogLevel::Verbose;
+                config.save_replays = true;
+                config.trace = Some(std::path::PathBuf::from(orb_real::TRACE_FILE));
+            },
+        );
+        played_out(&game);
+        orb_core::trace::close();
+        let bytes = game
+            .sim()
+            .files()
+            .get(game.dir().join(orb_real::TRACE_FILE))
+            .expect("the launch wrote a trace");
+        let records = orb_core::trace::read(&bytes).expect("the trace reads back");
+        let log = game.log();
+        let landed_at = log
+            .lines()
+            .iter()
+            .find_map(|line| {
+                let (_, after) = line.split_once("resume: stage 1 chapter 2 ")?;
+                let (_, after) = after.split_once(" at frame ")?;
+                after.split(',').next()?.parse::<u32>().ok()
+            })
+            .expect("the log says where the chapter the run was left in begins");
+        assert!(
+            landed_at > THE_OLD_UPDATES_A_FRAME,
+            "the chapter the run was left in begins at frame {landed_at}, which a playback never had to go \
+             past one frame of the host to reach",
+        );
+        let played_back: std::collections::BTreeSet<u32> = records
+            .iter()
+            .filter(|record| {
+                record.state.is_some_and(|state| {
+                    state.playing && state.stage_frames > 1 && state.stage_frames < landed_at
+                })
+            })
+            .map(|record| record.frame)
+            .collect();
+        assert_eq!(
+            played_back.len(),
+            1,
+            "the playback went on over the host's frames {played_back:?}:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
+/// The records of a launch's trace, once it has closed.
+fn the_records_of(game: &Fake) -> Vec<orb_core::trace::Record> {
+    orb_core::trace::close();
+    let bytes = game
+        .sim()
+        .files()
+        .get(game.dir().join(orb_real::TRACE_FILE))
+        .expect("the launch wrote a trace");
+    orb_core::trace::read(&bytes).expect("the trace reads back")
+}
+
+/// The word each stage frame of a run was first played with, from `from` on — the records of the frames the
+/// rules were asked for, which carry where the player was.
+fn the_words_from(records: &[orb_core::trace::Record], from: u32) -> Vec<(u32, u16)> {
+    let mut seen = std::collections::BTreeMap::new();
+    for record in records {
+        if let Some(state) = record.state
+            && state.in_run
+            && state.stage_frames >= from
+            && record.at.is_some()
+        {
+            seen.entry(state.stage_frames).or_insert(record.word);
+        }
+    }
+    seen.into_iter().collect()
+}
+
+/// **A run picked up is played on by the rules the way the run it was cut from was**, frame for frame from the
+/// landing: what the rules do on a frame depends on the frames before it, and a playback that showed them none
+/// had them go on from what they last saw before it — a pick-up of the real Extra's chapter 7 landed field for
+/// field and was pressed down on the next frame where the run had been pressed up and right.
+#[test]
+fn a_run_of_th06c_picked_up_is_played_on_as_the_run_it_was_cut_from_was() {
+    in_its_own_process(|| {
+        const PLAYED_ON: u32 = 600;
+        let traced = |config: &mut orb_config::Config| {
+            config.trace = Some(std::path::PathBuf::from(orb_real::TRACE_FILE));
+        };
+        let recipe = format!(
+            "{TO_A_RUN}\
+- press: [decide]
+  frames: 6
+  until: {{ stage: 1, chapter: 1 }}
+  give_up_after: 1800
+- play_until: {{ stage: 1, chapter: 3 }}
+  give_up_after: 6000
+- play_until: {{ frames: {} }}
+- leave: true
+- wait_until: {{ frames: 300 }}
+- quit: true
+",
+            PLAYED_ON * 2
+        );
+        let run = Fake::attach_configured(
+            Display::agreed(120),
+            "th06c-played-on-as-cut-left",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(recipe);
+                config.log_level = LogLevel::Verbose;
+                config.save_replays = true;
+                traced(config);
+            },
+        );
+        played_out(&run);
+        let files: Vec<_> = left_by(&run, run.launch().dir())
+            .into_iter()
+            .filter(|(inside, _)| inside != Path::new(orb_real::TRACE_FILE))
+            .collect();
+        let the_run = the_records_of(&run);
+        drop(run);
+
+        let recipe = format!(
+            "{TO_A_RUN}\
+- press: [decide]
+  frames: 6
+  until: {{ question: resume }}
+  give_up_after: 1800
+- answer: {{ question: resume, item: 0 }}
+  give_up_after: 600
+- play_until: {{ frames: {PLAYED_ON} }}
+- leave: true
+- wait_until: {{ frames: 300 }}
+- quit: true
+"
+        );
+        let game = Fake::attach_finding(
+            Display::agreed(120),
+            "th06c-played-on-as-cut",
+            &files,
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(recipe);
+                config.log_level = LogLevel::Verbose;
+                config.save_replays = true;
+                traced(config);
+            },
+        );
+        played_out(&game);
+        let log = game.log();
+        let landed_at = log
+            .lines()
+            .iter()
+            .find_map(|line| {
+                let (_, after) = line.split_once("resume: stage 1 chapter ")?;
+                let (_, after) = after.split_once(" at frame ")?;
+                after.split(',').next()?.parse::<u32>().ok()
+            })
+            .expect("the log says where the chapter the run was left in begins");
+        let picked_up = the_words_from(&the_records_of(&game), landed_at + 1);
+        let the_run = the_words_from(&the_run, landed_at + 1);
+        let both = picked_up.len().min(the_run.len());
+        assert!(
+            both > PLAYED_ON as usize / 2,
+            "the two runs have {both} frames after the landing at {landed_at} to hold against each other",
+        );
+        assert_eq!(
+            picked_up[..both],
+            the_run[..both],
+            "the run picked up at frame {landed_at} was played otherwise than the run it was cut from:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
 /// **A second playback in one session is watched from its own first frame.**
 ///
 /// What watches one is kept beside the buttons: the frame last fed, so that a jump in them is said, and

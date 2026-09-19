@@ -4,7 +4,7 @@
 #
 # **Item 2 is the practice, which a picture settled**: a launch pressed it and held the screen after it for
 # a minute, and that screen is 9, the difficulty select, with `PRACTICE` across the bottom of it. The byte
-# a run carries it by is `0x1404f27b4`, which the run's own start writes from the item's `+0x168d1` — see
+# a run carries it by is `0x14053d404`, which the run's own start writes from the item's `+0x168d1` — see
 # `game/th06nc/asm.md`'s *The main menu's ten items*, and `Th06nc::read_state`, which answers `practice`
 # off it.
 #

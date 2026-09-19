@@ -2,9 +2,8 @@
 # played for a while and left: nothing of it is a chapter, nothing of it is kept, and orb puts no question
 # of its own over it.
 #
-# **It is the one case of this game that wants nothing of a chapter at all**, which is why it is here while
-# every case about a boundary inside a stage waits on `game/th06nc/chapters.rs`: a run of the normal mode
-# has no chapters by definition, so what this asks of the game is that the mode question's other answer is
+# **It is the one case of this game that wants nothing of a chapter at all**: a run of the normal mode has
+# no chapters by definition, so what this asks of the game is that the mode question's other answer is
 # obeyed and that orb writes nothing down for what follows.
 #
 # **And the walk is decides at six frames apart rather than a step per screen**, which is the one place

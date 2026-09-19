@@ -315,19 +315,15 @@ const UPDATES_A_PLAYBACK_IS_SPARED: u32 = 3600;
 /// Six hundred, which at the rate a playback runs is a few times a second: often enough that nothing
 /// decides the window has stopped answering, and rare enough that the messages are not what the playback
 /// spends its time on.
+///
+/// **Which is what lets the whole playback be one frame of the host**, nothing drawn until the run is back.
+/// It was spread over the host's frames once, three hundred updates to each and each of them drawing, for a
+/// window left unanswered and a picture left standing for as long as a playback took — a launch held at a
+/// conversation showed orb's own question for a quarter of an hour. The window is answered here now, the
+/// conversation is bounded by [`UPDATES_A_PLAYBACK_IS_SPARED`], and the frames drawn between were the run
+/// being fast-forwarded on the screen at two a second, a pick-up of th06c's Extra a minute of it; what was
+/// asked for (2026-09-27) is a pick-up that is back at once and draws nothing on the way.
 const UPDATES_BETWEEN_PUMPS: u32 = 600;
-
-/// **How much of a playback one frame of the host does**, the rest being the next frame's.
-///
-/// **A playback cannot have the frame for as long as it likes.** Put back at a chapter deep in a run it is
-/// 35,227 frames — 24,655 updates at about 2.4ms apiece, a minute and a half — and for that minute and a
-/// half nothing is drawn, no message of the window's is answered, and whatever was last on the screen
-/// stays there: a launch held at a conversation showed orb's own question for a quarter of an hour, and
-/// somebody watching a window like that is watching a program that has hung.
-///
-/// Three hundred, which is about three quarters of a second of updates: a playback of a deep chapter then
-/// takes a couple of hundred frames of the host, each of them drawing and answering the window.
-const UPDATES_A_FRAME_PLAYS_BACK: u32 = 300;
 
 /// **What a playback adds to the word it feeds while a line of dialogue is up**, and nothing otherwise.
 ///
@@ -855,6 +851,7 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             typing_a_name: false,
             spell: None,
             card_frames: None,
+            stage_frames: None,
         },
         pressing: None,
         said: None,
@@ -2328,7 +2325,7 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
         }
         // **And the same question of what a frame does outside orb's own**, which is the other half of it:
         // the game's loop reads its window and walks its own object before the jump orb's frame is entered
-        // by — `0x140045cf5` onwards for th06nc — and a playback gets none of that either. Kept here, where
+        // by — `0x140047585` onwards for th06nc — and a playback gets none of that either. Kept here, where
         // the frame's own work is over, and held against the next frame's start.
         THE_GENERATOR_AS_THE_FRAME_ENDED.store(i32::from(after), Ordering::Relaxed);
         // On the far side of `draw`, which is the hook: orb's own overlay is drawn inside that call, so
@@ -2570,6 +2567,19 @@ pub extern "system" fn get_input() -> u16 {
 /// # Safety
 /// `state` must be the 256 bytes the host's own read is given, which is what the game passes.
 pub unsafe extern "system" fn keyboard_state(state: *mut u8) -> i32 {
+    let began = orb_api::clock::counter();
+    let answer = unsafe { the_keyboard_state(state) };
+    if unsafe { resume::landing() }.is_some() {
+        KEYS_READ_FOR.fetch_add(orb_api::clock::counter() - began, Ordering::Relaxed);
+    }
+    answer
+}
+
+/// [`keyboard_state`]'s own work, timed around while a run is being played back — see [`KEYS_READ_FOR`].
+///
+/// # Safety
+/// As [`keyboard_state`].
+unsafe fn the_keyboard_state(state: *mut u8) -> i32 {
     let original: extern "system" fn(*mut u8) -> i32 =
         unsafe { std::mem::transmute(GET_KEYBOARD_STATE.load(Ordering::Relaxed)) };
     let answer = original(state);
@@ -2631,8 +2641,15 @@ pub unsafe extern "system" fn keyboard_state(state: *mut u8) -> i32 {
     // own window something else moves and whose own style is written over orb's — see
     // [`crate::window::keeps_its_corner`] and [`crate::window::keeps_its_frame`], which do nothing in
     // every other launch.
-    unsafe { crate::window::keeps_its_corner() };
-    unsafe { crate::window::keeps_its_frame() };
+    //
+    // **Not while a run is being played back into place**, whose every update is a read: the corner is
+    // the monitors enumerated and the window measured, and the frame a style read, on each of them — a
+    // playback of th06c's Extra ran at `1.9ms` an update where th07's runs at `0.05`. The window is kept
+    // on the first read after the landing.
+    if unsafe { resume::landing() }.is_none() {
+        unsafe { crate::window::keeps_its_corner() };
+        unsafe { crate::window::keeps_its_frame() };
+    }
     answer
 }
 
@@ -2774,6 +2791,7 @@ static LOOKED_UP: Mutex<Lookups> = Mutex::new(Lookups {
     window_moved: None,
     window_shown: None,
     window_placed: None,
+    window_restyled: None,
     millis: None,
     ticks: None,
     counter: None,
@@ -2796,6 +2814,9 @@ pub struct Lookups {
     /// corner has held. See [`crate::window::show_window`].
     pub window_shown: Option<&'static str>,
     pub window_placed: Option<&'static str>,
+    /// **And the one its styles are written with** — `Hooks::restyles_its_window`, answered so that the
+    /// window keeps its dialog frame and stays hidden. See [`crate::window::set_window_long_w`].
+    pub window_restyled: Option<&'static str>,
     /// **The three clocks a game paces itself by**, answered running faster than the host's where the
     /// launch asked for the game to — see [`crate::faster`], which has why all three go together and
     /// why the frequency beside them does not. Nothing in an ordinary launch: a clock that answers what
@@ -2895,6 +2916,13 @@ pub unsafe extern "system" fn get_proc_address(module: usize, name: *const u8) -
         unsafe { crate::window::answers_the_window_placed(answer) };
         log!("hook: the game asked for {placed} and got orb's, the host's being at {answer:#x}");
         return crate::window::set_window_pos as *const () as usize;
+    }
+    if let Some(restyled) = wanted.window_restyled
+        && unsafe { asked_for(name, restyled) }
+    {
+        unsafe { crate::window::answers_the_window_restyled(answer) };
+        log!("hook: the game asked for {restyled} and got orb's, the host's being at {answer:#x}");
+        return crate::window::set_window_long_w as *const () as usize;
     }
     // **And the clocks, for a launch asked to run the game faster than it runs itself** — see
     // [`crate::faster`]. Which of the three a game paces by is the game's own business and this says
@@ -3518,7 +3546,7 @@ fn the_stage_begun(manager: *mut c_void) -> i32 {
     // into** — for a game whose run build is where that read is, which is
     // `Game::its_run_build_lays_its_file_over_the_cards`. The same put-back
     // [`card_records_read`] makes inside a save, at the seam such a game leaves for it instead:
-    // th06nc's read is `0x14003ad68`, on the run-start branch of the build this hook stands over.
+    // th06nc's read is `0x14003c5e7`, on the run-start branch of the build this hook stands over.
     //
     // **And the note is spent here**, which is what keeps it to the one build that reads: a stage the run
     // walks into takes the branch that skips the read, and a note put back there would be the run before
@@ -4132,10 +4160,19 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     {
         // **And whatever the stage's own first frame started, started** — see
         // [`Game::starts_the_shot_a_stage_began_with`], whose doc carries the pair of real launches. Here
-        // and not at the landing itself, which is a seam inside the build: `0x14003b189` calls it and
-        // `0x14003b1b1` constructs and registers the player afterwards, so a pair written there is one
+        // and not at the landing itself, which is a seam inside the build: `0x14003ca09` calls it and
+        // `0x14003ca31` constructs and registers the player afterwards, so a pair written there is one
         // that register clears. By this point the build is over and its own update has run.
-        if let Some(word) = unsafe { resume::the_first_word_a_playback_will_feed() } {
+        //
+        // **And on the frame the stage was built and on no frame after it**, which is where the playback
+        // begins: a playback that comes back through here — as one did when it was spread over the host's
+        // frames — finds the pair idle there as the run's own between two cycles. A pick-up of th06c's
+        // Extra was given a cycle at frame 4818 that way, inside a
+        // conversation that gates the shot's press — `shot=2,1` against the run's `-1,-999` on a frame of
+        // one update — and parted from the run on the generator 24 frames later.
+        if state.stage_frames as usize <= resume::THE_FIRST_FRAME_A_FILE_HOLDS
+            && let Some(word) = unsafe { resume::the_first_word_a_playback_will_feed() }
+        {
             unsafe { runtime.game.starts_the_shot_a_stage_began_with(word) };
         }
         let (reached, ran) = unsafe { play_in(runtime, chain, at) };
@@ -4469,34 +4506,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .as_mut()
     {
-        playing.reached.stage = state.stage + 1;
-        // **And whether there is a run at all**, which is what makes a `play` step end: a run that lost its last
-        // life leaves the game on its own screen, the rules press nothing there, and a step waiting for a stage
-        // would sit out its whole bound. Here rather than where the rest of [`Reached`] is filled, because this
-        // is where the state is read.
-        playing.reached.over = !state.in_run;
-        // And whether the stage's own boss is up, which is what a midsection ends at — read here for the same
-        // reason, this being where the state is read. **Not the boss slot being filled**, which a midboss fills
-        // as well: a step written to play the whole of stage 4's midsection ended at its midboss a third of the way
-        // in.
-        playing.reached.boss = runtime
-            .chapters
-            .the_stages_own_boss_is_up(runtime.game, &state);
-        // And whether a line of dialogue is up, which is the frame a picture of a boss's conversation has to be
-        // asked on: the rules press past a line as fast as the game takes presses, so a step bounded by frames
-        // instead walks either side of one.
-        // **A line and not the game's own predicate.** `in_dialogue` counts th07's hand-over line, which is a
-        // frame with no words drawn on it: a recipe photographing a conversation waited on that in stage 5 and
-        // stage 6 and got the frame the box was still being drawn on.
-        playing.reached.dialogue = unsafe { runtime.game.a_line_of_dialogue_is_shown() };
-        // And whether a card is running, and whether the plate its name is on is being drawn — which is a frame
-        // or more later, and the frame a picture of that name has to be asked on.
-        playing.reached.card = state.spellcard.is_some();
-        playing.reached.spell = state.spellcard;
-        playing.reached.card_frames = state.spellcard.and(state.boss_attack_frames);
-        playing.reached.card_name = unsafe { runtime.game.a_cards_name_is_shown() };
-        // And the game's own name entry, which the run's end is past — see `recipe::Until::Name`.
-        playing.reached.typing_a_name = unsafe { runtime.game.typing_a_name() };
+        unsafe { reached_off_the_state(runtime, &mut playing.reached, &state) };
     }
 
     // **The count moving is where a death is noticed and not where it is settled.** th06 counts the *hit*:
@@ -5644,6 +5654,135 @@ fn the_track(identity: Option<u32>) -> String {
     }
 }
 
+/// **The part of [`Reached`] a frame's state says**, filled where the frame ends and before each update of a
+/// playback — see [`the_rules_watch`].
+///
+/// # Safety
+/// Must run on the game's main thread, between the game's updates: it reads the game's memory.
+unsafe fn reached_off_the_state(runtime: &Runtime, reached: &mut Reached, state: &State) {
+    reached.stage = state.stage + 1;
+    // **And whether there is a run at all**, which is what makes a `play` step end: a run that lost its last
+    // life leaves the game on its own screen, the rules press nothing there, and a step waiting for a stage
+    // would sit out its whole bound. Here rather than where the rest of [`Reached`] is filled, because this
+    // is where the state is read.
+    reached.over = !state.in_run;
+    // And whether the stage's own boss is up, which is what a midsection ends at — read here for the same
+    // reason, this being where the state is read. **Not the boss slot being filled**, which a midboss fills
+    // as well: a step written to play the whole of stage 4's midsection ended at its midboss a third of the way
+    // in.
+    reached.boss = runtime
+        .chapters
+        .the_stages_own_boss_is_up(runtime.game, state);
+    // And whether a line of dialogue is up, which is the frame a picture of a boss's conversation has to be
+    // asked on: the rules press past a line as fast as the game takes presses, so a step bounded by frames
+    // instead walks either side of one.
+    // **A line and not the game's own predicate.** `in_dialogue` counts th07's hand-over line, which is a
+    // frame with no words drawn on it: a recipe photographing a conversation waited on that in stage 5 and
+    // stage 6 and got the frame the box was still being drawn on.
+    reached.dialogue = unsafe { runtime.game.a_line_of_dialogue_is_shown() };
+    // And whether a card is running, and whether the plate its name is on is being drawn — which is a frame
+    // or more later, and the frame a picture of that name has to be asked on.
+    reached.card = state.spellcard.is_some();
+    reached.spell = state.spellcard;
+    reached.card_frames = state.spellcard.and(state.boss_attack_frames);
+    reached.stage_frames = state.in_run.then_some(state.stage_frames);
+    reached.card_name = unsafe { runtime.game.a_cards_name_is_shown() };
+    // And the game's own name entry, which the run's end is past — see `recipe::Until::Name`.
+    reached.typing_a_name = unsafe { runtime.game.typing_a_name() };
+}
+
+/// **The rules shown a frame of a playback, and what they would have pressed on it** — `None` where no launch
+/// is playing itself.
+///
+/// **Shown, because what the rules do on a frame depends on the frames before it**: `orb_bot::steer` reads
+/// how a thing with no step is moving off where it stood last frame, counts stretches of frames a place has
+/// been shut, and a card's own way keeps where it has got to. A playback feeds the run's buttons and asked
+/// the rules nothing, so they came out of one holding what they last saw before it. A pick-up of the Extra's
+/// chapter 7 landed on the run's own frame 8012 field for field — the player at `208.4,409.4`, the generator
+/// the same — and the rules pressed down on 8013 where the run they were cut from pressed up and right, from
+/// the same place and the same world: nothing measured off a pick-up then held for the run.
+///
+/// **Their word held against the run's and never fed**, which is what orb-bot answers a frame of a playback
+/// with — see `orb_bot`'s `the_word`: the rules and nothing of the recipe, whose steps are the pick-up's
+/// own and not the run's.
+///
+/// # Safety
+/// As [`reached_off_the_state`].
+unsafe fn the_rules_watch(runtime: &Runtime, state: &State) -> Option<u16> {
+    PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_mut()
+        .map(|playing| unsafe { reached_off_the_state(runtime, &mut playing.reached, state) })?;
+    unsafe { what_is_reached(runtime) };
+    pressing()
+}
+
+/// **How many of a playback's last frames the rules are shown** — see [`the_rules_watch`].
+///
+/// **The last ten seconds of it and not the whole**, because the rules cost more an update than the game's
+/// own does: shown every frame of a pick-up of the Extra's chapter 7 they took `4.16s` of `8.94s` for `8011`
+/// updates, `0.52ms` an update where the game's update took `0.45`, and a chapter deep in the Extra is four
+/// times as many. What the rules carry from frame to frame is where things stood last frame and stretches
+/// counted in frames, and every one of those is filled again well inside ten seconds.
+const THE_FRAMES_THE_RULES_ARE_SHOWN: u32 = 600;
+
+/// Where a playback's time went, in `orb_api::clock::counter` ticks — see [`play_in`].
+#[derive(Default)]
+struct Spent {
+    from: i64,
+    update: i64,
+    state: i64,
+    trace: i64,
+    chapters: i64,
+    pump: i64,
+    reproduction: i64,
+    fingerprint: i64,
+    line: i64,
+    rules: i64,
+}
+
+/// **The frames of a playback the rules would have pressed otherwise than the run did**, how many and the
+/// first and last of them, each as the stage frame, the rules' word and the run's — see [`the_rules_watch`].
+///
+/// The first and the last and not the frames, because the frames they part on are expected: the ones a
+/// recipe's own step pressed on — a stage walked into with `decide` held, a line of dialogue pressed past —
+/// were never the rules' to begin with.
+#[derive(Default)]
+struct Parted {
+    frames: u32,
+    first: Option<(u32, u16, i32)>,
+    last: Option<(u32, u16, i32)>,
+}
+
+impl Parted {
+    fn push(&mut self, frame: u32, would: u16, fed: i32) {
+        self.frames += 1;
+        self.first.get_or_insert((frame, would, fed));
+        self.last = Some((frame, would, fed));
+    }
+
+    fn said(&self) -> String {
+        let one = |(frame, would, fed): (u32, u16, i32)| {
+            format!("frame {frame}, {would:#06x} where the run pressed {fed:#06x}")
+        };
+        match (self.first, self.last) {
+            (Some(first), Some(last)) => format!(
+                "the rules would have pressed otherwise on {} frame(s), the first {} and the last {}",
+                self.frames,
+                one(first),
+                one(last),
+            ),
+            _ => "the rules would have pressed what the run pressed on every frame".to_owned(),
+        }
+    }
+}
+
+/// **How long orb's own read of the keys has taken inside the game's updates**, in the same ticks, while a run
+/// is being played back — which is part of what [`Spent::update`] counts as the game's own. Taken and put
+/// back to nought by [`play_in`]'s line.
+static KEYS_READ_FOR: AtomicI64 = AtomicI64::new(0);
+
 unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State, i32) {
     // **The music stopped for as long as this takes.** The stage's own song was started by the build a moment
     // ago and the buffer plays on its own thread, so the seconds of wall clock these updates take are seconds of
@@ -5659,9 +5798,7 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     }
     let mut reached = unsafe { runtime.game.read_state() };
     let mut ran = CHAIN_BREAK;
-    let mut frames = 0;
-    // Where this frame's share of the playback began, for the line it says on its way out.
-    let into_this_frame = reached.stage_frames;
+    let mut frames = 0u32;
     let deaths = reached.deaths;
     // The first frame the player was hit, where one was. The buttons written down are a path that
     // survived — every death a run had was rewound away by the retry menu, and the frames of the
@@ -5678,6 +5815,11 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // run down when the screen fills, 0x42e186 answering one update in five with the 3 that skips both
     // clocks, so a stage played through that takes as many updates again.
     let mut stalled = 0;
+    let mut spent = Spent {
+        from: orb_api::clock::counter(),
+        ..Spent::default()
+    };
+    let mut the_rules_parted = Parted::default();
     // **And `CHAIN_EXIT_SUCCESS` is not a reason to stop, though it was one.** 0 is what a walk answers
     // when it simply carried on as well as when a scene is done with — the ranking's own loop above says
     // so and stopped guarding on it for the same reason — and th08 answers it two frames into a stage of
@@ -5699,7 +5841,6 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         && reached.playing
         && hit.is_none()
         && stalled < STALLED_FRAMES
-        && frames < UPDATES_A_FRAME_PLAYS_BACK
         && ran != CHAIN_EXIT_ERROR
     {
         let was = reached.stage_frames;
@@ -5709,9 +5850,11 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // of stage 4 ended on the game's own `exit()` with no exception in it at all — `Exit process, code
         // 0` under `mainCRTStartup`, which is a close that reached the window while the playback had the
         // frame. See `orb_api::window::pump`.
+        let pumped = orb_api::clock::counter();
         if frames.is_multiple_of(UPDATES_BETWEEN_PUMPS) && orb_api::window::pump() {
             log!("resume: the window was asked to quit while the run was being put back");
         }
+        spent.pump += orb_api::clock::counter() - pumped;
         // **The conversation carried, where one is up and the record has nothing more for the frame** —
         // see [`CARRYING_A_CONVERSATION`]: the skip key where the game has one, and the shot going down
         // every so often, which is what carries a line on a game that has none.
@@ -5733,8 +5876,25 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
             },
             Ordering::Relaxed,
         );
+        let watched = orb_api::clock::counter();
+        let the_rules_would = match reached.stage_frames + THE_FRAMES_THE_RULES_ARE_SHOWN >= at {
+            true => unsafe { the_rules_watch(runtime, &reached) },
+            false => None,
+        };
+        let began = orb_api::clock::counter();
+        spent.rules += began - watched;
         ran = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
+        let updated = orb_api::clock::counter();
+        let fed = WORD_THIS_FRAME.load(Ordering::Relaxed);
+        if let Some(would) = the_rules_would
+            && fed != NO_WORD
+            && fed != i32::from(would)
+        {
+            the_rules_parted.push(reached.stage_frames, would, fed);
+        }
         reached = unsafe { runtime.game.read_state() };
+        spent.update += updated - began;
+        spent.state += orb_api::clock::counter() - updated;
         // **And a line of dialogue is not the clock standing still**, which is the third way an update of a
         // stage is not a frame of it: th08 stops both of its clocks while one is up (0x42c6a1 and 0x4358bb)
         // and a conversation is longer than this bound — a playback of a chapter of its stage 5 stopped at
@@ -5781,6 +5941,7 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // of a launch that picked a run up held nothing at all for the minute it took. The frame number is
         // that one frame's, `ms` and the state being what tell these apart — and the state is the run
         // being put back, which is the thing a resume is read for.
+        let traced = orb_api::clock::counter();
         trace::frame(
             runtime.frames,
             Some(reached),
@@ -5788,6 +5949,7 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
             runtime.chapters.retries(),
             None,
         );
+        spent.trace += orb_api::clock::counter() - traced;
         // **And what the clock is standing on, every so often while it stands**, which is the one thing the
         // stall's own line cannot say: a playback held up on a frame is held up by a conversation, by a
         // pause, or by an update that is doing nothing at all, and those are different repairs.
@@ -5829,17 +5991,25 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // costs 204ms with it — a stutter at every boundary, on a run somebody is playing to leave a file
         // worth picking up. What this costs is log and nothing else.
         if log::wanted(log::VERBOSE) && reached.stage_frames > was {
+            let lined = orb_api::clock::counter();
+            let reproduction = unsafe { runtime.game.reproduction() };
+            let reproduced = orb_api::clock::counter();
+            let fingerprint = the_worlds_fingerprint(runtime.game);
+            let fingerprinted = orb_api::clock::counter();
             log!(
-                "resume: frame {} played back with {}{} chose={} script={} hooked={} updates={}",
+                "resume: frame {} played back with {reproduction}{fingerprint} chose={} script={} hooked={} \
+                 updates={}",
                 reached.stage_frames,
-                unsafe { runtime.game.reproduction() },
-                the_worlds_fingerprint(runtime.game),
                 the_word_orb_chose(),
                 reached.script_frames,
                 the_generator_at_the_hook(),
                 updates_taken(),
             );
+            spent.reproduction += reproduced - lined;
+            spent.fingerprint += fingerprinted - reproduced;
+            spent.line += orb_api::clock::counter() - fingerprinted;
         }
+        let observed = orb_api::clock::counter();
         unsafe {
             runtime.chapters.observe(
                 runtime.game,
@@ -5848,40 +6018,42 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
                 runtime.config.self_check,
             )
         };
+        spent.chapters += orb_api::clock::counter() - observed;
         if hit.is_none() && reached.deaths > deaths {
             hit = Some(reached.stage_frames);
         }
         frames += 1;
     }
-    // **And this frame's share of the playback done, the rest being the next frame's** — see
-    // [`UPDATES_A_FRAME_PLAYS_BACK`]. Nothing of the landing here: the run is not back yet, and
-    // `resume::landing` still answers the frame it is being put back to, which is what brings this
-    // function round again.
+    // **Where the playback's time went**, which is what says what a playback's speed is bought with: th06c's
+    // played back at about `1.9ms` an update where th07's plays at `0.05`, and not for its log — the rate
+    // was the same at `--log=normal` — but for its state read's asks of the host, see `th06c`'s
+    // `in_the_image` and `the_link`.
+    let per = |ticks: i64| ticks * 1_000_000 / orb_api::clock::frequency().max(1);
+    detail!(
+        "resume: {frames} update(s) of the playback took {}us — the game's own update {}us (orb's read of \
+         the keys inside it {}us), its state read {}us, the rules shown it {}us, the trace {}us, the \
+         chapters {}us, the window's messages {}us, and each frame's own line {}us for its reproduction, \
+         {}us for the world's fingerprint and {}us written",
+        per(orb_api::clock::counter() - spent.from),
+        per(spent.update),
+        per(KEYS_READ_FOR.swap(0, Ordering::Relaxed)),
+        per(spent.state),
+        per(spent.rules),
+        per(spent.trace),
+        per(spent.chapters),
+        per(spent.pump),
+        per(spent.reproduction),
+        per(spent.fingerprint),
+        per(spent.line),
+    );
+    detail!("resume: {}", the_rules_parted.said());
+    // **Save where the player was hit, the playback is given up whichever way it stopped.** The frames written
+    // down are a path that survived, so a death says the record and the run have parted and every frame after
+    // it is fed to a run that is not the one written down. What follows gives the landing up —
+    // `resume::landed` takes it — and hands the death back to the machinery that answers one: the chapter
+    // goes back to its own snapshot, which is where the pick-up was aimed. A launch that carried on instead
+    // re-ran the same window ninety-five times, its own menu answered by the record's next button every turn.
     //
-    // **Save where the player was hit, which is a playback to give up rather than one to carry on.** The
-    // frames written down are a path that survived, so a death says the record and the run have parted and
-    // every frame after it is fed to a run that is not the one written down. Falling through to the lines
-    // below gives the landing up — `resume::landed` takes it — and hands the death back to the machinery
-    // that answers one: the chapter goes back to its own snapshot, which is where the pick-up was aimed. A
-    // launch that carried on instead re-ran the same window ninety-five times, its own menu answered by the
-    // record's next button every turn.
-    if reached.stage_frames < at
-        && reached.playing
-        && hit.is_none()
-        && stalled < STALLED_FRAMES
-        && ran != CHAIN_EXIT_ERROR
-    {
-        if reached.stage_frames / SAID_EVERY != into_this_frame / SAID_EVERY {
-            log!(
-                "resume: {} of {at} frame(s) played back, this frame's {frames} update(s) in, the \
-                 generator at {:#06x}",
-                reached.stage_frames,
-                reached.random_seed,
-            );
-        }
-        CARRYING_A_CONVERSATION.store(CARRYING_NOTHING, Ordering::Relaxed);
-        return (reached, CHAIN_BREAK);
-    }
     // **Which of the four ways out it took**, because they are four different faults and the line below says
     // only where the run got to. A playback that stopped after one update was read as a stall, as a run that
     // died, and as a chain that had given up, and none of the three was written down anywhere — the frame it
@@ -5949,7 +6121,7 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // count of deaths above all: the run's own is in place now, and against the count the front end
     // was left holding it reads as a death on the frame the resume landed.
     // **Bar the death the playback stopped on**, which is the run's own and is answered the way any is:
-    // held against the count this frame's share of the playback began with, the next frame reads it as
+    // held against the count the playback began with, the next frame reads it as
     // the death it is. Compared against nothing, it took its life with no question asked — the Extra picked
     // up at its fifth boss card said `died in chapter 1` of the record's *second* hit, ninety frames on,
     // and the first had gone unanswered.
@@ -6708,6 +6880,17 @@ unsafe fn after_draw() {
     unsafe { profile::record(profile::Phase::Draw, started) };
 }
 
+/// **Whether the game orb is attached to draws at the size its swapchain was asked for** — see
+/// `Game::draws_at_the_size_it_asked_for` — and `false` before there is a runtime to ask.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn the_game_draws_at_the_size_it_asked_for() -> bool {
+    unsafe { RUNTIME.get() }
+        .as_ref()
+        .is_some_and(|runtime| runtime.game.draws_at_the_size_it_asked_for())
+}
+
 /// Whether this launch's overlay is one drawn from the present rather than from the draw hook, which is
 /// a game with no Direct3D 8 device — and `false` before there is an overlay at all, so that the first
 /// frames still reach [`draw_overlay`] and build one.
@@ -6740,6 +6923,12 @@ pub unsafe fn the_overlay_over_a_swapchain() {
     }
     let started = profile::now();
     unsafe { draw_overlay() };
+    if let Some(overlay) = unsafe { RUNTIME.get() }
+        .as_ref()
+        .and_then(|runtime| runtime.overlay.as_ref())
+    {
+        unsafe { overlay.lets_go_of_this_frames_buffer() };
+    }
     unsafe { profile::record(profile::Phase::Draw, started) };
 }
 

@@ -1,9 +1,8 @@
 //! **The frame orb paces th06nc with, and what it reads of one.**
 //!
 //! A th06nc laid out from what has been read of `th06nc.exe`, orb attached to `Th06nc`, and orb's own
-//! frame loop in place of the fourteen bytes of `main` the game's calc walk stands in — which is the only
-//! frame a launch of this game has, the game handing its walk, its draw, its timing and the nine calls
-//! around them over. What the e2e tests below ask is that the loop composes th06nc's frame in orb's order,
+//! frame loop in place of the frame `main`'s loop calls — which is the only frame a launch of this game
+//! has, the game handing its walk, its draw's own calls, its timing and the calls around them over. What the e2e tests below ask is that the loop composes th06nc's frame in orb's order,
 //! and beside that one field at a time: the scene, the stage, the run's own numbers, the player's hit, the
 //! fight, and the score file the mode forks.
 //!
@@ -14,7 +13,7 @@
 //! - **Its sound's catch-up is between the update and the draw** the way th06c's is, but the count it
 //!   works off is this game's own `THE_EXTRA_WALKS`, which the game's loop steps per extra walk and orb's
 //!   frame clears — so the seek is asked for in this game's own samples a walk.
-//! - **The picture is sized rather than a viewport set**: this game's frame calls `0x14003c330` whole,
+//! - **The picture is sized rather than a viewport set**: this game's frame calls `0x14003db50` whole,
 //!   which is the present and the deadline together, and what a frame is asked for is the size.
 //! - **No card and no line of dialogue is read**, so `State::spellcard` and `State::in_dialogue` answer
 //!   nothing here however the game is laid out — see `Th06nc::read_state`, which declines both.
@@ -27,7 +26,9 @@
 //! constants `Th06nc` reads. `cargo xtask real` on the copy of the install is what says.
 
 use crate::fake::th06nc::Fake;
-use crate::fake::{DRAW, Display, Launched, PRESENT, SOUND, UPDATE, Work, in_its_own_process};
+use crate::fake::{
+    DRAW, Display, FLUSH, Launched, PRESENT, SOUND, UPDATE, Work, in_its_own_process,
+};
 use orb_core::game::th06nc::Th06nc;
 use orb_core::game::{Game, State};
 
@@ -95,7 +96,10 @@ fn orb_paces_a_launch_of_th06nc_with_no_run_in_it() {
         game.frame();
         game.forget_asked();
         game.frame();
-        assert_eq!(game.asked(), vec![UPDATE, DRAW, PRESENT]);
+        // **The draw's sprites flushed as the job is done and before the picture is finished**, which is
+        // what this game's own walk of the draw chain does after every job — see th06c's twin of this
+        // assertion, the same batch in the same engine.
+        assert_eq!(game.asked(), vec![UPDATE, DRAW, FLUSH, PRESENT]);
 
         // And the sound's own place in that order, on a frame with music behind it: between the update and
         // the draw, as this game's own loop has it, with the count cleared and the track seeked by the
@@ -104,7 +108,7 @@ fn orb_paces_a_launch_of_th06nc_with_no_run_in_it() {
         game.image().the_extra_walks_are(BEHIND_BY);
         game.forget_asked();
         game.frame();
-        assert_eq!(game.asked(), vec![UPDATE, SOUND, DRAW, PRESENT]);
+        assert_eq!(game.asked(), vec![UPDATE, SOUND, DRAW, FLUSH, PRESENT]);
         assert_eq!(
             game.image().the_extra_walks(),
             0,
@@ -162,7 +166,7 @@ fn every_number_a_stage_of_th06nc_is_played_with_reads_back_as_the_game_put_it()
             Work::wandering(WORK_US),
         );
         // **Counted from nought, which is what `Fake::in_a_run_in_the_stage` is handed**: the stage's own
-        // build counts the number in the manager's field on — `0x14003af45`, on both of its paths — so
+        // build counts the number in the manager's field on — `0x14003c7c0`, on both of its paths — so
         // the first stage of a run is nought here, 1 in that field once the build has run, and nought
         // again in a `State`. See `Th06nc::read_state` and `Th06nc::start_stage`.
         let in_the_first_stage = 0;
@@ -223,12 +227,12 @@ fn every_number_a_stage_of_th06nc_is_played_with_reads_back_as_the_game_put_it()
         assert_eq!(numbers.seed, SEED);
 
         // A fight: the boss's life, off the slot the fight's own flag says it is.
-        image.a_boss_is_fighting(1500);
+        image.a_boss_is_fighting(1500, 42);
         let state = game.state();
         assert!(state.boss_present);
         assert_eq!(state.boss_life, Some(1500));
-        // **And no frames of its attack**, which this game has no field of written down.
-        assert_eq!(state.boss_attack_frames, None);
+        // **And the frames its attack has run**, off the dword the panel's countdown is worked out from.
+        assert_eq!(state.boss_attack_frames, Some(42));
         image.no_boss_is_fighting();
 
         // A bomb in the air, which is a frame no chapter begins on — the byte the bomb's own start
@@ -276,9 +280,9 @@ fn every_number_a_stage_of_th06nc_is_played_with_reads_back_as_the_game_put_it()
 /// `Game::a_line_of_dialogue_is_shown`, and the second is what the frame's own fast-forward asks.
 ///
 /// **Read off what the game itself asks**, since this build's fast-forward gate is no handle on it: the
-/// line at `+0x36b0` of the object behind `0x140a6ec08`, which the dialogue's own start writes at
-/// `0x14003ede4` and its two ends put back to `-1` — and which the bomb press is refused on at
-/// `0x1400689c6` while it is nought or more. th06c's own handle is a panel field its fast-forward gates
+/// line at `+0x36b0` of the object behind `0x140abae28`, which the dialogue's own start writes at
+/// `0x1400406c4` and its two ends put back to `-1` — and which the bomb press is refused on at
+/// `0x14006a0d6` while it is nought or more. th06c's own handle is a panel field its fast-forward gates
 /// on, and this build's gate reads four other things; see `Th06nc::the_line_of_dialogue`.
 #[test]
 fn a_line_of_dialogue_of_th06nc_is_read_off_the_line_its_object_is_on() {
@@ -332,19 +336,19 @@ fn a_line_of_dialogue_of_th06nc_is_read_off_the_line_its_object_is_on() {
 ///
 /// **The main menu's item 3 is this build's Spell Practice**, settled by a picture: that item walks
 /// screens 27 and 28, and 28 reads `Spell Practice` over a list of the cards stage by stage. A run of it
-/// is played under `0x1404f27b5` — the byte `0x14004d6f3` sets for a scene out of the table at
-/// `0x140c221c0` and `0x14004dbfc` clears as an ordinary run starts — and the card's own start steps a
+/// is played under `0x14053d405` — the byte `0x14004ee53` sets for a scene out of the table at
+/// `0x140c6e3e0` and `0x14004f35c` clears as an ordinary run starts — and the card's own start steps a
 /// count of that mode's own instead of the attempts while it is set.
 ///
 /// **The two modes of this game are two runs, and the slot says which.** 標準モード and チャレンジモード
-/// are screen 14's own two items, and they start a run with different lives — `0x14004dc13` writes two
+/// are screen 14's own two items, and they start a run with different lives — `0x14004f373` writes two
 /// where the mode byte is set — so a chapter of one put back into the other is a run given the wrong
 /// numbers to begin with. `Th06nc::run_slot` therefore names a Challenge run's slot with a word in front
 /// of the name a Standard one's has, which leaves every Standard chapter written so far where it is.
 ///
 /// **And the byte is read at both moments a slot is asked for**: `Game::run_start` reads the run's own,
-/// `0x1404f27c4`, which screen 25 writes out of the configuration; `Game::run_pointed_at` reads the
-/// configuration's, `[0x140c21dbb]`, which screen 14 wrote on the way there. See
+/// `0x14053d414`, which screen 25 writes out of the configuration; `Game::run_pointed_at` reads the
+/// configuration's, `[0x140c6dfdb]`, which screen 14 wrote on the way there. See
 /// `Th06nc::the_mode_a_run_is_in` and `Th06nc::the_mode_the_next_run_is_in`.
 #[test]
 fn the_two_modes_of_th06nc_are_two_slots() {
@@ -564,7 +568,7 @@ fn nothing_is_a_run_of_th06nc_before_one_is_started() {
 /// those two the split is `in_run` set and `in_game` clear for a replay, with the *attract demo* a third
 /// state that is neither — and th06c paid for reading it any other way with a step that waited 34,200
 /// frames of a demo for a run that was over. **This build plays no demo at all**, so there is no third
-/// state to tell apart: both callers of the replay's own start `0x14004d680` are the front end's replay
+/// state to tell apart: both callers of the replay's own start `0x14004ede0` are the front end's replay
 /// list, and a launch of `the-front-end-after-a-run.yaml` left a run, watched the front end walk `16, 17,
 /// 18` and sat on 18 for 21,600 frames with nothing pressed and no playback of any kind — see
 /// `Th06nc::in_a_run`, where both readings are, and `th06nc/asm.md`'s table of the screens.

@@ -1,0 +1,76 @@
+# **The half on th06 1.02h of holding th06c's `chapters.rs` against it** — see `midstage-on-th06c.yaml`. A run
+# of Normal in the rewindable mode, a picture taken on each chapter a row begins; th06 draws through Direct3D
+# 8, so orb's own `screenshot` step takes it, into `snapshot/` beside the exe. The walk is th06's
+# a_run_played_to_its_clear's, aimed at Normal.
+#
+# **Driven as** `drive-a-run.sh <copy> 東方紅魔郷.exe midstage-on-th06.yaml --log=normal --pace=8 --no-resume`.
+# A launch of it took seven minutes.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 30
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- play_until: { stage: 1, chapter: 4 }
+  give_up_after: 90000
+- screenshot: s1-tl4472
+  frames: 1
+- play_until: { stage: 2, chapter: 2 }
+  give_up_after: 90000
+- screenshot: s2-tl880
+  frames: 1
+- play_until: { stage: 2, chapter: 5 }
+  give_up_after: 90000
+- screenshot: s2-tl4597
+  frames: 1
+- play_until: { stage: 3, chapter: 2 }
+  give_up_after: 90000
+- screenshot: s3-tl1009
+  frames: 1
+- play_until: { stage: 3, chapter: 3 }
+  give_up_after: 90000
+- screenshot: s3-tl2653
+  frames: 1
+- play_until: { stage: 4, chapter: 2 }
+  give_up_after: 90000
+- screenshot: s4-tl2341
+  frames: 1
+- play_until: { stage: 4, chapter: 3 }
+  give_up_after: 90000
+- screenshot: s4-tl3395
+  frames: 1
+- play_until: { stage: 4, chapter: 6 }
+  give_up_after: 90000
+- screenshot: s4-tl7467
+  frames: 1
+- play_until: { stage: 4, chapter: 7 }
+  give_up_after: 90000
+- screenshot: s4-tl8328
+  frames: 1
+- play_until: { stage: 4, chapter: 8 }
+  give_up_after: 90000
+- screenshot: s4-tl9739
+  frames: 1
+- play_until: { stage: 5, chapter: 2 }
+  give_up_after: 90000
+- screenshot: s5-tl2363
+  frames: 1
+- play_until: { stage: 5, chapter: 6 }
+  give_up_after: 90000
+- screenshot: s5-tl6827
+  frames: 1
+- play_until: { stage: 6, chapter: 2 }
+  give_up_after: 90000
+- screenshot: s6-tl1535
+  frames: 1
+- play_until: { frames: 6000 }
+- quit: true

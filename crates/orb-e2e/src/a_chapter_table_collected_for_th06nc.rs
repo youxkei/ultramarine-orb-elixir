@@ -6,10 +6,12 @@
 //! the game: `chapters.rs`, to paste into the source, and `tuning.txt`, which is read back at startup so a
 //! stage can be judged over more than one sitting.
 //!
-//! **This is the pass th06nc's own table is still to be built by** — the change that fills it is the one
-//! this sits under — and the one piece of this game nothing can be read out of the exe for. What this says
-//! is that the pass works over it at all: the gap is proposed out of *its* count of enemies alive and *its*
-//! script clock, the chapter begins there, and both files come out with the row in them.
+//! **This is the pass a table of this game is built by**, and the one piece of it nothing can be read out
+//! of the exe for. What `game::th06nc::chapters` holds is th06c's rows moved onto this game's clock rather
+//! than found again — that module says why — so what this says is that the pass works over this game at
+//! all: the gap is proposed out of *its* count of enemies alive and *its* script clock, the chapter begins
+//! there, and both files come out with the row in them and the rows it never reached as they are compiled
+//! in.
 //!
 //! **Over a run and not over a replay.** `Chapters::tracking` is `state.in_game || (during_replay &&
 //! state.playing && !demo)`, and for this game both terms are false while its own replay is playing:
@@ -31,6 +33,8 @@
 //! going back to nothing.
 
 use orb_config::LogLevel;
+use orb_core::game::Boundary;
+use orb_core::game::th06nc::chapters::MIDSTAGE;
 
 use crate::fake::th06nc::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};
@@ -64,6 +68,23 @@ const STAGE_FRAMES: u32 = 1_200;
 
 /// How many frames a walk here is given before it says the pass went nowhere.
 const FRAMES: u32 = STAGE_FRAMES * 2;
+
+/// A stage the pass never reaches, as the table is indexed. The pass plays the first and writes its files as
+/// the second is built.
+const THE_THIRD_STAGE: usize = 2;
+
+/// A row of the compiled table as a pass writes it out: each boundary under the hand that placed it, with its
+/// frame, in the order the row has them.
+fn as_written(row: &[Boundary]) -> String {
+    let boundaries: Vec<String> = row
+        .iter()
+        .map(|boundary| {
+            let placed = if boundary.by_hand { "hand" } else { "proposed" };
+            format!("{placed}({})", boundary.frame)
+        })
+        .collect();
+    format!("&[{}]", boundaries.join(", "))
+}
 
 /// A launch making a collect pass over this game, standing in its first stage with a chapter of it already
 /// taken.
@@ -151,12 +172,18 @@ fn a_collect_pass_over_th06nc_proposes_the_stages_gap_and_writes_the_table_out()
             table.contains(&format!("proposed({proposed_at})")),
             "the boundary the pass proposed is not in the table it wrote:\n{table}",
         );
-        // And the row is the one whose stage this is, in a table of this game's own seven: what th06nc has
-        // compiled in is nothing at all, so every other row comes out empty rather than carrying somebody
-        // else's numbers.
+        // And the row is the one whose stage this is, in a table of this game's own seven.
         assert!(
             table.contains("pub const MIDSTAGE: [&[Boundary]; 7] = ["),
             "the table is not this game's own seven rows:\n{table}",
+        );
+        // And a stage the pass never reached keeps what is compiled in, so that a stage can be tuned, baked
+        // and left alone while the next one is done — stage three's row, out of the table itself.
+        let compiled = as_written(MIDSTAGE[THE_THIRD_STAGE]);
+        assert!(
+            table.contains(&compiled),
+            "a stage this pass knows nothing about lost what the built-in table has for it, {compiled}:\n\
+             {table}",
         );
 
         // And the same boundary in the form the next sitting reads back.

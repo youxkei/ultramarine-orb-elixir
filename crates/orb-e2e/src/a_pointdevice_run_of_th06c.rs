@@ -310,6 +310,82 @@ fn the_sound_librarys_block_is_not_put_back_from_a_snapshot_of_th06c() {
     });
 }
 
+/// Two views the test below tells apart, as the first window's own is when the chapter is taken and as the
+/// game has made it again by the time the chapter is put back — and two counts of the windows open below the
+/// table, for the same two moments.
+const THE_VIEW_AT_THE_CHAPTER: usize = 0x1_9300_1000;
+const THE_VIEW_MADE_SINCE: usize = 0x1_9300_2000;
+const WINDOWS_AT_THE_CHAPTER: u32 = 1;
+const WINDOWS_SINCE: u32 = 2;
+
+/// How many bytes the renderer's table of windows is, which is how the restore names it in the log.
+const THE_TABLE: usize = 0x1_1800;
+
+/// **The renderer's table of windows is left where the restore finds it, and the count below it comes
+/// back.**
+///
+/// The game makes the views in that table again on every frame whose window is not the size of its buffers,
+/// which is every frame of a launch that plays itself: a chapter put back over the table hands the next frame
+/// a view released since, and its release faulted on the real game's first frame after a retry — see
+/// `Th06c::live_handles`.
+///
+/// **The count below the table is the half that makes the first half say something**: a restore that put
+/// nothing back at all would leave the view alone by accident.
+#[test]
+fn the_views_of_the_windows_of_th06c_are_not_put_back_from_a_snapshot() {
+    in_its_own_process(|| {
+        let recipe = format!(
+            "{TO_A_RUN}\
+- press: [decide]
+  frames: 6
+  until: {{ stage: 1, chapter: 1 }}
+  give_up_after: 1800
+- take_hits: {{ chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }}
+- play_until: {{ frames: 400 }}
+- take_hits: {{ chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }}
+- play_until: {{ stage: 1, chapter: 2 }}
+  give_up_after: 6000
+- leave: true
+- wait_until: {{ frames: 300 }}
+- quit: true
+"
+        );
+        let game = launched("th06c-the-views-of-the-windows", recipe);
+        let log = game.log();
+
+        game.image()
+            .the_first_windows_view_is(THE_VIEW_AT_THE_CHAPTER);
+        game.image().the_count_of_windows_is(WINDOWS_AT_THE_CHAPTER);
+        game.frames_until("the run lost a life", FRAMES, || {
+            log.said("died in chapter")
+        });
+
+        game.image().the_first_windows_view_is(THE_VIEW_MADE_SINCE);
+        game.image().the_count_of_windows_is(WINDOWS_SINCE);
+        game.frames_until("the chapter was put back", FRAMES, || log.said("(retry 1)"));
+
+        assert!(
+            log.said(&format!("+{THE_TABLE:#x}")),
+            "the restore named no table of windows to leave alone:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image().the_first_windows_view(),
+            THE_VIEW_MADE_SINCE,
+            "the restore put a view of the first window back a chapter:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image().the_count_of_windows(),
+            WINDOWS_AT_THE_CHAPTER,
+            "the restore put nothing back at all, so leaving the table alone means nothing:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        played_out(&game);
+    });
+}
+
 #[test]
 fn the_run_of_th06c_left_in_a_chapter_is_offered_and_picked_up() {
     in_its_own_process(|| {
@@ -452,6 +528,29 @@ fn the_run_of_th06c_left_in_a_chapter_is_offered_and_picked_up() {
             ),
             "the playback stopped short of the chapter it was going to: {:?}",
             log.lines()
+        );
+        // **And the stage's shot cycle looked at once, as the stage was built**, and not again on each frame
+        // of the host a playback longer than one frame's share of updates goes on over — see
+        // `Game::starts_the_shot_a_stage_began_with`, and `runtime`'s landing, which has the real pick-up a
+        // second look cost.
+        let looked_at = log
+            .lines()
+            .into_iter()
+            .filter(|line| {
+                line.contains("resume: the stage's shot cycle begins on phase")
+                    || line.contains("resume: the stage's shot is already on phase")
+                    || line.contains("resume: the run was not firing as the stage began")
+            })
+            .count();
+        assert_eq!(
+            looked_at,
+            1,
+            "the stage's shot cycle was looked at {looked_at} time(s) over one playback: {:?}",
+            log.lines()
+                .into_iter()
+                .filter(|line| line.contains("resume: the stage's shot")
+                    || line.contains("played back,"))
+                .collect::<Vec<_>>()
         );
         // The run reached every chapter of its own with `deaths: 0`, so a playback of the path to one that
         // takes a hit has come out of step somewhere at or before the hit whatever the lines above agree on.

@@ -6,7 +6,7 @@
 //! **And none of what to do about any of it is here.** What is read goes across as [`Frame`] and the
 //! rules are `orb-bot`'s.
 //!
-//! **What a hit is here is a circle and not a box.** The player's own test at `0x14006a980` takes a
+//! **What a hit is here is a circle and not a box.** The player's own test at `0x14006c090` takes a
 //! hazard's position and size and, for a bullet, asks whether the distance between the two centres is
 //! under the bullet's smaller half plus the player's own radius at `[player+0x774c]`; for an enemy it
 //! asks whether the nearest point of the enemy's box is within that radius. Both go across as boxes:
@@ -60,7 +60,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     into.items.clear();
     for slot in 0..bullet_manager::SLOTS {
         let bullet = at(BULLET_MANAGER) + bullet_manager::BULLETS + slot * bullet_manager::BYTES;
-        // The walk's own gate at `0x140010970`: a slot whose state is nought holds nothing at all.
+        // The walk's own gate at `0x1400110a0`: a slot whose state is nought holds nothing at all.
         let state = unsafe { mem::read::<u16>(bullet + bullet_manager::STATE) };
         if state == 0 {
             continue;
@@ -69,7 +69,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         let (vx, vy) = unsafe { position(bullet + bullet_manager::STEP) };
         let scale = bullet_manager::a_steps_scale(state);
         // **The smaller half on both axes**, because that is the circle the game tests a bullet as —
-        // `minss` at `0x14006aa12` — see the module's own note.
+        // `minss` at `0x14006c122` — see the module's own note.
         let half = wx.min(wy) / 2.0;
         into.hazards.push(Hazard {
             kind: Kind::Bullet {
@@ -84,12 +84,12 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         });
     }
     // **And the lasers, which are a line rather than a box**: the player's own test for one at
-    // `0x14006aba0` turns the player about the laser's own origin by its angle and compares it with a
+    // `0x14006c2b0` turns the player about the laser's own origin by its angle and compares it with a
     // box that is along and across, and what that box reaches across is a quarter of the width the
     // beam carries — see [`laser::HALF_OF_ITS_WIDTH`].
     //
     // **Only a firing laser hits.** The update's warning phase never calls the test and neither does
-    // its fading phase — the one call is at `0x140011883`, in the firing phase — so a warning goes
+    // its fading phase — the one call is at `0x140011fb3`, in the firing phase — so a warning goes
     // across with the frames until it fires and a fading one is handed over as fading.
     for slot in 0..laser::SLOTS {
         let beam = at(LASERS) + slot * laser::BYTES;
@@ -119,7 +119,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         });
     }
     // **And the enemies, whose bodies are as solid as a bullet in this game too**, with a third of
-    // `+0x2c0` on each side — two thirds at `0x140037a1c` and then the test's own half — and with no
+    // `+0x2c0` on each side — two thirds at `0x14003933c` and then the test's own half — and with no
     // step, there being none on it: an enemy is moved by its own script.
     for slot in 0..enemy_manager::SLOTS {
         let body = at(ENEMY_MANAGER) + enemy_manager::ENEMIES + slot * enemy_manager::BYTES;
@@ -145,7 +145,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             ),
         });
     }
-    // **Every slot walked and not the live count taken**, the same walk `0x140042ae0` makes.
+    // **Every slot walked and not the live count taken**, the same walk `0x1400443a0` makes.
     for slot in 0..item::SLOTS {
         let pickup = at(ITEM_MANAGER) + item::ITEMS + slot * item::BYTES;
         if unsafe { mem::read::<u8>(pickup + item::ALIVE) } == 0 {
@@ -159,7 +159,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     true
 }
 
-/// **Which of the shared kinds one of this game's items is**, as the table at `0x1400438a8` indexes
+/// **Which of the shared kinds one of this game's items is**, as the table at `0x140045168` indexes
 /// them — the same seven th06c has, in the same order.
 const fn worth(kind: i8) -> Worth {
     match kind {
@@ -173,7 +173,7 @@ const fn worth(kind: i8) -> Worth {
 }
 
 /// **The slot the boss the fight is with is in**, where there is one — the enemy carrying
-/// [`enemy::IS_THE_BOSS`], which `0x140037d90` and `0x140037fd0` are the two tests of and whose life
+/// [`enemy::IS_THE_BOSS`], which `0x1400396b0` and `0x1400398f0` are the two tests of and whose life
 /// they divide into the bar the panel draws.
 ///
 /// # Safety
@@ -213,7 +213,7 @@ unsafe fn field() -> (f32, f32, f32, f32) {
 }
 
 /// **What one frame of holding a direction moves the player by**: the speed for that kind of move,
-/// times the player's own scale for the axis — `0x140069388` and `0x140069398`.
+/// times the player's own scale for the axis — `0x14006aaa6` and `0x14006aab6`.
 ///
 /// # Safety
 /// Must run on the game's main thread.

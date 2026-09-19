@@ -4,8 +4,6 @@
 //! below full speed while the lighter ones look fine, which is indistinguishable
 //! from several different causes by eye. These numbers tell them apart.
 
-use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
-
 use orb_api::clock;
 
 use crate::log;
@@ -122,25 +120,6 @@ static FRAME: MainThread<Slot> = MainThread::new(Slot {
 });
 static LAST_FRAME: MainThread<i64> = MainThread::new(0);
 
-/// **The game's `malloc` and `free` where orb answers them**, which is the one phase not confined to the
-/// game's main thread: a UCRT game allocates from its streaming thread too — `orb::memtrack` — so this
-/// slot is atomics rather than a [`MainThread`], and what it counts is every call from every thread.
-///
-/// Measured because a launch of th06c dropped frames each time the player's shot hit an enemy, and the
-/// hit's own effects are allocations: whether the time is in the heap orb answers out of is what this
-/// line says.
-static HEAP_TICKS: AtomicI64 = AtomicI64::new(0);
-static HEAP_WORST: AtomicI64 = AtomicI64::new(0);
-static HEAP_CALLS: AtomicU32 = AtomicU32::new(0);
-
-/// A call of the game's `malloc` or `free` that began at `since`, from whichever thread made it.
-pub fn record_heap(since: i64) {
-    let elapsed = now() - since;
-    HEAP_TICKS.fetch_add(elapsed, Ordering::Relaxed);
-    HEAP_WORST.fetch_max(elapsed, Ordering::Relaxed);
-    HEAP_CALLS.fetch_add(1, Ordering::Relaxed);
-}
-
 pub fn now() -> i64 {
     clock::counter()
 }
@@ -221,14 +200,6 @@ pub unsafe fn frame() -> bool {
             microseconds(slot.ticks, frequency) / i64::from(counted),
             microseconds(slot.worst, frequency),
             slot.calls,
-        );
-    }
-    let heap_calls = HEAP_CALLS.swap(0, Ordering::Relaxed);
-    if heap_calls != 0 {
-        report += &format!(
-            " heap={}us/frame worst={}us calls={heap_calls}",
-            microseconds(HEAP_TICKS.swap(0, Ordering::Relaxed), frequency) / i64::from(counted),
-            microseconds(HEAP_WORST.swap(0, Ordering::Relaxed), frequency),
         );
     }
     if log::wanted(log::NORMAL) {

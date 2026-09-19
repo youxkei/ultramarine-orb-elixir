@@ -421,7 +421,7 @@ fn said(data: &Range<usize>, looking: &Looking) {
 /// taken to be: a field is somewhere inside one and the pointer that is kept is to its start.
 ///
 /// **Sixty-four kilobytes, because eight was too few.** th06c's own startup news objects of 0x2c58
-/// bytes and more and keeps each in a static of its own — `0x14090a0d8` and its neighbours — so a
+/// bytes and more and keeps each in a static of its own — `0x140955358` and its neighbours — so a
 /// window of 0x2000 found nothing at all for a field deeper in than that.
 const AN_OBJECT: usize = 0x1_0000;
 

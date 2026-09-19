@@ -16,8 +16,8 @@
 # case must not give.
 #
 # **And what says the run played on is the stage's own clock**, not a chapter after the one it came back
-# in: the second stage's chapter 1 is the only chapter this game has there until
-# `game/th06nc/chapters.rs` is filled.
+# in, which is the second stage's chapter 1 or 2 according to how far the run that left it had got past
+# `game/th06nc/chapters.rs`'s row at 790.
 - wait_until: { screen: 2 }
   give_up_after: 36000
 - wait_until: { frames: 60 }

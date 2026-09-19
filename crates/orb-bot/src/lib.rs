@@ -521,6 +521,18 @@ fn where_they_stand(place: steer::Standing) -> String {
 
 /// What a bot playing `playing` presses this frame.
 fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) -> Option<u16> {
+    // **A frame of a run being played back is the rules' to see and nothing else's** — see `orb_core`'s
+    // `runtime::the_rules_watch`, which asks for it and feeds the run's own word whatever this answers. Not
+    // the recipe's: its steps are the pick-up's own, and a step counting these frames would be counting
+    // frames of the run that wrote the file. Nor the hits': an attempt counted here is one the run already
+    // made, so the rules see its frames as attempt 0's whichever attempt at a chapter the file kept.
+    if unsafe { orb_core::resume::landing() }.is_some() {
+        hands_the_rules_their_place(playing, reached.spell);
+        hands_the_rules_their_dodge(playing, reached.spell);
+        steer::the_card_has_run(reached.card_frames);
+        steer::the_stage_has_run(reached.stage_frames);
+        return Some(unsafe { steer::word_to_press(game, hits::Hazards::Dodged, playing.bombs) });
+    }
     // **What the rules are to do about being hit, asked before anything else this frame.** It is the chapter
     // the run is in that decides, and every frame of one has to be counted for that: the blocks below hand a
     // frame back without reaching the rules — orb's own offer to retry is one, and that offer going down is
@@ -535,6 +547,8 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
     hands_the_rules_their_dodge(playing, reached.spell);
     // **And how far into the card they are**, which a way of dodging one card by its own schedule reads.
     steer::the_card_has_run(reached.card_frames);
+    // **And the stage's own frame**, which the shot's let-go is timed by.
+    steer::the_stage_has_run(reached.stage_frames);
     // **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on: Pointdevice mode
     // is a mode whose whole content is that a death is retried, and a death lands in the middle of a step — so
     // no recipe can say when, and a bot that waited for one to say so would stop at its first death. Tapped
@@ -937,6 +951,7 @@ mod tests {
             typing_a_name: false,
             spell: None,
             card_frames: None,
+            stage_frames: None,
         }
     }
 

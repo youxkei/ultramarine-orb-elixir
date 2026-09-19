@@ -7,21 +7,21 @@
 //!   taken again, because a retry is an attempt at that card and the game counts neither: it counts where
 //!   a card *starts*, and a chapter beginning inside one never starts it. It counts nothing where no card
 //!   is up and nothing against a record the game has not named, an unnamed one's bytes being the
-//!   generator's — `0x14003ab00`'s layout lays each record over `0xc0` words of it.
+//!   generator's — `0x14003c390`'s layout lays each record over `0xc0` words of it.
 //! - **`Th06nc::put_back_the_cards_a_run_left`**, which is what this file is mostly for: the build of a
-//!   run's *first* stage reads the score file over all 134 records — `0x14006cc40(the parsed file,
-//!   manager + 0x968)` at `0x14003ad68`, on that build's run-start branch and nowhere else — so a run
+//!   run's *first* stage reads the score file over all 134 records — `0x14006e310(the parsed file,
+//!   manager + 0x968)` at `0x14003c5e7`, on that build's run-start branch and nowhere else — so a run
 //!   that counted an attempt loses it the moment the next run starts. orb notes what a run counted as it
 //!   ends and puts the note back where that read has just happened, which is where
 //!   `Hooks::stage_begun` already stands.
 //!
 //! **A stage a run walks into is not that moment**, and the laid-out game is held to the same thing: the
-//! read is on the branch `0x14003af10` jumps out of, and a transition takes the other one at
-//! `0x14003af12`. So the note is spent at the one build that reads, and a run's second stage keeps what
+//! read is on the branch `0x14003c78b` jumps out of, and a transition takes the other one at
+//! `0x14003c78d`. So the note is spent at the one build that reads, and a run's second stage keeps what
 //! its first counted without orb doing anything.
 //!
 //! **And what that read brings in is a file's own counts**, which is the third thing here: the laid-out
-//! game lays the copy's `CATK` records over the layout as `0x14006cc40` does — see
+//! game lays the copy's `CATK` records over the layout as `0x14006e310` does — see
 //! `Image::the_files_card_records_are_laid_over` — so a count of a launch before this one is in the
 //! record the run counts on top of, and a put-back that wrote its own count in place of it would lose
 //! every attempt ever played.
@@ -145,8 +145,8 @@ fn a_chapter_of_th06nc_taken_again_at_a_card_counts_one_attempt_at_it() {
 /// launch.
 ///
 /// The record goes in through the game's own file because that is where the copy is put together from
-/// until the mode is answered — the read itself is of the copy and not of a file, `0x14006cc40` taking
-/// the block `0x14006ca60` answers.
+/// until the mode is answered — the read itself is of the copy and not of a file, `0x14006e310` taking
+/// the block `0x14006e140` answers.
 #[test]
 fn a_count_the_file_of_th06nc_holds_is_what_the_run_counts_on_top_of() {
     in_its_own_process(|| {
@@ -238,7 +238,7 @@ fn the_run_after_one_of_th06nc_keeps_the_attempts_it_counted() {
         });
         game.frames_until("the run over", FRAMES, || !game.state().in_run);
 
-        // And another started, whose own build reads the file over every record — `0x14003ad68` — and
+        // And another started, whose own build reads the file over every record — `0x14003c5e7` — and
         // whose put-back is what this asks about.
         game.in_a_run_in_the_stage(0);
         game.frame();

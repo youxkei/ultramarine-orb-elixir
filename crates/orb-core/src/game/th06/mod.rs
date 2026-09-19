@@ -1503,13 +1503,13 @@ impl Game for Th06 {
             // its corner being decided inside the one call that makes it.
             shows_its_window: None,
             places_its_window: None,
+            restyles_its_window: None,
             // And no pad read to answer: th06's own is `joyGetPosEx`, which orb stands in front of and
             // hands a word of — see `Hooks::joystick`.
             reads_a_pad: None,
             // Nothing: this game's present is an address `Th06::frame_calls` carries, its renderer
             // being Direct3D 8's and made before orb could answer anything about it.
             makes_its_renderer: None,
-            frame_in_the_loop: None,
             // A CRT linked statically, whose heap is its own: the six `KERNEL32.dll` entries are what
             // `malloc` and `new` reach the OS through. See `orb::memtrack`.
             takes_its_memory: Memory::Kernel32Imports,

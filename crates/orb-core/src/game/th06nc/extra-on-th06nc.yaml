@@ -1,0 +1,99 @@
+# **The Extra's row of `chapters.rs` held against th06c, the half on th06nc** — `../th06c/extra-on-th06c.yaml`
+# is the other, and `midstage-on-th06nc.yaml` says what the pauses are for. Chapters 2, 3, 8 and 9, which is
+# what th06c numbers the row's four as, this game's midboss taking chapters 4 to 7 as th06c's does. The walk
+# is the_extra_played_to_its_clear's, so the copy's records have to hold the Extra unlocked —
+# a_run_played_to_its_clear_without_a_bomb is what gets them there.
+#
+# **Driven as** `drive-a-run.sh <copy> th06nc.exe extra-on-th06nc.yaml --log=normal --pace=8 --speed=1
+# --no-resume` with `shoot-the-pauses.sh <copy> th06nc.exe 31 4 s7-tl2549 s7-tl3628 s7-tl5348 s7-tl7256`
+# beside it.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 3, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# s7-tl2549
+- play_until: { stage: 7, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s7-tl3628
+- play_until: { stage: 7, chapter: 3 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s7-tl5348
+- play_until: { stage: 7, chapter: 8 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s7-tl7256
+- play_until: { stage: 7, chapter: 9 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+- play_until: { frames: 600 }
+- quit: true

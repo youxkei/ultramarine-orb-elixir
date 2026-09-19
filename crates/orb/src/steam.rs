@@ -10,16 +10,16 @@
 //! measurement.
 //!
 //! **And it is what makes a launch need no Steam client at all**, which is the other half: this game
-//! calls `SteamInternal_SteamAPI_Init` at `0x1400488a1` and shows
+//! calls `SteamInternal_SteamAPI_Init` at `0x140048961` and shows
 //! `SteamAPI_Init() failed. Steam must be running to play this game.` and exits where it answers
 //! anything but nought — measured, its own `log.txt` ending at the 122 bytes of its header. Answered
 //! here, the game goes on to its own startup dialog with nothing running beside it.
 //!
 //! **All nine imports are answered**, the four the game cannot run without first. What it asks that DLL
 //! for is four interfaces, each through a getter of its own reaching
-//! `SteamInternal_FindOrCreateUserInterface`: `SteamUtils010` at `0x140048790`,
-//! `STEAMUSERSTATS_INTERFACE_VERSION013` at `0x1400487c0`, `STEAMAPPS_INTERFACE_VERSION009` at
-//! `0x1400487f0` and `SteamInput006` at `0x140048820`. There is no `ISteamRemoteStorage` among them, so
+//! `SteamInternal_FindOrCreateUserInterface`: `SteamUtils010` at `0x140048850`,
+//! `STEAMUSERSTATS_INTERFACE_VERSION013` at `0x140048880`, `STEAMAPPS_INTERFACE_VERSION009` at
+//! `0x1400488b0` and `SteamInput006` at `0x1400488e0`. There is no `ISteamRemoteStorage` among them, so
 //! the save file is not this API's business either way.
 //!
 //! **And eight methods over seven slots of those four are called**, which is what says a vtable of
@@ -29,8 +29,8 @@
 //! | interface | slot | method | what the game does with the answer |
 //! | --- | --- | --- | --- |
 //! | Utils | `+0x110` | `IsSteamRunningOnSteamDeck` | nought is a desktop, which is what this is |
-//! | UserStats | `+0x30` | `SetAchievement` | nought is "not set", and there is no account to set it on. Read off th06nc, whose `0x140067cb0` is the one function both of its achievements go through — `Achievement01` as a run starts and `Achievement21` as the name entry ends, see `th06nc/asm.md`'s *Steam* — and it is the reason a driven run wants this module and not only a client that is closed |
-//! | UserStats | `+0x48` | `StoreStats` | nought is "not stored", and there is nothing to store to; the site is in the frame loop behind a flag the answer would clear, so it is asked again every frame and costs a call into this module. `0x140067cb0` tail-calls it after the set above |
+//! | UserStats | `+0x30` | `SetAchievement` | nought is "not set", and there is no account to set it on. Read off th06nc, whose `0x1400693c0` is the one function both of its achievements go through — `Achievement01` as a run starts and `Achievement21` as the name entry ends, see `th06nc/asm.md`'s *Steam* — and it is the reason a driven run wants this module and not only a client that is closed |
+//! | UserStats | `+0x48` | `StoreStats` | nought is "not stored", and there is nothing to store to; the site is in the frame loop behind a flag the answer would clear, so it is asked again every frame and costs a call into this module. `0x1400693c0` tail-calls it after the set above |
 //! | Apps | `+0x20` | `GetCurrentGameLanguage` | a string the game compares, which is why [`LANGUAGE`] is the one slot that answers something |
 //! | Input | `+0x00` | `Init` | nought, and the game ignores it |
 //! | Input | `+0x08` | `Shutdown` | the same |
@@ -65,13 +65,13 @@ use crate::hook;
 /// start it again and exits where this is true, so a launch orb injected into would be replaced by one
 /// it did not.
 ///
-/// The app id the game passes is its own — `0x48ce48` at `0x140048889` — and is not read here.
+/// The app id the game passes is its own — `0x48ce48` at `0x140048949` — and is not read here.
 unsafe extern "system" fn restart_app_if_necessary(_app: u32) -> u8 {
     0
 }
 
 /// `ESteamAPIInitResult SteamInternal_SteamAPI_Init(const char *version, SteamErrMsg *error)`, answered
-/// **nought**, which is the value the game tests for: `test eax,eax; je` at `0x1400488a7`.
+/// **nought**, which is the value the game tests for: `test eax,eax; je` at `0x140048967`.
 ///
 /// The error message is left as the game's own buffer had it: what reads it is the failure path, and
 /// this is the answer that says there was none.
@@ -110,8 +110,8 @@ unsafe extern "system" fn unregister_callback(_callback: *mut c_void) {}
 const SLOTS: usize = 128;
 
 /// **Which slot the game's own language comes out of**: `ISteamApps::GetCurrentGameLanguage`, called as
-/// `[vtable+0x20]` at `0x14004899f` and its answer compared against `japanese`, `schinese` and the rest
-/// at `0x1402c82c8` onwards. An interface that answered nought there is a null string the game compares,
+/// `[vtable+0x20]` at `0x140048a5e` and its answer compared against `japanese`, `schinese` and the rest
+/// at `0x14030ccd8` onwards. An interface that answered nought there is a null string the game compares,
 /// which is a fault rather than a language.
 ///
 /// **A slot index and not the offset**, which is what the table above carries: `0x20 / 8`.
@@ -172,7 +172,7 @@ unsafe extern "system" fn find_or_create_user_interface(
 /// address of that context.
 ///
 /// **Answered rather than called through, and it is the one that has to be.** It is where this game
-/// reaches every interface — `0x14004897c` and `0x140048993`, each followed by `mov rcx,[rax]` and a
+/// reaches every interface — `0x140048a3b` and `0x140048a52`, each followed by `mov rcx,[rax]` and a
 /// call through the vtable that lands on — and the real one hands back a context the client filled,
 /// which with no client is nothing for those two instructions to walk.
 ///

@@ -8,12 +8,10 @@
 # difficulty, 11 the character, 13 the shot, and 14, 24 and 25 each taking a press before the stage. Past
 # the question the selects are pressed through in one step — see below for why.
 #
-# **This is the one case about a stage after the first that wants no boundary inside one**: the second
-# stage's chapter 1 is a chapter the run reaches by walking into that stage, and the nine hundred frames
-# played after the retry stop well before that stage's own fight — so what says the run played on is the
-# stage's own clock rather than a chapter after the one retried. A stage of this game is one chapter until
-# its fight starts, `game/th06nc/chapters.rs` being empty; the fight's own boundaries chapter it after
-# that.
+# **The second stage's chapter 1 is a chapter the run reaches by walking into that stage**, and the nine
+# hundred frames played after the retry cross that stage's first row of `game/th06nc/chapters.rs`, at 790,
+# and stop well before its midboss. What its check holds it to is the stage's own clock carrying on after
+# the retry.
 #
 # **And the chapter again is item 0 whichever way the question comes up.** The ways on are three where
 # there is no chapter behind the one that was lost and four where there is, 更に前からやり直す being the

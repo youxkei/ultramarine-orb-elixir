@@ -3,16 +3,16 @@
 //!
 //! Two things about that one frame, both read off the exe and both things orb rests on.
 //!
-//! **The scene's own first update is in the same frame as its build.** `0x14003a8e3` calls the stage's
-//! build from inside `0x14003a810`, which is the chain's own build, and the job it registers is walked by
+//! **The scene's own first update is in the same frame as its build.** `0x14003c173` calls the stage's
+//! build from inside `0x14003c0a0`, which is the chain's own build, and the job it registers is walked by
 //! the same walk — so the stage's clock reads one on the frame the build ran and not nought. Which is
 //! what a chapter's own frame is: `Chapters` writes a chapter down against `Game::stage_frame`, and a
 //! build whose job waited a frame would put chapter 1 at frame nought and the restore one frame short of
 //! where it was taken.
 //!
 //! **And the word a run acts on is zeroed by the transition, together with the frame before's.** All six
-//! writers of `0x140a6ec60` are read — see `th06nc/asm.md` — and two of them are cases of the front
-//! end's own jump table at `0x140047ad2`, each writing nought into that word, into `0x140a6ec64` and into
+//! writers of `0x140abae80` are read — see `th06nc/asm.md` — and two of them are cases of the front
+//! end's own jump table at `0x140049232`, each writing nought into that word, into `0x140abae84` and into
 //! the two repeat statics beside them. So the pair an edge is taken from starts a run empty, and a key
 //! held from before the run is not a press inside it.
 //!
@@ -52,7 +52,7 @@ fn a_scene_of_th06nc_is_updated_on_the_frame_it_was_built_on() {
         let game = launched("th06nc-scene-built-on");
         game.frames(UNTIL_THE_FRONT_END);
 
-        // The build itself, which is orb's hook over `0x14003a9c0` entered with the manager: the stage's
+        // The build itself, which is orb's hook over `0x14003c250` entered with the manager: the stage's
         // clock goes to nought there and no frame of the loop has run yet.
         game.in_a_run_in_the_stage(0);
         assert_eq!(

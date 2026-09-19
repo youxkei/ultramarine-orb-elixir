@@ -1,0 +1,157 @@
+# **The half on th06c of holding `chapters.rs` against th06 1.02h** — `midstage-on-th06.yaml` is the other
+# half, the Extra's row `extra-on-th06c.yaml`. A run of Normal in the rewindable mode, paused on each chapter
+# a row begins and let go again with the pause menu's first item, so that a picture of the window can be
+# taken from outside: this game draws through a swapchain orb's own `screenshot` step does not reach.
+#
+# The chapter numbers are th06's own for the same boundaries, read off a launch of it —
+# `stage 2 chapter 5 at frame 4597 (script 4597): tl 4597` — and the pass holds only if this game's lines say
+# the same number over the same `tl`. The walk is a_run_played_to_its_clear's, aimed at Normal.
+#
+# **Driven as** `drive-a-run.sh <copy> th06c.exe midstage-on-th06c.yaml --log=normal --pace=8 --no-resume`
+# with `shoot-the-pauses.sh <copy> th06c.exe 20 4 s1-tl4472 s2-tl880 s2-tl4597 s3-tl1009 s3-tl2653 s4-tl2341
+# s4-tl3395 s4-tl7467 s4-tl8328 s4-tl9739 s5-tl2363 s5-tl6827 s6-tl1535` beside it — the first pause being
+# step 20 and each after it four on. A launch of it took eleven minutes.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# s1-tl4472
+- play_until: { stage: 1, chapter: 4 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s2-tl880
+- play_until: { stage: 2, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s2-tl4597
+- play_until: { stage: 2, chapter: 5 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s3-tl1009
+- play_until: { stage: 3, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s3-tl2653
+- play_until: { stage: 3, chapter: 3 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl2341
+- play_until: { stage: 4, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl3395
+- play_until: { stage: 4, chapter: 3 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl7467
+- play_until: { stage: 4, chapter: 6 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl8328
+- play_until: { stage: 4, chapter: 7 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl9739
+- play_until: { stage: 4, chapter: 8 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s5-tl2363
+- play_until: { stage: 5, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s5-tl6827
+- play_until: { stage: 5, chapter: 6 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s6-tl1535
+- play_until: { stage: 6, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+- play_until: { frames: 6000 }
+- quit: true

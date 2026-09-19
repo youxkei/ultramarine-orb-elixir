@@ -1,0 +1,83 @@
+# The Extra played from the title to its clear in 完全無欠モード with the bomb forbidden, for a clear with no hit
+# and no bomb — its walk the_extra_played_to_its_clear's, the item there only where the game's own records hold
+# the clear a_run_played_to_its_clear_without_a_bomb left in them, and its ways th06c's case of this name's: the
+# floor held after the midboss for the frames th06c's is held, the x the rules' own, and the three cards their
+# dodges under this game's numbers for them — see the_extra_played_to_its_clear.yaml, whose hold this is.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 3, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- bombs: false
+- dodge: { with: laevateinn, spell: 122 }
+- dodge: { with: clock, spell: 128 }
+- dodge: { with: and_then_there_were_none, spell: 129 }
+- press: [decide]
+  frames: 6
+- play_until: { stage: 7, chapter: 7 }
+  give_up_after: 12000
+- play_until: { frames: 300 }
+- stand_at: { y: 432 }
+- play_until: { frames: 2313 }
+- stand_at: {}
+# The rest of the stage in one step, ending at the entry the game asks a name into, which the Extra reaches
+# without an ending, cleared or lost.
+- play_until: { name: true }
+  give_up_after: 216000
+- name: ORB
+  give_up_after: 1800
+- press: [decide]
+  frames: 6
+  until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 300 }
+- quit: true

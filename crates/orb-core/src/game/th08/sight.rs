@@ -144,6 +144,9 @@ unsafe fn trace_the_field(at: (f32, f32)) {
         at,
         card_frames,
         bullets: Vec::new(),
+        beams: Vec::new(),
+        boss: None,
+        bodies: Vec::new(),
     };
     for slot in 0..BULLET_SLOTS {
         let bullet = G_BULLET_MANAGER + BULLETS_AT + slot * BULLET_BYTES;

@@ -6,14 +6,14 @@
 //! so the player moves on the frame before's keys until orb hands the read to the run.
 //!
 //! **This game has no such gap to close**, and where that was read is `th06c/asm.md`'s *Where that word comes
-//! from*: the job at `0x140058010` is the calc chain's priority nought, and inside one walk of it
-//! `0x140058098` copies `0x14090a110` into `0x14090a114`, `0x1400580a4` calls `0x14000f7b0` for the new word
-//! and `0x1400580af` writes it back — the word is built, the player moves on it and the bullets test against
+//! from*: the job at `0x140058330` is the calc chain's priority nought, and inside one walk of it
+//! `0x1400583b8` copies `0x140955390` into `0x140955394`, `0x1400583c4` calls `0x14000fa80` for the new word
+//! and `0x1400583cf` writes it back — the word is built, the player moves on it and the bullets test against
 //! where it moved, all in that same walk. So `Th06c` hands no read to the run and this file says what is left
 //! to say: that nothing of orb's puts a frame between the keys and the update, and that the pair an edge is
 //! taken from is still a pair.
 //!
-//! **Which the pair is for**: `0x14004a5c3` holds `0x14090a110` against `0x14090a114` where a bomb is
+//! **Which the pair is for**: `0x14004a683` holds `0x140955390` against `0x140955394` where a bomb is
 //! pressed, so a key held over two frames has to read as a press on the first and a hold on the second. A
 //! word moved on without its predecessor would read as a hold on every frame and no bomb would ever go off.
 
@@ -28,7 +28,7 @@ const WORK_US: i64 = 700;
 /// The stage the run below is played in, orb's own 0-based number for it.
 const THE_FIRST_STAGE: i32 = 0;
 
-/// The bit this game's own read leaves for up, which the walk at `0x14004ac69` tests first of the four.
+/// The bit this game's own read leaves for up, which the walk at `0x14004ad29` tests first of the four.
 /// Written out here rather than taken from `Th06c`'s own `button` module, which keeps the same number: a test
 /// that read its bits off the code under test would agree with it whatever either said.
 const UP: u16 = 0x0010;

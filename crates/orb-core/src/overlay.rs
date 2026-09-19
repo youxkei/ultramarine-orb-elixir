@@ -231,6 +231,17 @@ impl Overlay {
         matches!(self.backend, Backend::TheCanvas(_))
     }
 
+    /// **The canvas's view of the frame's buffer given back**, once the frame is drawn over — see
+    /// `canvas::Canvas::lets_go_of_this_frames_buffer`. Nothing for an overlay drawn with a device.
+    ///
+    /// # Safety
+    /// Must run on the device's thread, after the frame's drawing.
+    pub unsafe fn lets_go_of_this_frames_buffer(&self) {
+        if let Backend::TheCanvas(canvas) = &self.backend {
+            unsafe { canvas.lets_go_of_this_frames_buffer() };
+        }
+    }
+
     pub fn font(&self) -> &Font {
         &self.font
     }

@@ -5,13 +5,12 @@
 # past it the selects are pressed through in one step: a select of this game goes by on its own, so a step
 # apiece races it.
 #
-# **A second chapter of a stage is the fight's own boundary here**, which is the one thing this case is
-# written around: `game/th06nc/chapters.rs` holds seven empty rows, so a stage of this game is one chapter
-# until its fight starts — and the fight's boundaries chapter it after that. A probe recipe that waited on
-# `boss: true` read the bit at stage frame 1,925 and went on to `retry chapter 6 (retry 1)`, so the second
-# chapter is a chapter the run reaches by playing as far as the midboss and not one the midstage table has
-# to be filled for. Which is why the wait is on the boss first: `play_until: { stage: 1, chapter: 2 }` on
-# its own would sit through the whole of the stage before it.
+# **A second chapter of stage 1 is the midboss's own boundary here**, which is the one thing this case is
+# written around: stage 1's one row, `game/th06nc/chapters.rs`'s 4346, is after the midboss, so the stage
+# is one chapter until the midboss arrives. A probe recipe that waited on `boss: true` read the bit at
+# stage frame 1,925, so the second chapter is a chapter the run reaches by playing as far as the midboss.
+# Which is why the wait is on the boss first: `play_until: { stage: 1, chapter: 2 }` on its own would sit
+# through the whole of the stage before it.
 - wait_until: { screen: 2 }
   give_up_after: 36000
 - wait_until: { frames: 60 }

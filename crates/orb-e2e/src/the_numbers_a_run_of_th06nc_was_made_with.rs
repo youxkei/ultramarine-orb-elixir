@@ -2,8 +2,8 @@
 //! a file comes back with every one of them.**
 //!
 //! `Th06nc::numbers` reads them where the stage's own build leaves them — the seven fields of
-//! `game::th06nc::GAME_MANAGER` its stage-following path at `0x14003af12` does not write, and the seed
-//! out of the copy that path's common tail makes at `0x14003b171` — and `Th06nc::put_the_numbers_back`
+//! `game::th06nc::GAME_MANAGER` its stage-following path at `0x14003c78d` does not write, and the seed
+//! out of the copy that path's common tail makes at `0x14003c9f1` — and `Th06nc::put_the_numbers_back`
 //! writes them back. None of them is anything the buttons play against: this game's extra lives are
 //! bought with score and the panel counts up from whatever the front end left, so a run resumed without
 //! them plays out right and is *recorded* wrong, and what a run is for is the number at the end of it.
@@ -26,7 +26,7 @@
 //!
 //! **The deaths are not among what this sets**, and that is this game's own doing: `State::deaths` is
 //! orb's own count of the player's hit edges — see `game::th06nc::DEATHS`, and why the dword at
-//! `0x1404f1e60` is not a run's deaths — so there is no field of the game's to write one into. What a
+//! `0x14053cab0` is not a run's deaths — so there is no field of the game's to write one into. What a
 //! chapter carries of it is what orb counted, and `the_cases_of_th06nc_the_real_game_is_tested_with` is
 //! where a death is played for real.
 
@@ -61,7 +61,7 @@ const A_STAGE: u32 = 600;
 ///
 /// **The seed is not among them, and that is the game's own doing**: of the nine `resume::Numbers`
 /// carries, the seed is the one the stage's build writes itself — out of the copy the common tail of
-/// `0x14003af12` makes at `0x14003b171` — so what a stage begins with is that stage's own seed and not
+/// `0x14003c78d` makes at `0x14003c9f1` — so what a stage begins with is that stage's own seed and not
 /// the one the stage before it had. What it is in the record for is the stage it is *put back into*, and
 /// `Th06nc::seed_the_stage` is what puts it there.
 ///

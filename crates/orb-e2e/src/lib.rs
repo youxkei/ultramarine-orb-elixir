@@ -40,9 +40,19 @@
 pub(crate) mod fake;
 
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_further_back_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_of_a_fight_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_of_a_fight_of_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_out_of_th06cs_table;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_table_collected_for_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_table_collected_for_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_under_a_bomb_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_clear_on_demand_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
@@ -79,6 +89,12 @@ mod stepping_inside_a_stage_of_th06nc;
 mod th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_address_space_a_chapter_of_th06c_needs;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_bot_playing_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_bot_playing_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_cards_a_run_of_th06c_counted;
 #[cfg(all(test, target_arch = "x86_64"))]
@@ -130,6 +146,8 @@ mod the_replay_offered_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_replay_offered_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_run_a_retried_chapter_of_th06c_writes_down;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_run_of_th06c_left_behind;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_run_of_th06c_written_down_off_the_frame;
@@ -145,6 +163,8 @@ mod the_screen_a_finished_run_of_th06nc_ends_at;
 mod the_screens_of_th06c_in_english;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_screens_of_th06nc_in_english;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_snapshot_of_th06c_held_against_itself;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_title_menu_of_th06c_walked;
 #[cfg(all(test, target_arch = "x86_64"))]

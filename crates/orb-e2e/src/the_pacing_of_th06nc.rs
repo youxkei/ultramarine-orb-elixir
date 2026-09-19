@@ -2,22 +2,20 @@
 //!
 //! `pacing.rs` is the pacing itself — the budget, the allowance, the spin, the compositor's own lateness —
 //! and all of that is orb's code, the same code whichever game is in front of it. What is the *game's* is
-//! the frame that runs inside the loop, and this game's is a frame with no function of its own: `main`
-//! (`0x1400454f0`) holds the whole of it inline between `0x140045ce0` and `0x140045ea5`, where th06c has
-//! `0x1400256f0` to stand in for. So orb's jump stands on the fourteen bytes at `0x140045d7d` — the calc
-//! chain's `lea`, `call`, `test` and `jne` — and the loop's eleven pieces are called from
-//! `Th06nc::frame_in_the_loop` one at a time.
+//! the frame that runs inside the loop, and this game's is the function `main`'s loop calls once round,
+//! `0x14003d8b0`, which orb's jump stands on the prologue of the way it stands on th06c's — and the
+//! frame's pieces, the draw's own among them, are called from orb's frame one at a time.
 //!
 //! **And this game's limiter is called rather than skipped, with its clock disarmed first.** orb calls
-//! `0x14003c330` whole with the base at `0x140c22128` and the count at `0x140c22130` written to nought,
+//! `0x14003db50` whole with the base at `0x140c6e348` and the count at `0x140c6e350` written to nought,
 //! which puts every clock more than a period past `base + period × (count + 1)` and so starts the limiter
-//! over without a wait: neither the sleep through `0x140c220f0` nor the `pause` spin at `0x14003c594` is
+//! over without a wait: neither the sleep through `0x140c6e310` nor the `pause` spin at `0x14003ddb4` is
 //! reached, and the whole of what the game used to spend waiting is orb's to spend. `Th06nc::end_drawing`
 //! has why that and not the pieces of it, and `th06nc/asm.md`'s *The timing* has the reading.
 //!
-//! **What this game does more than once a frame it does for a replay and not for a run**: `0x140045d97`
-//! walks the calc chain again up to seven more times, and its gate wants `[0x1404f278c]` set,
-//! `[0x1404f27b0]` clear, the state at `[0x140c21d9c]` 2 and `[0x140a6ec60]` holding `0x8000` — a playback
+//! **What this game does more than once a frame it does for a replay and not for a run**: `0x14003d910`
+//! walks the calc chain again up to seven more times, and its gate wants `[0x14053d3dc]` set,
+//! `[0x14053d400]` clear, the state at `[0x140c6dfbc]` 2 and `[0x140abae80]` holding `0x8000` — a playback
 //! being fast-forwarded. A run of this game is one walk a frame, so the rate a run comes out at is the rate
 //! orb's loop hands frames over at and nothing else.
 //!

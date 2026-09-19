@@ -1,4 +1,5 @@
-//! The write over the exe's import of `CreateFileA`.
+//! The write over the exe's import a game opens its files through — `CreateFileA` or `CreateFileW`,
+//! which is `orb_core::game::FileOpen`'s to say.
 //!
 //! Done at the import rather than at the game's own score code, which is the seam `memtrack` uses and for
 //! the same reason: the game's statically linked CRT reaches the OS through it. Both of th06's own paths
@@ -16,7 +17,10 @@
 //! [`orb_core::score`]'s.
 
 use orb_core::game::FileOpen;
-use orb_core::score::{CreateFileA, Fopen, create_file_a, fopen, install_over, install_over_fopen};
+use orb_core::score::{
+    CreateFileA, CreateFileW, create_file_a, create_file_w, install_over,
+    install_over_create_file_w,
+};
 
 use crate::hook;
 
@@ -36,19 +40,21 @@ pub unsafe fn install(module: usize, opens: FileOpen) -> Result<(), hook::Error>
             };
             unsafe { install_over(std::mem::transmute::<usize, CreateFileA>(previous)) };
         }
-        // **The universal CRT's `fopen`, for a game whose every open is that** — see
-        // `orb_core::game::FileOpen::Fopen`. The `CreateFileW` under it is `ucrtbase.dll`'s own import
-        // and out of reach; the exe's entry is the one the game calls.
-        FileOpen::Fopen => {
+        // **And `CreateFileW`, for a game whose `fopen` is its own** — see
+        // `orb_core::game::FileOpen::CreateFileW`: a CRT linked statically has no `fopen` import to stand
+        // at, and every open it makes ends at this one.
+        FileOpen::CreateFileW => {
             let previous = unsafe {
                 hook::install_import(
                     module,
-                    "api-ms-win-crt-stdio-l1-1-0.dll",
-                    "fopen",
-                    hook::address(fopen as _),
+                    "KERNEL32.dll",
+                    "CreateFileW",
+                    hook::address(create_file_w as _),
                 )?
             };
-            unsafe { install_over_fopen(std::mem::transmute::<usize, Fopen>(previous)) };
+            unsafe {
+                install_over_create_file_w(std::mem::transmute::<usize, CreateFileW>(previous))
+            };
         }
     }
     Ok(())

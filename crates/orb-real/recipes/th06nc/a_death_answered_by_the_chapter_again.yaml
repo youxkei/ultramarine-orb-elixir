@@ -17,7 +17,7 @@
   frames: 6
   until: { screen: 3, cursor: 0 }
   give_up_after: 900
-# **The menu's own grace is twenty frames** — `0x14004832d` against `0x14` — so the tap that raises orb's
+# **The menu's own grace is twenty frames** — `0x140049a8d` against `0x14` — so the tap that raises orb's
 # question is repeated past it.
 - wait_until: { frames: 30 }
 - press: [decide]

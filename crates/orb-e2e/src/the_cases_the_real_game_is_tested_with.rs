@@ -221,11 +221,13 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
 /// the run's eight threads sat idle. Measured: these two tests alone took 194s of the 32-bit run, and the
 /// same split of th06c's took its own 181s to 83s. What the wall clock is now is the longest chain, which is
 /// the Normal clear and the Extra that continues it.
-const CHAINS: [&str; 11] = [
+const CHAINS: [&str; 13] = [
     "a_run_left_in_its_second_chapter",
     "a_death_answered_by_the_chapter_again",
     "a_chapter_taken_again_without_a_death",
     "a_chapter_further_back_taken_again",
+    "a_death_answered_by_a_chapter_further_back",
+    "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
     "the_stage_taken_again_from_its_start",
     "the_run_given_up_at_the_retry",
     "a_chapter_of_the_stage_after_the_first",
@@ -345,6 +347,8 @@ a_test_per_chain!(
     a_death_of_th06_answered_by_the_chapter_and_the_replay_kept => "a_death_answered_by_the_chapter_again",
     a_chapter_of_th06_taken_again_without_a_death => "a_chapter_taken_again_without_a_death",
     a_chapter_of_th06_further_back_taken_again => "a_chapter_further_back_taken_again",
+    a_death_of_th06_answered_by_a_chapter_further_back => "a_death_answered_by_a_chapter_further_back",
+    a_death_in_the_nonspell_after_a_card_of_th06_answered_by_that_nonspell => "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
     the_stage_of_th06_taken_again_from_its_start => "the_stage_taken_again_from_its_start",
     the_run_of_th06_given_up_at_the_retry => "the_run_given_up_at_the_retry",
     a_chapter_of_th06s_stage_after_the_first_and_the_run_picked_up_in_it => "a_chapter_of_the_stage_after_the_first",
@@ -421,6 +425,8 @@ a_test_per_chain!(
     a_death_of_th07_answered_by_the_chapter_and_the_replay_kept => "a_death_answered_by_the_chapter_again",
     a_chapter_of_th07_taken_again_without_a_death => "a_chapter_taken_again_without_a_death",
     a_chapter_of_th07_further_back_taken_again => "a_chapter_further_back_taken_again",
+    a_death_of_th07_answered_by_a_chapter_further_back => "a_death_answered_by_a_chapter_further_back",
+    a_death_in_the_nonspell_after_a_card_of_th07_answered_by_that_nonspell => "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
     the_stage_of_th07_taken_again_from_its_start => "the_stage_taken_again_from_its_start",
     the_run_of_th07_given_up_at_the_retry => "the_run_given_up_at_the_retry",
     a_chapter_of_th07s_stage_after_the_first_and_the_run_picked_up_in_it => "a_chapter_of_the_stage_after_the_first",

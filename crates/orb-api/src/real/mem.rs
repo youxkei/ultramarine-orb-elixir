@@ -377,8 +377,8 @@ pub fn game_regions(data: &std::ops::Range<usize>) -> Vec<(usize, usize, Source)
     // Counted from one in the order the hooks noticed them, which is what makes the name mean the same
     // pages in the next launch: `TRACKED` is only ever pushed to, so the `n`th heap of one launch is the
     // `n`th of the next wherever the OS put its handle. For a game whose allocator is the UCRT's there is
-    // exactly one, `orb::memtrack::install_ucrt`'s own `HeapCreate`, so `heap1.N` names a region of the
-    // game's heap and nothing about which heap has to be worked out to bisect it.
+    // exactly one, `orb::memtrack::install_process_heap`'s own `HeapCreate`, so `heap1.N` names a region
+    // of the game's heap and nothing about which heap has to be worked out to bisect it.
     for (which, heap) in heaps.into_iter().enumerate() {
         collect_heap(heap, which + 1, &mut regions);
     }

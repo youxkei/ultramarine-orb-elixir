@@ -6,12 +6,13 @@
 //! the run is, and a chapter restored underneath it takes the run back with it because there is nothing
 //! else for the run to be.
 //!
-//! **Its frame is orb's, the way the real one's is.** th06nc's frame is a stretch of `main` with no
-//! function of its own — see `orb_core::game::th06nc`'s `frame_in_the_loop` — so a frame here is
+//! **Its frame is orb's, the way the real one's is.** th06nc's frame is the function `main`'s loop calls,
+//! which orb stands in for whole — see `orb_core::game::th06nc`'s `THE_FRAME` — so a frame here is
 //! `orb_core::runtime::render`, whose update is th06nc's own walk of the calc chain calling *this* game's
-//! chain, whose draw is th06nc's own draw job, and whose six calls into the game — the walk, the draw, the
-//! frame's end and the three of the music's catch-up — are functions of this file's handed over through
-//! `Image::hands_over_the_frames_own_calls`.
+//! chain, whose draw is th06nc's own walk of *this* game's draw chain, and whose calls into the game — the
+//! walk, the camera, the draw's own, the frame's end and the three of the music's catch-up — are functions
+//! of this file's handed over through `Image::hands_over_the_frames_own_calls` and
+//! `Image::hands_over_the_draws_own_calls`.
 //!
 //! **And it reads its keyboard the way the real one does**: a `GetKeyboardState` it looked up, which is
 //! orb's [`orb_core::runtime::keyboard_state`], translated through the game's own table into the 256 keys
@@ -20,15 +21,15 @@
 //! this game.
 //!
 //! **The block of key bindings the real one builds its word through is not laid out here.** The real read
-//! goes keys → a copy of them one bit wide at `0x140c21f70` → the word, each binding byte in
-//! `0x140c21e5c`–`0x140c21f38` naming the scan code one action is on; which byte is which action is
+//! goes keys → a copy of them one bit wide at `0x140c6e190` → the word, each binding byte in
+//! `0x140c6e07c`–`0x140c6e158` naming the scan code one action is on; which byte is which action is
 //! `th06.cfg`'s and orb reads none of it. What is read off the exe and kept here is [`DIK_BITS`] — the
 //! bits each key's press puts in the word — so the word this game builds is the word the real one builds
 //! for a default configuration, through one step instead of three.
 //!
 //! **And it presents through a swapchain it keeps**, which is what orb draws its overlay over: the object
-//! is among the renderer's own, and [`ends_the_frame`] calls its `Present` as the real `0x14003c330`
-//! does — `0x1400953e0`, which is `jmp 0x1400928b0`. A fake that presented only through the frame loop's
+//! is among the renderer's own, and [`ends_the_frame`] calls its `Present` as the real `0x14003db50`
+//! does — `0x140097150`, which is `jmp 0x140094620`. A fake that presented only through the frame loop's
 //! own call would never reach orb's stand-in in that slot, and no e2e test could see a quad of a canvas.
 //!
 //! Where a number here is th06nc's it says so. Where it is this game's own — how far the player moves,
@@ -49,7 +50,7 @@ use orb_core::game::th06nc::image::{
 };
 use orb_core::game::th06nc::score_file::{self, CLEARED, Record};
 
-use super::{DRAW, Display, Launch, Launched, PRESENT, SOUND, UPDATE, Work, scratch};
+use super::{DRAW, Display, FLUSH, Launch, Launched, PRESENT, SOUND, UPDATE, Work, scratch};
 
 /// The exe this game is running as, and the `Game` orb is attached to found out of the table by it.
 pub const EXE: &str = "th06nc.exe";
@@ -68,6 +69,20 @@ const WINDOW_MOVED: &str = "MoveWindow";
 /// `Hooks::shows_its_window` and `Hooks::places_its_window`. See [`Fake::shows_its_window`].
 const WINDOW_SHOWN: &str = "ShowWindow";
 const WINDOW_PLACED: &str = "SetWindowPos";
+/// And the one it writes that window's styles with when it enters its window mode —
+/// `Hooks::restyles_its_window`. See [`Fake::restyles_its_window`].
+const WINDOW_RESTYLED: &str = "SetWindowLongW";
+
+/// `GWL_STYLE` and `GWL_EXSTYLE`, the two indices this game's window mode writes, in the order it writes
+/// them: the extended style at `0x1400befee` and the style at `0x1400bf011`.
+const GWL_STYLE: i32 = -16;
+const GWL_EXSTYLE: i32 = -20;
+
+/// **The styles the window mode writes**: `WS_EX_WINDOWEDGE` alone — what th06c's table at `0x1402bf888`
+/// holds for its windowed modes, and what its window was measured holding, `exstyle 0x00000100` — and a
+/// captioned style with `WS_VISIBLE` added, the way th06c adds it at `0x14009d0ee`.
+const THE_WINDOW_MODES_EX_STYLE: u32 = 0x0000_0100;
+const THE_WINDOW_MODES_STYLE: u32 = 0x00ca_0000 | 0x1000_0000;
 
 /// `SW_SHOW`, and the flags a place carries: `SWP_SHOWWINDOW`, and `SWP_NOSIZE | SWP_NOZORDER` for a call
 /// that moves the window and leaves the rest of it alone. Written out the way `orb_core::window`'s own
@@ -89,11 +104,11 @@ const ASKS_AT: (i32, i32) = (320, 180);
 const ASKED_STYLE: u32 = 0x00c0_0000 | 0x0008_0000 | 0x1000_0000;
 
 /// **The bits of the word this game's own read builds out of its 256 keys**, by the DirectInput code of
-/// the key — read off the twenty-seven binding reads at `0x140012d69` onwards, each
+/// the key — read off the twenty-seven binding reads at `0x140013499` onwards, each
 /// `neg al; sbb ecx,ecx; and ecx,<bits>; or r8d,ecx`: `Z` carries the shot with the two shortcut bits
 /// beside it, `X` the bomb with one, `Escape` two shortcut bits and no button of a run's, `Enter` the
 /// decide's own bit, `Left Shift` the focus and the four arrows their four. The scan codes are this
-/// build's own table at `0x1402c1200`.
+/// build's own table at `0x1402f6060`.
 const DIK_BITS: [(usize, u16); 9] = [
     (0x2c, SHOT | ENTER | 0x8000), // Z
     (0x2d, BOMB | 0x200),          // X
@@ -113,7 +128,7 @@ const DOWN: u16 = 0x0020;
 const LEFT: u16 = 0x0040;
 const RIGHT: u16 = 0x0080;
 /// **The decide, which is `0x100` and not orb's own `0x1000`**: the front end writes this bit into the
-/// word itself at `0x140047a6c` where a screen is to be skipped, and its edge check at `0x140048345`
+/// word itself at `0x1400491cc` where a screen is to be skipped, and its edge check at `0x140049aa5`
 /// reads it.
 const ENTER: u16 = 0x0100;
 /// The two bits `Escape` sets, of which the pause reads the second — this laid-out game's own reading,
@@ -134,9 +149,9 @@ const DIFFICULTIES_OFFERED: i32 = 4;
 const CHARACTERS: i32 = 2;
 const SHOTS: i32 = 2;
 
-/// **How many frames the main menu ignores its own decide for**, `0x14004832d` against `0x14`.
+/// **How many frames the main menu ignores its own decide for**, `0x140049a8d` against `0x14`.
 const THE_MENU_TAKES_A_PRESS_AFTER: i32 = 0x14;
-/// **And the frame the four self-advancing screens go by on**: `0x140047a4f` writes the decide into the
+/// **And the frame the four self-advancing screens go by on**: `0x1400491af` writes the decide into the
 /// word itself where `[front end + 0x9638]` is exactly `0xf`, so the screen after that is the next one.
 const A_SELECT_GOES_BY_ON_ITS_OWN_AFTER: i32 = 0xf;
 /// The frames the logo and the screen after the menu's first item last, this laid-out game's own numbers:
@@ -146,13 +161,13 @@ const ON_ITS_OWN_LASTS: i32 = 60;
 /// And how long a launch is up before its logo comes, which is what a fresh process reads as no scene.
 const LOGO_COMES_UP_AFTER: u32 = 60;
 /// The screens between the shot select and the stage. **14 and 24 take a press and 25 does not**: 24's
-/// case is `0x14004c221`, which leaves for anything under [`THE_LAST_SCREENS_GRACE`] frames and then
-/// edge-checks the decide, where 25's `0x14004c489` reads no word at all and calls the run's own start as
-/// soon as the object at `[0x140c22158]` is ready.
+/// case is `0x14004d981`, which leaves for anything under [`THE_LAST_SCREENS_GRACE`] frames and then
+/// edge-checks the decide, where 25's `0x14004dbe9` reads no word at all and calls the run's own start as
+/// soon as the object at `[0x140c6e378]` is ready.
 const SCREEN_AFTER_THE_SHOT: i32 = 14;
 const THE_SCREEN_THAT_TAKES_THE_LAST_PRESS: i32 = 24;
 const THE_SCREEN_THAT_STARTS_THE_RUN: i32 = 25;
-/// And how long that press is ignored for, `0x14004c243` against `0xf`.
+/// And how long that press is ignored for, `0x14004d9a3` against `0xf`.
 const THE_LAST_SCREENS_GRACE: i32 = 0xf;
 /// **And the three the front end walks on its way back from a run** — `16, 17, 18`, read off the eighth
 /// launch's own `front end: screen N` lines and timed by the launch of `the-front-end-after-a-run.yaml`:
@@ -189,11 +204,11 @@ const A_BOSS_IS_NEARLY_OUT_AT: u32 = MIDBOSS_BEATEN - 60;
 const A_BEATEN_BOSSES_LIFE: i32 = 5;
 
 /// **The card that schedule casts, and the name the game's own card start writes into its record** —
-/// `0x140027aa0`'s loop, which copies the name in at `+0x18` with the low byte of its bytes' sum at
-/// `+0x12`, and `0x140027b7a`, which reads the attempts at `+0x3c` and writes them back a step up.
+/// `0x140027950`'s loop, which copies the name in at `+0x18` with the low byte of its bytes' sum at
+/// `+0x12`, and `0x140027a2a`, which reads the attempts at `+0x3c` and writes them back a step up.
 ///
-/// Both, because the count orb adds for a retry is only added beside a name: `0x140027af0` holds the sum
-/// against the name and `0x140027afa` clears the record where they disagree — so a laid-out game that
+/// Both, because the count orb adds for a retry is only added beside a name: `0x1400279a0` holds the sum
+/// against the name and `0x1400279aa` clears the record where they disagree — so a laid-out game that
 /// cast a card its record was not named for would be one no attempt could be counted against. Which is
 /// what [`the_cards_a_run_of_th06nc_counted`](crate::the_cards_a_run_of_th06nc_counted) is about.
 ///
@@ -225,21 +240,21 @@ const A_BOMB_IS_TAKEN_FOR: i32 = 8;
 const A_BOMB_LASTS: u32 = 60;
 
 /// **How long the walk-in takes and what it hands the count over to**, which is the 270 frames of a
-/// stage nothing reaches the player in — `0x140068da7`'s `cmp ecx,0x1e` and the `0xf0` at `0x140068fb1`.
+/// stage nothing reaches the player in — `0x14006a4b7`'s `cmp ecx,0x1e` and the `0xf0` at `0x14006a6cf`.
 /// `th06nc/asm.md`'s *The 270 frames of a stage nothing can reach its player in* is the reading.
 const RESPAWN_TAKES: u32 = 0x1e;
 const INVULNERABLE_FOR: i32 = 0xf0;
-/// And what a stage's own register leaves on the count, `0x78` at `0x14006842b` — which no state but the
+/// And what a stage's own register leaves on the count, `0x78` at `0x140069b3b` — which no state but the
 /// invulnerability's reads, so what it is here is a number an e2e test holds the build to.
 const THE_REGISTER_LEAVES: i32 = 0x78;
 
-/// **How many updates a firing cycle lasts**: `0x140069c7e` holds the phase against thirty and the reset
+/// **How many updates a firing cycle lasts**: `0x14006b39e` holds the phase against thirty and the reset
 /// beside it puts the pair back to [`NOT_FIRING`], so the update after the thirtieth starts another.
 const A_FIRING_CYCLE_LASTS: i32 = 30;
-/// **The pair a player firing nothing holds**, phase and phase before — the qword `0x140069c94` writes
-/// and the one a stage's own register writes at `0x140068736`.
+/// **The pair a player firing nothing holds**, phase and phase before — the qword `0x14006b3b4` writes
+/// and the one a stage's own register writes at `0x140069e46`.
 const NOT_FIRING: (i32, i32) = (-1, -999);
-/// **And the phase a press starts at**, `0x140069710`. The `-999` `0x140069716` writes beside it is not
+/// **And the phase a press starts at**, `0x14006ae30`. The `-999` `0x14006ae36` writes beside it is not
 /// here because nothing outside that update ever reads it: the advance runs in the same one and puts what
 /// this held into the phase before.
 const THE_FIRST_PHASE: i32 = 0;
@@ -255,7 +270,7 @@ struct Bullet {
 const STAGES_A_RUN_PLAYS: i32 = 6;
 const DIFFICULTY_EXTRA: i32 = 4;
 /// **And the stage the Extra's own run starts in**, as the supervisor's case writes it: six, which the
-/// stage's own build then counts on to seven — `0x14007a11c`.
+/// stage's own build then counts on to seven — `0x14007bc9c`.
 const THE_EXTRAS_STAGE: i32 = 6;
 
 /// What a run starts with: the lives and bombs `th06.cfg` gives, and the Extra's own.
@@ -268,12 +283,13 @@ const EXTRA_BOMBS: i8 = 3;
 const ENDING_UPDATES: i32 = 10;
 const ROLL_UPDATES: i32 = 10;
 
-/// The score file this game opens, the file orb's fork sends the mode's runs to, and the two modes an
-/// open is made in.
+/// The score file this game opens, the file orb's fork sends the mode's runs to, and what `fopen`'s two
+/// modes come to at the `CreateFileW` the exe's own CRT ends in: `rb` asks to read a file that is there,
+/// `wb` to write one made afresh — Win32's own numbers, which are the game's arguments here.
 const SCORE_FILE: &CStr = c"score.dat";
 const THE_MODES_FILE: &str = "pointdevice_score.dat";
-const READ: &CStr = c"rb";
-const WRITE: &CStr = c"wb";
+const READ: (u32, u32) = (0x8000_0000, 3);
+const WRITE: (u32, u32) = (0x4000_0000, 2);
 
 /// What this game's calc walk answers where the frame is to carry on.
 pub const FRAME_KEPT_RUNNING: i32 = 0;
@@ -381,6 +397,10 @@ pub struct Fake {
     /// The window the host made for this game, and [`super::WINDOW`] until one was asked for — see
     /// [`Fake::creates_its_window`], which every test but the ones about the window itself leaves alone.
     window: Cell<orb_api::Hwnd>,
+    /// The size the swapchain's buffers are, and the window's client the frame last made them for — see
+    /// [`ends_the_frame`].
+    buffers: Cell<(u32, u32)>,
+    client_was: Cell<Option<orb_api::Rect>>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory.
     _installed: orb_api::Installed,
 }
@@ -494,10 +514,10 @@ impl Fake {
             super::orbs_own_loop(&config, the_game_this_is()),
         );
         image.sim().text().remove_font(&font);
-        // The nine calls orb's frame makes into this game.
+        // The calls orb's frame makes into this game, and the draw's own among them.
         image.hands_over_the_frames_own_calls(
             run_calc_chain as *const () as usize,
-            draws_the_frame as *const () as usize,
+            moves_the_camera as *const () as usize,
             ends_the_frame as *const () as usize,
             where_the_music_is as *const () as usize,
             how_long_the_track_is as *const () as usize,
@@ -505,6 +525,15 @@ impl Fake {
             makes_a_window as *const () as usize,
             covers_the_monitor as *const () as usize,
             sizes_the_picture as *const () as usize,
+        );
+        image.hands_over_the_draws_own_calls(
+            begins_the_draw as *const () as usize,
+            reads_the_viewport as *const () as usize,
+            sets_the_viewport as *const () as usize,
+            clears as *const () as usize,
+            takes_an_element_out as *const () as usize,
+            flushes_the_sprites as *const () as usize,
+            takes_the_screenshot as *const () as usize,
         );
         // **The host's own `GetProcAddress`, which orb's stands in front of** — see [`proc_address`].
         // What a launch of this game asks for through it is its keyboard read and its factory, and what
@@ -528,13 +557,15 @@ impl Fake {
                 window_moved: Some(WINDOW_MOVED),
                 window_shown: Some(WINDOW_SHOWN),
                 window_placed: Some(WINDOW_PLACED),
+                window_restyled: Some(WINDOW_RESTYLED),
                 ..Default::default()
             })
         };
         // And the file open this game's records go through, which orb's fork stands in front of —
-        // `fopen`, this being a UCRT game; see `Hooks::opens_its_files`. With it the heap the copy of that
-        // file is taken off, which orb's own copy goes through too.
-        unsafe { orb_core::score::install_over_fopen(fopen) };
+        // `CreateFileW`, the CRT's `fopen` being the exe's own and ending there; see
+        // `Hooks::opens_its_files`. With it the heap the copy of that file is taken off, which orb's own
+        // copy goes through too.
+        unsafe { orb_core::score::install_over_create_file_w(create_file_w) };
         image.hands_over_its_heap(malloc as *const () as usize, free as *const () as usize);
         image.hands_over_the_run_start(the_games_run_start as *const () as usize);
         image.sim().set_host_exe(launch.dir().join(EXE));
@@ -555,8 +586,9 @@ impl Fake {
         sim.windows()
             .set_monitor(orb_sim::Monitor::scaled(), orb_sim::Frame::SOME);
         // Where the game starts: the supervisor's job registered and nothing else — the state a fresh
-        // process reads as no scene at all.
+        // process reads as no scene at all — with the draw chain's one element.
         image.registers_the_supervisor();
+        image.registers_in_the_draw_chain(draw_job as *const () as usize, 0);
         // **The swapchain this game presents through, as the real one has one from its first frame** —
         // laid out here and *made* after the attach, which is when orb has its answer to give. See
         // [`makes_its_renderer`].
@@ -566,6 +598,7 @@ impl Fake {
             swapchain_describes_itself as *const () as usize,
             swapchain_presents as *const () as usize,
             swapchain_presents1 as *const () as usize,
+            swapchain_resizes_its_buffers as *const () as usize,
         );
         image.keeps_a_factory(factory_creates_a_swapchain as *const () as usize);
         // The card records as the stage's own build lays them out, so that a capture read back is a record
@@ -599,6 +632,8 @@ impl Fake {
             windows_remade: Cell::new(false),
             picture_sized_to: Cell::new(None),
             window: Cell::new(super::WINDOW),
+            buffers: Cell::new(super::BACK_BUFFER),
+            client_was: Cell::new(None),
             _installed: installed,
         });
         RUNNING.set(&raw const *fake);
@@ -713,12 +748,19 @@ impl Fake {
             *mut usize,
         ) -> i32 = unsafe { std::mem::transmute(creates) };
         let mut swapchain = 0usize;
+        // **The `DXGI_SWAP_CHAIN_DESC1` the real one hands over**: its size, two buffers, and the scaling
+        // and swap effect both nought — th06c's own call was read as `640x480 with 2 buffer(s), scaling 0
+        // and swap effect 0`, and this one's size is this fake's own back buffer.
+        let mut description = [0u8; 48];
+        description[..4].copy_from_slice(&super::BACK_BUFFER.0.to_le_bytes());
+        description[4..8].copy_from_slice(&super::BACK_BUFFER.1.to_le_bytes());
+        description[28..32].copy_from_slice(&2u32.to_le_bytes());
         let answered = unsafe {
             creates(
                 factory,
                 0,
                 super::WINDOW.0,
-                std::ptr::null(),
+                description.as_ptr(),
                 std::ptr::null(),
                 0,
                 &mut swapchain,
@@ -729,6 +771,11 @@ impl Fake {
 
     pub fn state(&self) -> orb_core::game::State {
         unsafe { Th06nc.read_state() }
+    }
+
+    /// The size the swapchain's buffers are now.
+    pub fn the_swapchains_buffers(&self) -> (u32, u32) {
+        self.buffers.get()
     }
 
     /// Whether the stage fires at the player, which it does unless a test says otherwise.
@@ -916,6 +963,25 @@ impl Fake {
         }
     }
 
+    /// **And the window's styles written as its window mode writes them**, through the name it asks the
+    /// host for — the extended style first and then the style, the pair th06nc makes at
+    /// `0x1400befee`/`0x1400bf011` and th06c at `0x14009d12e`/`0x14009d151`.
+    pub fn restyles_its_window(&self) {
+        let restyles =
+            unsafe { orb_core::runtime::get_proc_address(0, c"SetWindowLongW".as_ptr().cast()) };
+        assert_eq!(
+            restyles,
+            orb_core::window::set_window_long_w as *const () as usize,
+            "orb did not answer this game's ask for its window's styles with its own",
+        );
+        let restyles: orb_core::window::SetWindowLongW = unsafe { std::mem::transmute(restyles) };
+        let window = self.window.get().0 as *mut c_void;
+        unsafe {
+            restyles(window, GWL_EXSTYLE, THE_WINDOW_MODES_EX_STYLE as i32);
+            restyles(window, GWL_STYLE, THE_WINDOW_MODES_STYLE as i32);
+        }
+    }
+
     /// Whether the window's own mode has been entered, and the size the picture was last set to — what
     /// `Th06nc::prepare_frame` does to this game's window on the first frame of a launch.
     pub fn its_window_was_remade(&self) -> bool {
@@ -951,7 +1017,7 @@ impl Fake {
 
     // ---- the calc chain ----
 
-    /// `0x14003be80`: every job of the calc list in turn, and what the walk does with each answer —
+    /// `0x14003d700`: every job of the calc list in turn, and what the walk does with each answer —
     /// answering nought to carry the frame on and one to leave it, which is what the real walk answers.
     fn runs_the_calc_chain(&self) -> u8 {
         let mut at = self.image.calc_chain_head();
@@ -1003,7 +1069,7 @@ impl Fake {
     }
 
     /// The supervisor's own update at chain priority 0: the read of the frame's keys into the word the run
-    /// acts on, with the frame before's written from it first — `0x140079d26` onwards — and the state that
+    /// acts on, with the frame before's written from it first — `0x14007b8a6` onwards — and the state that
     /// has been asked for built.
     fn supervisor(&self) -> i32 {
         let frames = self.frames_since_launch.get() + 1;
@@ -1023,7 +1089,7 @@ impl Fake {
         chain_result::CONTINUES
     }
 
-    /// `0x1400a9f20` and `0x140012be0`: the keyboard read this game looked up, translated through its
+    /// `0x1400abc90` and `0x140013310`: the keyboard read this game looked up, translated through its
     /// table into the 256 keys it plays off, and the word built out of them — with the frame before's
     /// written from the word first, which is the order the supervisor has it in.
     fn reads_the_keys(&self) {
@@ -1058,13 +1124,13 @@ impl Fake {
         let run = self.image.scene_of_a_run();
         let rebuilding = self.image.scene_of_a_stage_being_rebuilt();
         let run_over = self.image.scene_of_a_run_over();
-        // **The front end, and the state a run given up asks for with it**: `0x140079f93`'s whole work is
+        // **The front end, and the state a run given up asks for with it**: `0x14007bb13`'s whole work is
         // the stage's two elements out, the two replay flags cleared and 1 — the front end — asked for
         // itself, so the two arrive at the same place. **And neither builds the screen a run ends at**,
         // which is `game::th06nc::STATE_THE_RUNS_OWN_END`'s own: that is what makes `Game::run_finished`
         // answer false for a run given up and true for one that finished.
         if wanted == front_end || wanted == run_over {
-            // **And the front end asked for, which is what `0x140079f93` does with its own state**: the
+            // **And the front end asked for, which is what `0x14007bb13` does with its own state**: the
             // state left standing is the one the next transition is read against, and a run given up that
             // left it on the run-over's own number is a launch where the run after it never starts —
             // `wanted == run && acted_on == front_end` is the branch that cuts the front end and
@@ -1098,8 +1164,8 @@ impl Fake {
             self.out_of_lives.set(false);
         } else if wanted == run && acted_on == front_end {
             // **And the word a run acts on emptied with the frame before's**, which is what the front
-            // end's own case does as a run starts: `0x140047ad4` writes nought into `0x140a6ec60`,
-            // `0x140a6ec64`, `0x140a6ec48` and `0x140a6ec5c` together, and `0x140047ee9` is a second case
+            // end's own case does as a run starts: `0x140049234` writes nought into `0x140abae80`,
+            // `0x140abae84`, `0x140abae68` and `0x140abae7c` together, and `0x140049649` is a second case
             // of that table doing the same. The two repeat statics are not laid out here, nothing of orb
             // reading them; the pair an edge is taken from is, and starting a run with a key still in it
             // is a press inside the run that nobody made — see
@@ -1112,14 +1178,14 @@ impl Fake {
             // The stage's own jobs cut and the manager registered again, which is what a stage move is.
             //
             // **And the stage itself written nowhere here**: what raises it is the build's own
-            // `0x14003af45`, which both of its paths reach — see [`stage_begun`]. Written at the
+            // `0x14003c7c0`, which both of its paths reach — see [`stage_begun`]. Written at the
             // transition as well, the stage would go up twice a boundary.
             self.tears_the_stage_down();
             self.registers_the_stage();
             self.image.is_in_scene(run, run);
         } else if wanted == self.image.scene_of_the_runs_own_end() {
             // **A run that finished**, which is the one of the two states that builds the screen:
-            // `0x140079e63` takes the stage's elements out, builds the screen and writes the name entry
+            // `0x14007b9e3` takes the stage's elements out, builds the screen and writes the name entry
             // into it — see `game::th06nc::STATE_THE_RUNS_OWN_END`.
             self.tears_the_stage_down();
             self.image.the_ending_is_over();
@@ -1142,7 +1208,7 @@ impl Fake {
     /// it would be one orb never saw.
     ///
     /// **`stage` is counted from nought, the way `State::stage` is**, and not as the manager's own field
-    /// holds it: the build counts that field on — `0x14003af45`, reached by both of its paths — so what
+    /// holds it: the build counts that field on — `0x14003c7c0`, reached by both of its paths — so what
     /// goes in before it is the nought-counted number and what comes out is that number plus one. See
     /// [`stage_begun`], and `Th06nc::start_stage`, which writes the same number for the same reason.
     pub fn builds_the_stage(&self, stage: i32) {
@@ -1182,7 +1248,7 @@ impl Fake {
     fn registers_the_stage(&self) {
         self.image.registers_the_gameplay_scene();
         // **And the shot's phase back to idle**, which is what the game's own register leaves at
-        // `0x140068736` beside the eighty slots it clears: a stage carries none of its shots in, so a
+        // `0x140069e46` beside the eighty slots it clears: a stage carries none of its shots in, so a
         // stage played into from the one before it starts firing where a stage played into from the front
         // end does. See [`Fake::fires_a_shot`].
         self.image.the_shot_phase_is(NOT_FIRING.0, NOT_FIRING.1);
@@ -1226,7 +1292,7 @@ impl Fake {
             }
         }
         let cursor = self.image.the_item_the_cursor_is_on();
-        // **The four screens that press themselves through**, `0x140047a4f`: the difficulty, the
+        // **The four screens that press themselves through**, `0x1400491af`: the difficulty, the
         // character, the shot and the screen after them go by on their own fifteenth frame whatever
         // anybody presses.
         let goes_by_on_its_own = matches!(
@@ -1244,7 +1310,7 @@ impl Fake {
                     // **Three items walk into a run** — a plain one, the Extra and a stage practised
                     // on its own — and each of the three goes by way of the screen on its own, which
                     // is the state that loads the banner saying which kind of run it is
-                    // (`0x14004ab18`, inside state 8's case).
+                    // (`0x14004c278`, inside state 8's case).
                     MENU_ITEM_RUN | MENU_ITEM_EXTRA | MENU_ITEM_PRACTICE => {
                         self.extra.set(cursor == MENU_ITEM_EXTRA);
                         // **And two of the three write the practice byte**: item 2 sets it and item 0
@@ -1290,7 +1356,7 @@ impl Fake {
                 // which a launch of `the_extra_played_to_its_clear` says: its recipe presses the decide
                 // at screen 9 without moving the cursor — which stands on Normal — and the run that
                 // started read `stage=6 diff=4`. The screen the menu's item opened is what wrote the
-                // Extra's four, `0x14007a117` being where the four is read.
+                // Extra's four, `0x14007bc97` being where the four is read.
                 if !self.extra.get() {
                     self.image.the_difficulty_is(cursor);
                 }
@@ -1386,7 +1452,7 @@ impl Fake {
         self.the_games_own_run_start();
     }
 
-    /// `0x14004dbc0`: the lives and the bombs out of the configuration — or the Extra's where the
+    /// `0x14004f320`: the lives and the bombs out of the configuration — or the Extra's where the
     /// difficulty is its — the playback flag cleared, the track put to `-1`, the practice byte written
     /// from the front end's own, and the supervisor asked for the run's own state.
     fn the_games_own_run_start(&self) {
@@ -1395,16 +1461,16 @@ impl Fake {
         } else {
             self.image.has_lives_and_bombs(CONFIG_LIVES, CONFIG_BOMBS);
         }
-        // **The one field a run carries out of the item it came from**: `0x14004dbc0` copies the front
-        // end's `+0x168d1` into `0x1404f27b4`, which is what `Th06nc::read_state` answers `practice`
+        // **The one field a run carries out of the item it came from**: `0x14004f320` copies the front
+        // end's `+0x168d1` into `0x14053d404`, which is what `Th06nc::read_state` answers `practice`
         // off once the run is under way.
         self.image
             .a_run_is_practice(self.image.does_the_item_ask_for_a_practice());
         self.image.a_replay_is_playing(false);
         self.image.plays_the_track(-1);
         // **And the stage the run starts in, which the supervisor's own case writes and not the front
-        // end**: `0x14007a11c` writes **6** where the difficulty is the Extra's — the build then counts it
-        // on to seven — and `0x14007a14b` nought for every other run. (Its third path, `0x14007a153`,
+        // end**: `0x14007bc9c` writes **6** where the difficulty is the Extra's — the build then counts it
+        // on to seven — and `0x14007bccb` nought for every other run. (Its third path, `0x14007bcd3`,
         // decrements instead where the practice byte or the scene's is set, so that the build lands on the
         // stage the front end chose; nothing here lays that screen out.)
         let extra = self.image.the_difficulty_now() == DIFFICULTY_EXTRA;
@@ -1496,8 +1562,12 @@ impl Fake {
             self.image.a_bomb_is_going_off(false);
         } else {
             let reached = |at: u32| last < at && at <= now;
+            // **Each attack from nought on the boss's own timer**, which is what the game says the fight moved
+            // on by — see `enemy::TIMER` in `th06nc/mod.rs`.
             if reached(MIDBOSS_ARRIVES) || reached(CARD_STARTS) || reached(ATTACK_CHANGES) {
-                self.image.a_boss_is_fighting(BOSS_LIFE);
+                self.image.a_boss_is_fighting(BOSS_LIFE, 0);
+            } else if self.state().boss_present && now > last {
+                self.image.the_bosses_attack_runs_on();
             }
             // **The card cast, named and counted, which is the whole of what a card's own start does** —
             // see [`THE_CARD_THE_STAGE_CASTS`]. The attack after it is a card no longer.
@@ -1522,7 +1592,10 @@ impl Fake {
             // `the_extra_of_th06nc_played_to_its_clear`, whose check is that difference. **On its own
             // frame and not the frame she leaves on**, which is the frame a trace could read it at all.
             if reached(A_BOSS_IS_NEARLY_OUT_AT) {
-                self.image.a_boss_is_fighting(A_BEATEN_BOSSES_LIFE);
+                self.image.a_boss_is_fighting(
+                    A_BEATEN_BOSSES_LIFE,
+                    self.image.the_bosses_attack_has_run_for(),
+                );
             }
             if reached(MIDBOSS_BEATEN) {
                 self.image.no_boss_is_fighting();
@@ -1584,7 +1657,7 @@ impl Fake {
                 }
             }
             // Coming back, which is what a stage's own register and a death both leave: the walk-in's
-            // thirty frames, and then the invulnerability the gate at `0x140068f8b` hands it over to.
+            // thirty frames, and then the invulnerability the gate at `0x14006a6a9` hands it over to.
             1 => {
                 let left = self.respawn_left.get().saturating_sub(1);
                 self.respawn_left.set(left);
@@ -1689,8 +1762,8 @@ impl Fake {
     }
 
     /// **The phase of the shot the player is firing, stepped the way the game's own update steps it**:
-    /// `0x1400696f4` starts a cycle where the composed word's `SHOT` is held and the pair is idle,
-    /// `0x140069ba0` makes an idle pair an update nothing comes out of, and `0x140069c6a` puts the phase
+    /// `0x14006ae14` starts a cycle where the composed word's `SHOT` is held and the pair is idle,
+    /// `0x14006b2c0` makes an idle pair an update nothing comes out of, and `0x14006b38a` puts the phase
     /// up one with what it was beside it, ending the cycle at [`A_FIRING_CYCLE_LASTS`].
     ///
     /// **The pair and not the shots it fills.** What goes into the eighty slots at `player::SHOTS` is
@@ -1712,12 +1785,12 @@ impl Fake {
     /// can be faithful about.
     ///
     /// **And the press is the half a walk-in and a hit skip, where the advance is not.** The branch at
-    /// `0x140069035` sends states 1 and 2 — the walk-in and the hit — to `0x140069738`, which is past the
-    /// press at `0x1400696f4` and before the advance at `0x140069b98`: so a player in either starts no
+    /// `0x14006a753` sends states 1 and 2 — the walk-in and the hit — to `0x14006ae58`, which is past the
+    /// press at `0x14006ae14` and before the advance at `0x14006b2b8`: so a player in either starts no
     /// cycle and still carries one already out to its end.
     ///
-    /// **And not the conversation's own gate either** — `0x140069700` skips a press while
-    /// `[[0x140a6ec08]+0x36b0]` is nought or more — this game's fake having no conversation to be in.
+    /// **And not the conversation's own gate either** — `0x14006ae20` skips a press while
+    /// `[[0x140abae28]+0x36b0]` is nought or more — this game's fake having no conversation to be in.
     fn fires_a_shot(&self, word: u16) {
         // The walk-in and the hit, the two states the press is skipped in.
         let pressing = !matches!(self.image.the_players_state(), 1 | 2);
@@ -1787,7 +1860,7 @@ impl Fake {
     /// takes the job out and puts the supervisor back.
     ///
     /// **The file is written by the entry's own decide and not by the leaving**, which is the game's
-    /// shape: `0x14007194f` hands the name at `+0x9e88` and a record built out of it to `0x14006c420`,
+    /// shape: `0x14007301f` hands the name at `+0x9e88` and a record built out of it to `0x14006db10`,
     /// and that is the one call of the seven that writes — see `th06nc/asm.md`. So orb writing the way
     /// out over this screen writes nothing, which is what it does on the real game too.
     ///
@@ -1803,7 +1876,7 @@ impl Fake {
     ///
     /// **Four states of it are not laid out**, and a test that pressed through them would be asserting
     /// this file rather than the game: sixteen, ten and twelve are the phases the real screen animates
-    /// the question through, and fourteen is where the answer is taken — `0x140071e26` raising it over a
+    /// the question through, and fourteen is where the answer is taken — `0x1400734f3` raising it over a
     /// replay slot that already holds one. What orb reaches is fifteen, which every path to the others
     /// goes through, so the one state is what this game owes.
     fn result(&self) -> i32 {
@@ -1820,15 +1893,15 @@ impl Fake {
                 self.image.the_screen_a_run_ends_at_is_in(RESULT_LEAVING);
             } else if self.image.the_entrys_cursor() == RESULT_THE_END_ITEM {
                 // **The entry's own end item**, which is the decide that copies the eight bytes out and
-                // writes fifteen — `0x140071105`.
+                // writes fifteen — `0x1400727d5`.
                 self.writes_the_score_file();
                 self.image
                     .the_screen_a_run_ends_at_is_in(RESULT_SAVE_REPLAY_QUESTION);
             } else {
                 // **And every other decide at the entry types a character rather than leaving it**, which
-                // is what the real one does: `0x140071021` writes the character the cursor is on into
-                // `+0x9e70 + typed`, `0x140071033` steps the count and `0x14007102e` stops it at eight,
-                // and `0x140071040` puts the cursor on the end item once eight are typed. **Which is why
+                // is what the real one does: `0x1400726f1` writes the character the cursor is on into
+                // `+0x9e70 + typed`, `0x140072703` steps the count and `0x1400726fe` stops it at eight,
+                // and `0x140072710` puts the cursor on the end item once eight are typed. **Which is why
                 // a recipe's `play_until: { name: true }` has a state to see at all**: the rules hold the
                 // shot while this screen is up, so an entry that left on the first decide was one whose
                 // name entry stood for less than a frame — the whole game's own chain waited out its
@@ -1849,15 +1922,29 @@ impl Fake {
 
     // ---- the score file ----
 
-    /// `fopen("score.dat", ...)` through orb's fork, which decides which file the name lands in.
+    /// `fopen("score.dat", ...)`, which reaches orb's fork as the `CreateFileW` it ends in: the fork
+    /// decides which file the name lands in.
     fn opens_the_score_file(&self, write: bool) -> Option<String> {
-        let mode = if write { WRITE } else { READ };
-        let handle =
-            unsafe { orb_core::score::fopen(SCORE_FILE.as_ptr().cast(), mode.as_ptr().cast()) };
-        // The name is [`fopen`]'s own note of where the open landed, which orb's fork decided — see
-        // `Fake::score_file_opens`, whose first entry is this read.
-        let _ = write;
-        (!handle.is_null()).then(|| {
+        let (access, disposition) = if write { WRITE } else { READ };
+        let name: Vec<u16> = SCORE_FILE
+            .to_string_lossy()
+            .encode_utf16()
+            .chain([0])
+            .collect();
+        let handle = unsafe {
+            orb_core::score::create_file_w(
+                name.as_ptr(),
+                access,
+                0,
+                std::ptr::null(),
+                disposition,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        // The name is [`create_file_w`]'s own note of where the open landed, which orb's fork decided —
+        // see `Fake::score_file_opens`, whose first entry is this read.
+        (handle as isize != orb_core::score::INVALID_HANDLE).then(|| {
             self.opens
                 .borrow()
                 .last()
@@ -1929,7 +2016,7 @@ fn records_holding(a_clear: bool) -> Vec<Record> {
 const THE_GAMES_OWN_SEED: u8 = 0x11;
 const THE_MODES_SEED: u8 = 0x22;
 
-/// `0x14004dbc0`: the game's own run start, which orb calls where it writes a run into being — entered
+/// `0x14004f320`: the game's own run start, which orb calls where it writes a run into being — entered
 /// with the front end, the way the last screen before a stage calls it.
 unsafe extern "win64" fn the_games_run_start(_front_end: usize) {
     running().the_games_own_run_start();
@@ -1958,7 +2045,7 @@ fn the_game_this_is() -> &'static dyn orb_core::game::Game {
 
 // ---- the six calls handed over ----
 
-/// `0x14003be80`: the calc chain's walk, entered with the pointer the frame keeps its exit code in.
+/// `0x14003d700`: the calc chain's walk, entered with the pointer the frame keeps its exit code in.
 unsafe extern "win64" fn run_calc_chain(_leaving_with: *mut i32) -> u8 {
     let fake = running();
     fake.launch.asked_for(UPDATE);
@@ -1966,13 +2053,60 @@ unsafe extern "win64" fn run_calc_chain(_leaving_with: *mut i32) -> u8 {
     fake.runs_the_calc_chain()
 }
 
-/// `0x14003bf70`: the draw frame, which orb calls whole.
-unsafe extern "win64" fn draws_the_frame() {
-    running().launch.asked_for(DRAW);
+/// `0x14007ccb0`: the camera, on the game's own object. Nothing a laid-out game draws turns on it.
+unsafe extern "win64" fn moves_the_camera(_game: usize, _x: f32, _y: f32) {}
+
+/// `0x1400019d0`: the draw begun, which puts the screenshot's two flags down.
+unsafe extern "win64" fn begins_the_draw() {}
+
+/// `0x1400855f0`: the viewport read, into the four ints handed over — the whole output here.
+unsafe extern "win64" fn reads_the_viewport(
+    x: *mut i32,
+    y: *mut i32,
+    width: *mut i32,
+    height: *mut i32,
+) {
+    for (into, value) in [(x, 0), (y, 0), (width, 640), (height, 480)] {
+        if !into.is_null() {
+            unsafe { *into = value };
+        }
+    }
 }
 
-/// `0x14003c330`: the frame put on the screen — **and the swapchain's own `Present` called from inside
-/// it**, `0x1400953e0` being `jmp 0x1400928b0`. That call is the whole reason orb's overlay reaches this
+/// `0x140097160`: the viewport set, which the draw makes twice — once for the clear and once back.
+unsafe extern "win64" fn sets_the_viewport(_x: i32, _y: i32, _width: i32, _height: i32) {}
+
+/// `0x140081330`: the target cleared.
+unsafe extern "win64" fn clears(_what: i32) {}
+
+/// `0x140012e10`: the element taken out of whichever chain holds it.
+unsafe extern "win64" fn takes_an_element_out(_: usize, _elem: usize) {}
+
+/// `0x140083eb0`: the renderer's batch drawn, which is the one call a sprite queued is ever drawn by.
+unsafe extern "win64" fn flushes_the_sprites(
+    _sprites: usize,
+    _count: i32,
+    _topology: i32,
+    _flushed_as: i32,
+    _one: i32,
+) {
+    running().launch.asked_for(FLUSH);
+}
+
+/// `0x140001c70`: the screenshot's own path, which does nothing where nobody asked for one.
+unsafe extern "win64" fn takes_the_screenshot() {}
+
+/// The draw chain's one job, which is what drawing anything here is: a quad's worth of sprite queued into
+/// the renderer's batch, as every draw of the real one queues its own.
+unsafe extern "win64" fn draw_job(_on: usize) -> i32 {
+    let fake = running();
+    fake.launch.asked_for(DRAW);
+    fake.image.queues_sprites(4);
+    chain_result::CONTINUES
+}
+
+/// `0x14003db50`: the frame put on the screen — **and the swapchain's own `Present` called from inside
+/// it**, `0x140097150` being `jmp 0x140094620`. That call is the whole reason orb's overlay reaches this
 /// game's screen: after `dxgi::take` the slot holds orb's own stand-in, which draws the overlay over the
 /// finished frame and then presents.
 unsafe extern "win64" fn ends_the_frame() {
@@ -1980,6 +2114,32 @@ unsafe extern "win64" fn ends_the_frame() {
     fake.pictures.set(fake.pictures.get() + 1);
     let swapchain = fake.image.the_swapchain();
     let vtable = fake.image.space().read::<usize>(swapchain);
+    // **And the buffers made the window's size again where its client has changed**, which the real game
+    // does as its window is resized — th06c's was measured asking `320x240` on every move orb made of the
+    // window it plays in. Here rather than in a message, this fake having none.
+    let client = fake.sim().windows().client(fake.window.get());
+    if let Some(client) = client.filter(|client| Some(*client) != fake.client_was.get()) {
+        fake.client_was.set(Some(client));
+        const RESIZE_BUFFERS_SLOT: usize = 13;
+        let resize = fake
+            .image
+            .space()
+            .read::<usize>(vtable + size_of::<usize>() * RESIZE_BUFFERS_SLOT);
+        if resize != 0 {
+            let resize: unsafe extern "system" fn(usize, u32, u32, u32, u32, u32) -> i32 =
+                unsafe { std::mem::transmute(resize) };
+            unsafe {
+                resize(
+                    swapchain,
+                    0,
+                    client.width() as u32,
+                    client.height() as u32,
+                    0,
+                    0,
+                )
+            };
+        }
+    }
     // The `Present` slot, counted in pointers as `orb_core::dxgi` counts it: `IUnknown`'s three,
     // `IDXGIObject`'s four and `IDXGIDeviceSubObject`'s one before it.
     const PRESENT_SLOT: usize = 8;
@@ -2010,7 +2170,7 @@ unsafe extern "win64" fn seeks_the_music(to: i64, track: i32) {
     running().seeks.borrow_mut().0.push((to, track));
 }
 
-/// **The window made over at the mode the settings asked for**, `0x14007c560` — which this game's frame
+/// **The window made over at the mode the settings asked for**, `0x14007e1b0` — which this game's frame
 /// reaches on its first frame, once. What the real one does is destroy its window and make another; what
 /// a laid-out game owes is the sizes an e2e test reads back, and the host's window is already the size
 /// the display said.
@@ -2018,7 +2178,7 @@ unsafe extern "win64" fn makes_a_window(_game: usize) {
     running().windows_remade.set(true);
 }
 
-/// And the mode that covers the monitor, `0x14007c320`, which is the borderless window orb means by
+/// And the mode that covers the monitor, `0x14007df70`, which is the borderless window orb means by
 /// fullscreen.
 unsafe extern "win64" fn covers_the_monitor(_game: usize) {
     running().windows_remade.set(true);
@@ -2057,15 +2217,15 @@ unsafe extern "system" fn swapchain_release(_object: usize) -> u32 {
 }
 
 /// `IDXGISwapChain::GetDesc`, out of which orb reads the window this game plays in — the window the
-/// simulated host made.
+/// simulated host made — and the size its buffers are.
 unsafe extern "system" fn swapchain_describes_itself(_swapchain: usize, into: *mut u8) -> i32 {
     // `DXGI_SWAP_CHAIN_DESC`, 72 bytes: the mode's own 28 — of which the first two dwords are the
     // buffer's width and height, which `orb_core::dxgi::the_size_of` reads — the sample's 8, the usage
     // and the buffer count, and the window at 48, where `orb_core::dxgi::the_window` reads it.
+    let buffers = running().buffers.get();
     let mut description = [0u8; 72];
-    description[..size_of::<u32>()].copy_from_slice(&super::BACK_BUFFER.0.to_le_bytes());
-    description[size_of::<u32>()..2 * size_of::<u32>()]
-        .copy_from_slice(&super::BACK_BUFFER.1.to_le_bytes());
+    description[..size_of::<u32>()].copy_from_slice(&buffers.0.to_le_bytes());
+    description[size_of::<u32>()..2 * size_of::<u32>()].copy_from_slice(&buffers.1.to_le_bytes());
     unsafe { std::ptr::copy_nonoverlapping(description.as_ptr(), into, description.len()) };
     const WINDOW_AT: usize = 48;
     unsafe {
@@ -2078,12 +2238,26 @@ unsafe extern "system" fn swapchain_describes_itself(_swapchain: usize, into: *m
     0
 }
 
+/// **`IDXGISwapChain::ResizeBuffers`, the buffers made that size** — written down, so that a test can say
+/// what size they are after the game asked.
+unsafe extern "system" fn swapchain_resizes_its_buffers(
+    _swapchain: usize,
+    _buffers: u32,
+    width: u32,
+    height: u32,
+    _format: u32,
+    _flags: u32,
+) -> i32 {
+    running().buffers.set((width, height));
+    0
+}
+
 /// **The swapchain's own `Present`, which is the frame handed over.** The same three things the game's own
 /// present does in this fake: the call noted, when it happened written down, and the simulated display
 /// told a frame arrived.
 ///
 /// The moment is written down here and not only in [`present`] because this is the path orb's loop takes:
-/// `Th06nc::end_drawing` calls `0x14003c330` whole, and that function presents through the swapchain. A
+/// `Th06nc::end_drawing` calls `0x14003db50` whole, and that function presents through the swapchain. A
 /// fake that noted the call and dropped the moment left `Launched::handovers_us` empty for every frame of
 /// a run orb paced, so nothing could be read off a rate — which is what `the_pacing_of_th06nc.rs` asks.
 unsafe extern "system" fn swapchain_presents(
@@ -2123,6 +2297,7 @@ unsafe extern "system" fn proc_address(_module: usize, name: *const u8) -> usize
         b"MoveWindow" => host_moves_a_window as *const () as usize,
         b"ShowWindow" => host_shows_a_window as *const () as usize,
         b"SetWindowPos" => host_places_a_window as *const () as usize,
+        b"SetWindowLongW" => host_restyles_a_window as *const () as usize,
         _ => 0,
     }
 }
@@ -2166,6 +2341,31 @@ unsafe extern "system" fn host_shows_a_window(window: *mut c_void, _how: i32) ->
             .windows()
             .show(orb_api::Hwnd(window as usize)),
     )
+}
+
+/// **And the host's own `SetWindowLongW`** for the two indices this game writes, answering what was there
+/// the way the real one does; any other index writes nothing and answers nought, which is the real one's
+/// answer for a failure.
+unsafe extern "system" fn host_restyles_a_window(
+    window: *mut c_void,
+    index: i32,
+    value: i32,
+) -> i32 {
+    let windows = running().sim().windows();
+    let window = orb_api::Hwnd(window as usize);
+    match index {
+        GWL_STYLE => {
+            let had = windows.style(window);
+            windows.set_style(window, value as u32);
+            had as i32
+        }
+        GWL_EXSTYLE => {
+            let had = windows.ex_style(window);
+            windows.set_ex_style(window, value as u32);
+            had as i32
+        }
+        _ => 0,
+    }
 }
 
 /// **And the host's own `SetWindowPos`**, which moves the window and — with `SWP_SHOWWINDOW` — shows it,
@@ -2318,28 +2518,28 @@ extern "system" fn input() -> u16 {
     0
 }
 
-/// `0x1400789a0`: the job registered three instructions past the seed's copy, which draws from the
+/// `0x14007a4a0`: the job registered three instructions past the seed's copy, which draws from the
 /// generator as the stage is built.
 extern "C" fn stage_building(_stage: i32) -> i32 {
     running().image.draws_from_the_generator();
     0
 }
 
-/// `0x14003a9c0`: the stage's own build, entered with the game manager in `rcx` — the stage raised, a
+/// `0x14003c250`: the stage's own build, entered with the game manager in `rcx` — the stage raised, a
 /// run's numbers where this is a run's start, the seed copied out of the generator with the count cleared,
 /// and the job inside it registered through orb's hook, which is where a resumed run's seed goes in.
 extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     let fake = running();
     let image = &fake.image;
     // **The state *asked for* and not the state acted on**, which is what the real build reads:
-    // `0x14003a9ec` takes the stage-following path where `[0x140c21d9c]` — the supervisor's `+0x42c` — is
+    // `0x14003c27c` takes the stage-following path where `[0x140c6dfbc]` — the supervisor's `+0x42c` — is
     // 3, and the supervisor's own job has not caught `+0x428` up to it yet when the build runs. Reading
     // the acted-on one took every transition down the run-start path instead, so a second stage began
     // with the score, the power, the point items and the extra lives all back to nought — which
     // `the_numbers_a_run_of_th06nc_was_made_with` is what caught.
     let starting = image.the_scene_wanted() != image.scene_of_a_stage_being_rebuilt();
     // **The stage counted on, whichever of the two paths ran**, which is what a launch of the real game
-    // had to say: `0x14003af10` jumps the run-start path into `0x14003af27`, so `mov r8d,[rdi+0x24]; lea
+    // had to say: `0x14003c78b` jumps the run-start path into `0x14003c7a2`, so `mov r8d,[rdi+0x24]; lea
     // edx,[r8+1]; mov [rdi+0x24],edx` — the stage read and written back one higher — is in the code
     // *both* paths share and not in the following path alone. It is why a run's first stage comes up as
     // one out of the nought the front end leaves, and why the number a resume writes is the stage counted
@@ -2348,13 +2548,13 @@ extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     // **Laid out without it, a run picked up in its second stage came up in its second here and in its
     // third on the real game**: `resume: not put back — stage 3 came up where stage 2 was asked for`,
     // with the supervisor on 1 wanting 2 the whole way through the build — which is what says the branch
-    // at `0x14003a9ec` is not what raises it.
+    // at `0x14003c27c` is not what raises it.
     let stage = image.the_stage_the_run_is_in() + 1;
     image.is_playing(stage, image.the_difficulty_now());
     if starting {
         image.fills_the_card_records();
-        // **And the file's own card records over them**, which is the `0x14006cc40(the parsed file,
-        // manager + 0x968)` at `0x14003ad68`: the layout above is what a run loses an attempt to and this
+        // **And the file's own card records over them**, which is the `0x14006e310(the parsed file,
+        // manager + 0x968)` at `0x14003c5e7`: the layout above is what a run loses an attempt to and this
         // is what a file holding one gives it back. On the run-start branch alone, as that call is — a
         // stage a run walks into reads nothing.
         if let Some(records) = fake.the_records_the_game_parses() {
@@ -2367,14 +2567,14 @@ extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     }
     // **And what the stage-following path leaves alone, which is everything a chapter records**: the
     // score, the lives, the bombs, the power, the point items, what a point item is worth, the seed and
-    // the extra lives are written nowhere in `0x14003af12`, which is what this game's resume set was
+    // the extra lives are written nowhere in `0x14003c78d`, which is what this game's resume set was
     // read off. Its one write of the
-    // score is the copy into the manager's `+0x938` at `0x14003af19`, a field two launches of the real
+    // score is the copy into the manager's `+0x938` at `0x14003c794`, a field two launches of the real
     // game read as nought across a boundary — so there is nothing here for it to do and no second score
     // field to do it to. See `game::th06nc::game_manager::SCORE`.
     //
-    // What a point item is worth is `0x1404ff0dd`, and the write the branch above copies is
-    // `0x14003aadd` — on the run-start path alone, the same as the three beside it.
+    // What a point item is worth is `0x140549d2d`, and the write the branch above copies is
+    // `0x14003c36d` — on the run-start path alone, the same as the three beside it.
     let (seed, _) = image.the_generator();
     image.the_stage_began_with_the_seed(seed);
     image.the_generator_is(seed, 0);
@@ -2395,7 +2595,7 @@ extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     image.the_player_steps_by(A_STEP, A_STEP / 2.0_f32.sqrt());
     image.the_players_box_is(PLAYER_HALF);
     // **Coming back with the register's own count under it**, which is what the game's own register at
-    // `0x14006841c` leaves: the walk-in's thirty frames and then the invulnerability's `0xf0`, which is
+    // `0x140069b2c` leaves: the walk-in's thirty frames and then the invulnerability's `0xf0`, which is
     // the 270 frames of a stage nothing reaches the player in.
     image.the_player_is_coming_back(THE_REGISTER_LEAVES);
     fake.respawn_left.set(RESPAWN_TAKES);
@@ -2431,27 +2631,35 @@ extern "C" fn save_replay(_path: *const u8, _name: *const u8) {}
 
 extern "C" fn init_d3d_device() {}
 
-/// The game's own `fopen`, as its import table held it: the name the open landed in written down, and a
-/// handle answered where the file is there — or where it is being written.
-unsafe extern "C" fn fopen(name: *const u8, mode: *const u8) -> *mut c_void {
+/// The game's own `CreateFileW`, as its import table holds it: the name the open landed in written down,
+/// and a handle answered where the file is there — or where it is being written — and
+/// `INVALID_HANDLE_VALUE` where it is not.
+#[allow(clippy::too_many_arguments)]
+unsafe extern "system" fn create_file_w(
+    name: *const u16,
+    access: u32,
+    _share: u32,
+    _security: *const c_void,
+    _disposition: u32,
+    _flags: u32,
+    _template: *mut c_void,
+) -> *mut c_void {
     let fake = running();
-    let path = unsafe { CStr::from_ptr(name.cast()) }
-        .to_string_lossy()
-        .into_owned();
-    let write = unsafe { CStr::from_ptr(mode.cast()) }
-        .to_bytes()
-        .iter()
-        .any(|byte| matches!(byte, b'w' | b'a' | b'+'));
+    let length = (0..)
+        .take_while(|at| unsafe { *name.add(*at) } != 0)
+        .count();
+    let path = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(name, length) });
+    let write = access & WRITE.0 != 0;
     let there = fake.sim().files().holds(&path);
     fake.opens.borrow_mut().push((path, write));
     if write || there {
         std::ptr::without_provenance_mut(fake.opens.borrow().len())
     } else {
-        std::ptr::null_mut()
+        std::ptr::without_provenance_mut(orb_core::score::INVALID_HANDLE as usize)
     }
 }
 
-/// Never reached: this game's records go through [`fopen`] and not `CreateFileA`.
+/// Never reached: this game's records go through [`create_file_w`] and not `CreateFileA`.
 #[allow(clippy::too_many_arguments)]
 unsafe extern "system" fn create_file(
     _name: *const u8,

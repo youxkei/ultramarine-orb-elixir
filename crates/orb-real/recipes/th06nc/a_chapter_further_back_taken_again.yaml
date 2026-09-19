@@ -5,12 +5,12 @@
 # past it the selects are pressed through in one step: a select of this game goes by on its own, so a step
 # apiece races it.
 #
-# **The chapters behind come from the fight and not from the midstage table**, which is what this case is
-# written around: `game/th06nc/chapters.rs` holds seven empty rows, so a stage of this game is one chapter
-# until its fight starts and the fight's own boundaries chapter it after that. A probe read the boss bit
-# at stage frame 1,925, `a_run_left_in_its_second_chapter` was left in
-# `stage 1 chapter 2 (MIDBOSS NONSPELL 1) at frame 1883`, and a launch that played on reached
-# `retry chapter 6`. So the wait is on the boss first and then on chapter 3, which is two behind it.
+# **The chapters behind come from the midboss and not from the midstage table**: stage 1's one row,
+# `game/th06nc/chapters.rs`'s 4346, is after the midboss, so the stage is one chapter until the midboss
+# arrives, chapter 2 while it is fought and chapter 3 once it is beaten. A probe read the boss bit at stage
+# frame 1,925 and `a_run_left_in_its_second_chapter` was left in
+# `stage 1 chapter 2 (MIDBOSS NONSPELL 1) at frame 1883`. So the wait is on the boss first and then on
+# chapter 3, which is two behind it.
 #
 # **And 更に前からやり直す is item 1 with a chapter behind the one lost**, which there is here: `retry_ui`
 # leaves that way out of the list only where there is none, so the three-way menu

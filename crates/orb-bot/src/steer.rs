@@ -37,7 +37,7 @@
 //! e2e test that pins it — `orb-e2e`'s `the_bot_playing_th07`.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 
 use orb_config::recipe::Dodge;
 use orb_core::detail;
@@ -535,7 +535,41 @@ impl Judged {
             self.on.trailing_zeros()
         }
     }
+
+    /// **The same judgement over its first `frames` frames alone** — see [`A_CROSSINGS_LOOK_AHEAD`].
+    fn within(self, frames: usize) -> Self {
+        let kept = (1u64 << frames) - 1;
+        Self {
+            on: self.on & kept,
+            warned: self.warned & kept,
+            ..self
+        }
+    }
 }
+
+/// **How many frames a move is judged over while `「レーヴァテイン」` is crossed**, where every other frame is
+/// judged over [`THE_NEXT_FRAME_AND_LOOK_AHEAD`].
+///
+/// **Because the way across is a gap between two lines of bullets that rise to the left**, `11` over every
+/// `64` across — see `crate::cards::the_lane` — and a move held for forty frames goes `160` across and out of
+/// it whichever of the nine it is: straight left meets the lower line, up and to the left the upper one. So
+/// every move towards the far edge was hit and standing in the gap was not, and the rules stood there at
+/// `376,338` with `6 of the nine clear` from the swing fading to the next reaching them, on seventeen
+/// attempts running.
+///
+/// **Six and not twelve, which was tried first**: the gap rises `0.18` for every unit across and a diagonal
+/// rises one, so held for twelve frames up and to the left climbs `34` — through the upper line — and
+/// straight left meets the lower one by then too, and the rules stood at `308,386` in
+/// `the_rules_of_th06c_make_their_way_left_between_the_lines_laevateinn_leaves` with only standing and the
+/// step back right clear. Six frames of either are `17` of climb or `24` across, inside the gap's `40`, so
+/// the two take turns and the run goes along it.
+///
+/// **And while `「そして誰もいなくなるか？」`'s walk round the field is followed**, for the same kind of reason:
+/// the card fills the field to `640` bullets going `0.5` a frame, and over forty frames every one of the nine
+/// moves goes through one of them — the rules stood with `0 of the nine clear` for over `150` frames on the top
+/// edge, `185,16`, while the card's chasers came up to them, and each of the card's hits was of a run standing
+/// still like that. Over six frames a bullet going `0.5` moves `3`, and the run `24`.
+const A_CROSSINGS_LOOK_AHEAD: usize = 6;
 
 /// The nine one-frame moves, as the direction each goes in.
 ///
@@ -638,7 +672,8 @@ const SHOT_LET_GO_EVERY: u32 = 60;
 /// own typing is a character a frame up to its length and no cadence shortens that.
 const SHOT_LET_GO_EVERY_IN_A_CONVERSATION: u32 = 10;
 
-/// The frames these rules have been asked for, which is what [`SHOT_LET_GO_EVERY`] is counted in.
+/// The frames these rules have been asked for, which is what [`SHOT_LET_GO_EVERY`] is counted in — set to the
+/// stage's own frame wherever that clock has moved, see [`the_rules_count`].
 ///
 /// A clock of its own rather than the stage's, because the stage's stops: it does not move under the pause menu
 /// and it is the clear screen's own wait that this is for.
@@ -949,8 +984,8 @@ const A_STEP_OF_ITS_OWN: f32 = 0.5;
 /// **The move's own next frame, and then the [`LOOK_AHEAD`] after it.**
 ///
 /// **The player and the hazard are projected by the same count, because one frame moves both.** th06c
-/// advances a bullet's own position at `0x14000e0a7` and hands *that* position to the hit test at
-/// `0x14000e1c0`, and the player's job is walked ahead of the bullets' — so the frame a hit happens on
+/// advances a bullet's own position at `0x14000e377` and hands *that* position to the hit test at
+/// `0x14000e490`, and the player's job is walked ahead of the bullets' — so the frame a hit happens on
 /// is one where each has taken the same number of steps, and pairing the player where it stands with
 /// the bullet a step on credits the move with a whole step of room the frame does not have. Measured:
 /// a stage 4 hit was taken on a move judged to have `2.6` of room with a bullet stepping `2.7` a frame,
@@ -1074,6 +1109,7 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     if !unsafe { game.what_a_bot_sees(frame) } {
         return 0;
     }
+    orb_core::trace::the_player_at(frame.at);
     // **And the hazards ignored while `「幻視調律」`'s lattice is where none of it can hit** — see
     // `crate::cards::visionary_tunings_lattice_cannot_hit`, which is the climb the rules dodging it never make.
     // All of them for those frames, and not the hidden bullets taken out of what the rules see: `th08::sight`
@@ -1092,7 +1128,7 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // that has held the shot since the stage began never gives it that frame: one launch spent 60 seconds
     // between stage 1's last chapter and stage 2's first. A shot in sixty is what that costs, th07's own shot firing
     // off the player's timer rather than off a press.
-    let count = FRAMES.fetch_add(1, Ordering::Relaxed);
+    let count = the_rules_count();
     let let_go_every = if frame.dialogue {
         SHOT_LET_GO_EVERY_IN_A_CONVERSATION
     } else {
@@ -1102,11 +1138,12 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // `Frame::familiars_are_worth_sparing`. The fire and not the focus, the focused shot's hits being worth
     // nothing where the unfocused one's are.
     let spares_them = hazards == Hazards::Dodged && frame.familiars_are_worth_sparing;
-    let mut word = if count.is_multiple_of(let_go_every) || spares_them {
-        0
-    } else {
-        keys.shot
-    };
+    // **Never on two asks running**, which a count set back to the stage's frame would otherwise do: the
+    // laid-out th07's clock appears at nought on the ask after one that counted nought, and let the shot go on
+    // both — three over `120` frames where there are two.
+    let lets_go = count.is_multiple_of(let_go_every) && !LET_GO_LAST_ASK.load(Ordering::Relaxed);
+    LET_GO_LAST_ASK.store(lets_go, Ordering::Relaxed);
+    let mut word = if lets_go || spares_them { 0 } else { keys.shot };
     // The frame the player is hit and not the frames after it — the window the game counts down is one this
     // presses into rather than a single frame, and its end takes the life.
     //
@@ -1166,7 +1203,20 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     let (mut steered, mut focused) = (steered, focused_through);
     // **And never the calm frame's focus for a card gone round a small square**, whose whole point is being gone
     // from where the familiars fire: see [`round_a_small_square`], whose three hits came with the key down.
-    let the_whole_step_through = the_dodge() == Some(Dodge::RoundASmallSquare);
+    // **Nor for `「レーヴァテイン」`**, whose swings across are got through by crossing the field ahead of
+    // them, which the halved step does not do in time — see `crate::cards::laevateinn`. **Nor for
+    // `「過去を刻む時計」`**, whose low clock is got past by crossing behind its centre — see
+    // `crate::cards::the_clock`. **Nor for `「そして誰もいなくなるか？」`**, whose walk round the whole field has
+    // to keep ahead of the fire piling up behind it.
+    let the_whole_step_through = matches!(
+        the_dodge(),
+        Some(
+            Dodge::RoundASmallSquare
+                | Dodge::Laevateinn
+                | Dodge::Clock
+                | Dodge::AndThenThereWereNone
+        )
+    );
     if !focused && !the_whole_step_through && holds_the_focus(frame, hazards, &steered) {
         let held = steer(frame, &keys, hazards, true, ASKED_AGAIN);
         if holds_the_focus(frame, hazards, &held) {
@@ -1887,6 +1937,49 @@ pub fn the_card_has_run(frames: Option<i32>) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = frames;
 }
 
+/// **The stage's own frame, and the one the rules were last asked on**, -1 for none — see [`the_rules_count`].
+/// Atomics rather than a lock, both being read and written on every frame a bot plays.
+static STAGE_FRAMES: AtomicI64 = AtomicI64::new(-1);
+static STAGE_FRAMES_BEFORE: AtomicI64 = AtomicI64::new(-1);
+
+/// Whether the shot was let go on the ask before this one — see [`word_to_press`].
+static LET_GO_LAST_ASK: AtomicBool = AtomicBool::new(false);
+
+/// Tells the rules which frame of the stage this is, and nothing off a run.
+pub fn the_stage_has_run(frames: Option<u32>) {
+    STAGE_FRAMES.store(frames.map_or(-1, i64::from), Ordering::Relaxed);
+}
+
+/// **This ask's number in [`FRAMES`], the count the shot's let-go is timed by** — the stage's own frame on an
+/// ask its clock has moved since, and one on from the ask before on one where it stands.
+///
+/// **The stage's frame where it moves**, so that the let-go falls on the same stage frames however long the
+/// rules had been playing before: counted from the rules' own first frame, a run picked up at th06c's Extra
+/// chapter 7 let the shot go on stage frame `8385` where the whole run it was written by let it go on `8411`,
+/// and the two parted there — the game's own numbers agreeing up to it, and a shot that goes on another frame
+/// being an enemy that falls on another, the generator's next draw with it (`8438`). What was measured off
+/// such a pick-up was not the run it was cut from: the run was hit twice in chapter 8 where all four of the
+/// pick-ups went through.
+///
+/// **And not set there only where the clock starts or goes back**, counting on by the asks between, which it
+/// was: a run asks more often than its clock moves — a line of dialogue stands the clock for as long as it is
+/// up — so that count was a history of the whole stage, and a pick-up shows the rules only the last frames of
+/// its playback (`runtime::THE_FRAMES_THE_RULES_ARE_SHOWN`). Shown the last 600 of a pick-up of that chapter 7,
+/// the rules let the shot go otherwise than the run on 20 of them and parted from it on the word at `8041`.
+///
+/// **And not the stage's clock alone**, which was tried: it stands still under the pause menu and at a stage's
+/// own clear screen, the wait the let-go is for, and a game can ask the rules more than once in a frame — timed
+/// by the stage's frame, the laid-out th07 let the shot go on sixty frames running with its clock standing at
+/// nought. Counted on by the asks while it stands, those frames let it go as they did.
+fn the_rules_count() -> u32 {
+    let stage = STAGE_FRAMES.load(Ordering::Relaxed);
+    let before = STAGE_FRAMES_BEFORE.swap(stage, Ordering::Relaxed);
+    if stage >= 0 && stage != before {
+        FRAMES.store(stage as u32, Ordering::Relaxed);
+    }
+    FRAMES.fetch_add(1, Ordering::Relaxed)
+}
+
 /// How far into the card that is up the rules are.
 fn the_cards_frames() -> Option<i32> {
     *CARD_FRAMES
@@ -2017,7 +2110,10 @@ fn the_place_it_holds(dodge: Dodge, field: (f32, f32, f32, f32)) -> Option<Stand
         | Dodge::SideToSide
         | Dodge::WithoutTheItems
         | Dodge::Focused
-        | Dodge::ImperishableShooting => return None,
+        | Dodge::ImperishableShooting
+        | Dodge::Laevateinn
+        | Dodge::Clock
+        | Dodge::AndThenThereWereNone => return None,
         Dodge::InTheMiddle => (middle, None),
         Dodge::VisionaryTuning => (
             middle,
@@ -2776,7 +2872,17 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         _ => where_to_be(frame, sweeping, goes_live),
     };
     let mut best: Option<(usize, Judged, f32, f32)> = None;
+    let crossing = settled == Settled::TheWayItWasToldToDodge
+        && match the_dodge() {
+            Some(Dodge::Laevateinn) => (wanted.0 - at.0).abs() > the_straight.0,
+            Some(Dodge::AndThenThereWereNone) => true,
+            _ => false,
+        };
     for ((judged, land), which) in judged.into_iter().zip(lands).zip(0..) {
+        let judged = match crossing {
+            true => judged.within(A_CROSSINGS_LOOK_AHEAD),
+            false => judged,
+        };
         // How near this frame's own step gets to where it wants to be, which is the first of the path: the
         // frames after it are what the move is judged *hit* by and not where it is going.
         //
@@ -3266,7 +3372,8 @@ fn round_the_field(frame: &Frame) -> (f32, f32) {
 }
 
 /// **The next corner clockwise round a box from where the run is**, measured about the box's own middle — the
-/// walk [`round_the_field`] and [`round_a_small_square`] both take, from the top-left corner to the bottom-right.
+/// walk [`round_the_field`] and [`round_a_small_square`] both take, from the top-left corner to the
+/// bottom-right.
 fn the_next_corner_clockwise(
     at: (f32, f32),
     (left, top): (f32, f32),
@@ -3538,11 +3645,14 @@ fn where_to_be(
     };
     if let Some(x) = told_x {
         // Held inside the field and not [`IN_FROM_THE_SIDE`] of it: a recipe that names the edge means
-        // the edge, that being where a beam down the middle is not.
+        // the edge, that being where a beam down the middle is not. **And a told y as deep as the floor**,
+        // for the same reason, where it was held at the low line: th06c's Extra after its midboss is fairies
+        // firing fans of three at the run, the gaps between a fan's lines wider the further they have come,
+        // and the strategy wiki's way through it is `最下部から…ちょん避けし続ける`, `64` below the low line.
         return (
             (
                 x.clamp(left, right),
-                told_y.unwrap_or(low).clamp(field.1, low),
+                told_y.unwrap_or(low).clamp(field.1, field.1 + field.3),
             ),
             settled_there,
         );
@@ -3579,6 +3689,25 @@ fn where_to_be(
     if the_dodge() == Some(Dodge::ImperishableShooting)
         && let Some(frames) = the_cards_frames()
         && let Some(there) = crate::cards::imperishable_shooting(frame, frames)
+    {
+        return (there, Settled::TheWayItWasToldToDodge);
+    }
+    // **Or at the edge the sword's swing across ends at** — see `crate::cards::laevateinn`.
+    if the_dodge() == Some(Dodge::Laevateinn)
+        && let Some(there) = crate::cards::laevateinn(frame)
+    {
+        return (there, Settled::TheWayItWasToldToDodge);
+    }
+    // **Or round the whole field** — see `crate::cards::and_then_there_were_none`.
+    if the_dodge() == Some(Dodge::AndThenThereWereNone) {
+        return (
+            crate::cards::and_then_there_were_none(frame, the_cards_frames()),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or at the bottom out of the clock's reach** — see `crate::cards::the_clock`.
+    if the_dodge() == Some(Dodge::Clock)
+        && let Some(there) = crate::cards::the_clock(frame, the_cards_frames())
     {
         return (there, Settled::TheWayItWasToldToDodge);
     }

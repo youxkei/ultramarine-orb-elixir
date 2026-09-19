@@ -317,6 +317,20 @@ impl Canvas {
         }
     }
 
+    /// **The view over this frame's buffer given back, once the frame is drawn over** — the next frame
+    /// takes its own in [`Canvas::takes_this_frames_buffer`].
+    ///
+    /// **Because a view held between frames is a reference to the swapchain's buffers**, and a swapchain
+    /// whose buffers are referenced refuses `ResizeBuffers`: th06nc makes its buffers the window's size
+    /// again from its own window procedure, between two frames, and a refusal there is a game that goes
+    /// on drawing for the size it asked while its buffers stay the size they were.
+    ///
+    /// # Safety
+    /// Must run on the thread the device was made on, after the frame's last quad.
+    pub unsafe fn lets_go_of_this_frames_buffer(&self) {
+        unsafe { d3d11::release(Object::Target(self.target.replace(d3d11::Target(0)))) };
+    }
+
     /// **One quad, in the output's own pixels.** `uv` is the piece of the sheet to read, as
     /// `[u0, v0, u1, v1]`; `colour` is `0xAARRGGBB` and multiplies it.
     ///

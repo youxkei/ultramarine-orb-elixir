@@ -43,9 +43,9 @@ const FRAMES: u32 = 1_200;
 const SCREEN_NOTHING: i32 = 0;
 
 /// **The three screens between the shot select and the stage**, which `th06nc/asm.md`'s table names: 14 the
-/// banner, 24 the one screen of the three that takes a press — `0x14004c221`, edge-checking the decide
+/// banner, 24 the one screen of the three that takes a press — `0x14004d981`, edge-checking the decide
 /// after fifteen frames — and 25 the one that reads no word at all and calls the run's own start,
-/// `0x14004c489`.
+/// `0x14004dbe9`.
 const SCREEN_AFTER_THE_SHOT: i32 = 14;
 const SCREEN_OF_THE_LAST_PRESS: i32 = 24;
 const SCREEN_THAT_STARTS_THE_RUN: i32 = 25;
@@ -60,7 +60,7 @@ const THE_REPLAY_LIST: i32 = 18;
 const THE_ITEM_THAT_ENDS_THE_GAME: i32 = 9;
 
 /// **The difficulty the Extra's own item starts a run at**, which is how a run of it is told from a Normal
-/// one: `0x14007a117` compares the word at `0x1404f27c0` with four, and `0x14003aab5` writes four where the
+/// one: `0x14007bc97` compares the word at `0x14053d410` with four, and `0x14003c345` writes four where the
 /// stage is six or past it.
 const DIFFICULTY_OF_THE_EXTRA: i32 = 4;
 
@@ -265,7 +265,7 @@ fn the_extra_item_of_th06nc_walks_the_same_screens_into_a_run_of_its_own() {
 }
 
 /// **And the practice item's own run reads as a practice**, which is the one field an item of this menu
-/// carries into the run it starts: `0x14004dbc0` copies the front end's `+0x168d1` into `0x1404f27b4` as a
+/// carries into the run it starts: `0x14004f320` copies the front end's `+0x168d1` into `0x14053d404` as a
 /// run starts, and that is what `Th06nc::read_state` answers `practice` off.
 #[test]
 fn the_practice_item_of_th06nc_starts_a_run_the_game_reads_as_a_practice() {
@@ -287,7 +287,7 @@ fn the_practice_item_of_th06nc_starts_a_run_the_game_reads_as_a_practice() {
 /// **And the front end rebuilt after a run comes back through this game's own attract cycle**, not through
 /// the screens the run was started from: 16, 17 and 18 in that order, and 18 is where it rests.
 ///
-/// **Asked for the way the game asks for it**, which is the supervisor's own state: `0x140079f93` takes the
+/// **Asked for the way the game asks for it**, which is the supervisor's own state: `0x14007bb13` takes the
 /// stage's elements out and asks for state 1 — the front end — and that is the whole of how a run gets back
 /// to one.
 #[test]

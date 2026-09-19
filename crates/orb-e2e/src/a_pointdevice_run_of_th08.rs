@@ -23,7 +23,9 @@ use std::path::PathBuf;
 use crate::fake::th08::{
     BOMBS, DIFFICULTY_NORMAL, EXE, FIRST_STAGE, Fake, LIVES, THE_FIGHTS_TRACK, TITLE_ITEM_REPLAYS,
 };
-use crate::fake::{Display, LANGUAGE, Launched, Work, in_its_own_process};
+use crate::fake::{
+    Display, LANGUAGE, Launched, Work, in_its_own_process, the_frame_chapter_began_on,
+};
 use orb_config::LogLevel;
 use orb_core::game::Menu;
 use orb_core::game::th08::image::{Scene, Screen};
@@ -518,6 +520,73 @@ fn a_th08_stages_own_boss_going_is_no_chapter_where_she_does_not_come_back() {
             log.lines().join("\n  ")
         );
     });
+}
+
+/// **A death in the nonspell after a card goes back to that nonspell and not to the card**: the retry puts the
+/// run back on the frame the nonspell's chapter began on, with no card up — th06nc's own run went back past it
+/// to the card's start while that game's fight had no nonspell chapter after a card.
+#[test]
+fn a_death_in_the_nonspell_after_a_card_of_th08_goes_back_to_that_nonspell() {
+    in_its_own_process(|| {
+        let game = in_the_stage("th08-a-death-after-a-card", THE_FIFTH);
+        let log = game.log();
+        let began = |chapter: &str| log.said(&format!("stage 6 chapter {chapter}"));
+
+        the_stage_goes_on_for(&game, A_HALF);
+        game.image().a_boss_is_fighting(0, (192.0, 96.0), 1000);
+        game.image().the_stream_reads_the_track(THE_FIGHTS_TRACK);
+        the_boss_attacks_for(&game, A_HALF);
+        assert!(
+            began("2 (BOSS NONSPELL 1)"),
+            "the boss's arrival took no chapter:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.image().a_card_is_up(A_CARD);
+        the_boss_attacks_for(&game, A_HALF);
+        assert!(
+            began("3 (BOSS SPELL 1)"),
+            "the card took no chapter:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.image().no_card_is_up();
+        the_boss_attacks_for(&game, A_HALF);
+        assert!(
+            began("4 (BOSS NONSPELL 2)"),
+            "the attack after the card took no chapter:\n  {}",
+            log.lines().join("\n  ")
+        );
+        let at = the_frame_chapter_began_on(&log.lines(), 6, 4);
+
+        game.image().has_died(1.0);
+        game.image().the_player_has_been_hit();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 4"));
+        game.press_until(keys::Z, "the retry answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+        let back = game.state();
+        assert!(
+            (at..=at + 1).contains(&back.stage_frames),
+            "the retry put the run on frame {} of the stage, where the nonspell's chapter began on frame {at}",
+            back.stage_frames,
+        );
+        assert_eq!(
+            back.spellcard, None,
+            "the retry put the run back with a card up, which is the card's chapter and not the nonspell's",
+        );
+    });
+}
+
+/// The card the boss puts up there, by the record it has of its own: any card, what the test asks of it being
+/// that it is one.
+const A_CARD: usize = 20;
+
+/// **The boss attacking for `frames`**, her attack timer stepped from nought a frame at a time as the game's
+/// own steps it — which is what says an attack began, a timer going back to nought.
+fn the_boss_attacks_for(game: &Fake, frames: u32) {
+    for frame in 0..frames {
+        game.image().the_boss_has_attacked_for(0, frame as i32);
+        a_frame_of_the_stage(game);
+    }
 }
 
 /// The two stage words those are, the powerful fourth stage and the fifth — see `fake::th08`'s

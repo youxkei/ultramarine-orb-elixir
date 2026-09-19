@@ -1,0 +1,180 @@
+# **The half on th06nc of holding `chapters.rs` against th06c** — `../th06c/midstage-on-th06c.yaml` is the
+# other half, the Extra's row `extra-on-th06nc.yaml`. A run of Normal in the rewindable mode, paused on each
+# chapter a row begins and let go again with the pause menu's first item, so that a picture of the window
+# can be taken from outside and held against th06c's of the same chapter.
+#
+# The chapter numbers are th06c's for the same boundaries: this game's midbosses are chaptered as th06c's
+# are, one chapter a stage 2 midboss, two a stage 4 one and three a stage 3, 5 or 6 one, so a row carried
+# across begins the chapter it begins there. The pass holds only if this game's lines say those numbers
+# over this table's `tl`s. The walk is a_run_played_to_its_clear's.
+#
+# **Driven as** `drive-a-run.sh <copy> th06nc.exe midstage-on-th06nc.yaml --log=normal --pace=8 --speed=1
+# --no-resume` with `shoot-the-pauses.sh <copy> th06nc.exe 32 4 s1-tl4346 s2-tl790 s2-tl4507 s3-tl809
+# s3-tl2453 s4-tl2257 s4-tl3321 s4-tl7353 s4-tl8214 s4-tl9625 s5-tl2263 s5-tl6727 s6-tl1450` beside it —
+# the first pause being step 32 and each after it four on.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 9, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# s1-tl4346
+- play_until: { stage: 1, chapter: 4 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s2-tl790
+- play_until: { stage: 2, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s2-tl4507
+- play_until: { stage: 2, chapter: 5 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s3-tl809
+- play_until: { stage: 3, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s3-tl2453
+- play_until: { stage: 3, chapter: 3 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl2257
+- play_until: { stage: 4, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl3321
+- play_until: { stage: 4, chapter: 3 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl7353
+- play_until: { stage: 4, chapter: 6 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl8214
+- play_until: { stage: 4, chapter: 7 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s4-tl9625
+- play_until: { stage: 4, chapter: 8 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s5-tl2263
+- play_until: { stage: 5, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s5-tl6727
+- play_until: { stage: 5, chapter: 6 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+# s6-tl1450
+- play_until: { stage: 6, chapter: 2 }
+  give_up_after: 90000
+- press: [menu]
+  frames: 2
+- wait_until: { frames: 2400 }
+- press: [decide]
+  frames: 2
+- play_until: { frames: 6000 }
+- quit: true

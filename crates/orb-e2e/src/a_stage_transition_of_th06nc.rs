@@ -1,13 +1,13 @@
 //! **What a stage transition of th06nc carries, and what only the start of a run puts in place.**
 //!
-//! The game manager's own build is `0x14003a9c0`, one function reached two ways, and the whole of the
-//! difference is its first condition: `0x14003a9ec` reads the supervisor's state wanted against
-//! `STATE_NEXT_STAGE` and takes the stage-following path at `0x14003af12`, where a run's first stage
+//! The game manager's own build is `0x14003c250`, one function reached two ways, and the whole of the
+//! difference is its first condition: `0x14003c27c` reads the supervisor's state wanted against
+//! `STATE_NEXT_STAGE` and takes the stage-following path at `0x14003c78d`, where a run's first stage
 //! falls through. That path writes none of the run's numbers — see `Th06nc::numbers`, whose seven fields
 //! are the seven it leaves alone — and the tail **both** paths reach raises the stage word by one at
-//! `0x14003af45` and copies the generator into the stage's own seed at `0x14003b171`.
+//! `0x14003c7c0` and copies the generator into the stage's own seed at `0x14003c9f1`.
 //!
-//! **And the score is one field here and not two.** `0x14003af19` copies the manager's `+0x938` into the
+//! **And the score is one field here and not two.** `0x14003c794` copies the manager's `+0x938` into the
 //! score a chapter records, which reads as a panel being caught up to a run — but two launches of
 //! `orb_real`'s `a_chapter_of_the_stage_after_the_first` read `+0x938` as nought across a boundary while
 //! the run's score stood at 2,555,010 and 3,188,720, so there is no second field for a transition to
@@ -35,7 +35,7 @@ const THE_NEXT_STAGE: i32 = 2;
 
 /// And the same two as `State::stage` counts them, which is from nought — **and which is also what
 /// `Fake::in_a_run_in_the_stage` is handed**: the stage's own build counts the number in that field on,
-/// `0x14003af45` doing it on both of its paths, so the number written before it is the nought-counted
+/// `0x14003c7c0` doing it on both of its paths, so the number written before it is the nought-counted
 /// one. See `fake::th06nc::stage_begun`.
 const THE_FIRST_STAGE_READ: i32 = THE_FIRST_STAGE - 1;
 const THE_NEXT_STAGE_READ: i32 = THE_NEXT_STAGE - 1;

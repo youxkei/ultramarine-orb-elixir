@@ -3,8 +3,8 @@
 //! Its own for the reason th07's is: a file is the game's, and one version number over two games' numbers is
 //! what let a field go into th06's file without being raised — see `th06::resume`. th06c is the same game
 //! played and another program playing it, and what a stage of it is restarted from is the eight fields its
-//! own replay record carries — `ReplayManager::AddedCallbackDemo` at 0x14004da40 puts them back, field for
-//! field, out of the record at 0x14004d8a0 — plus the two orb counts for itself. Those eight are th06 1.02h's
+//! own replay record carries — `ReplayManager::AddedCallbackDemo` at 0x14004dae0 puts them back, field for
+//! field, out of the record at 0x14004d940 — plus the two orb counts for itself. Those eight are th06 1.02h's
 //! eight, which is why this file reads like th06's and is not it: th06's is frozen at what shipped and reads
 //! two versions, and this one starts at 1 with the generators required.
 //!
@@ -21,8 +21,8 @@ use crate::resume::{Kept, MAX_STAGE_FRAMES};
 
 /// **The numbers a stage of th06c starts with, which is what a stage of it needs to be played again.**
 ///
-/// The eight the game's own per-stage replay record holds — `0x14004d8a0` writes them out of the statics
-/// and `0x14004da40` writes them back: the score, the seed, the point items, the power, the lives, the bombs,
+/// The eight the game's own per-stage replay record holds — `0x14004d940` writes them out of the statics
+/// and `0x14004dae0` writes them back: the score, the seed, the point items, the power, the lives, the bombs,
 /// the rank and the count of power items towards the next step of the score — and the two the record leaves
 /// behind because only the result screen and orb read them: how many extra lives the score has paid for, and
 /// the deaths.
@@ -199,7 +199,7 @@ struct Written {
     /// somebody can hold against the log by eye. See `Game::reproduction` for what changing the line costs.
     landing: String,
     /// The buttons held from each frame they changed on, keyed by that frame — only the changes, which is how
-    /// the game writes its own record too: `0x14004d760` writes an entry where the word differs from the last
+    /// the game writes its own record too: `0x14004d800` writes an entry where the word differs from the last
     /// one's and nowhere else.
     buttons: BTreeMap<u32, u16>,
     /// The generator's own state on every one of those frames, which is what says whether a playback is still

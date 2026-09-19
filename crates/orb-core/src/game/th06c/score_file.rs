@@ -4,7 +4,7 @@
 //!
 //! **Because this game reads its file once and never again.** th06 1.02h and th07 open `score.dat` at every
 //! screen that wants it, so orb's fork of that open — `crate::score` — sends each read to whichever file the
-//! mode points at. th06c opens it at `0x14002c158`, at startup, into a buffer at `0x140b77858` that every
+//! mode points at. th06c opens it at `0x14002c239`, at startup, into a buffer at `0x140bc2ad8` that every
 //! later parse decrypts and every write is rebuilt from (`th06c/asm.md`, the score file). So the fork reaches
 //! one read, made before anybody has been asked which mode the launch is, and what that read landed in is the
 //! file both modes' writes are built on. Which would be the game's own file written back out of orb's or the
@@ -15,7 +15,7 @@
 //! `CLRD` records that light the front end's items out of the game's, since a stage reached is a stage reached
 //! whichever mode reached it. See `Th06c::read_what_the_modes_file_records`, which installs what this builds.
 //!
-//! **The cipher is th06 1.02h's own**, read off the parse at `0x14004e5c4` and the write at `0x140055500`:
+//! **The cipher is th06 1.02h's own**, read off the parse at `0x14004e663` and the write at `0x140055530`:
 //! from the third byte on, each byte is `xor`ed with a key that is the key before plus the plain byte before,
 //! rotated right by five — the second byte seeding it — and a sixteen-bit sum of the plain bytes from the
 //! fifth on sits at the third, under the cipher.
@@ -31,8 +31,8 @@ const LENGTH: usize = 0x10;
 const ENCIPHERED_FROM: usize = 2;
 const SUMMED_FROM: usize = 4;
 
-/// One record, as the writer at `0x140054aae` lays it: four letters, its size twice as words, a version word
-/// of `0x10`, and its own bytes from `+0xc` — walked by the first size at `0x14004e620`.
+/// One record, as the writer at `0x140054ade` lays it: four letters, its size twice as words, a version word
+/// of `0x10`, and its own bytes from `+0xc` — walked by the first size at `0x14004e6c0`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Record {
     pub bytes: Vec<u8>,
@@ -77,7 +77,7 @@ pub fn clrd(shot: u8, reached_with_retries: [u8; 5], reached_without: [u8; 5]) -
     record(b"CLRD", &body)
 }
 
-/// Whether any `CLRD` among `records` says a run has cleared the game: what the title reads at `0x14002d436`
+/// Whether any `CLRD` among `records` says a run has cleared the game: what the title reads at `0x14002d526`
 /// to offer the Extra — see `th06c/asm.md`.
 pub fn a_clear_is_among(records: &[Record]) -> bool {
     records.iter().any(|record| {
@@ -87,7 +87,7 @@ pub fn a_clear_is_among(records: &[Record]) -> bool {
     })
 }
 
-/// What a clear is written as in those arrays, `cmp BYTE PTR [...],0x63` at `0x14002d436`.
+/// What a clear is written as in those arrays, `cmp BYTE PTR [...],0x63` at `0x14002d526`.
 pub const CLEARED: u8 = 0x63;
 
 /// The records a file holds, or `None` for bytes that are not a file of this game's: too short, a checksum

@@ -356,6 +356,27 @@ impl Windows {
         true
     }
 
+    /// **And a whole style written over whatever was there**, `SetWindowLongW` with `GWL_STYLE` — which,
+    /// carrying `WS_VISIBLE`, puts the window on the screen as [`Self::is_visible`] reads it.
+    pub fn set_style(&self, window: Hwnd, style: u32) -> bool {
+        let mut made = self.made.lock().unwrap();
+        let Some(made) = made.iter_mut().find(|made| made.handle == window) else {
+            return false;
+        };
+        made.style = style;
+        true
+    }
+
+    /// The style a window has now, and nought for a window this host never made.
+    pub fn style(&self, window: Hwnd) -> u32 {
+        self.made
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|made| made.handle == window)
+            .map_or(0, |made| made.style)
+    }
+
     /// The extended style a window has now, and nought for a window this host never made.
     pub fn ex_style(&self, window: Hwnd) -> u32 {
         self.made

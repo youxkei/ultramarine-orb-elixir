@@ -17,7 +17,7 @@
 //! - **The menu is state 3 and the title state 2**, so one decide opens the menu before the question's own
 //!   decide is pressed at it — this game's title being a screen of its own, where th06c's title *is* the
 //!   menu.
-//! - **And the menu ignores a decide for twenty frames**, `0x14004832d` against `0x14`, which is what the
+//! - **And the menu ignores a decide for twenty frames**, `0x140049a8d` against `0x14`, which is what the
 //!   recipe's tap is repeated past.
 
 use orb_config::LogLevel;

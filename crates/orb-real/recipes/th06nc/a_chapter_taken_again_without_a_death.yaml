@@ -4,9 +4,9 @@
 # **The walk to the run is `a_death_answered_by_the_chapter_again`'s**, which is where the reading of this
 # game's screens is written down: 2 the title, 3 the main menu, then 9, 11, 13, 14, 24 and 25.
 #
-# **And the run is played in frames rather than to a chapter further on**, this game having one chapter a
-# stage until `game/th06nc/chapters.rs` is filled: what says the run went on after the chapter came back
-# is the stage's own clock passing the frame it was asked to start over at.
+# **And the run is played in frames rather than to a chapter further on**, which is what the case was
+# written with while `game/th06nc/chapters.rs` was empty: what says the run went on after the chapter came
+# back is the stage's own clock passing the frame it was asked to start over at.
 #
 # **Item 0 is もう一度 whatever the run has behind it**, which is why this one needs no care about where the
 # question is raised: `retry_ui` puts the chapter first of the ways on always, and leaves 更に前からやり直す

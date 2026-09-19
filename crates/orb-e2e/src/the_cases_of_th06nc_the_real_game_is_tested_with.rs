@@ -29,10 +29,12 @@ const FRAMES: u32 = 100_000;
 const A_STAGE: u32 = 6_000;
 
 /// **The case each chain gated here starts at** — see `Case::continues`, and [`the_chain_from`].
-const CHAINS: [&str; 12] = [
+const CHAINS: [&str; 15] = [
     "a_death_answered_by_the_chapter_again",
+    "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
     "an_attempt_at_a_card_counted_and_kept",
     "a_chapter_further_back_taken_again",
+    "a_death_answered_by_a_chapter_further_back",
     "a_run_left_in_its_second_chapter",
     "a_chapter_taken_again_without_a_death",
     "the_stage_taken_again_from_its_start",
@@ -42,6 +44,7 @@ const CHAINS: [&str; 12] = [
     "a_stage_practised_on_its_own",
     "a_run_played_to_its_clear_without_a_bomb",
     "a_run_played_to_its_clear",
+    "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
 ];
 
 /// **The cases played over a stage with nothing on the field** — see [`the_chain_passes`], which has why:
@@ -51,9 +54,11 @@ const CHAINS: [&str; 12] = [
 /// to — a launch of it over an empty stage reached the sixth with `deaths=0` and its own check refused
 /// it, which is the check working. Dying is what this one is for, so it is played over a field that
 /// fires, the way `a_death_answered_by_the_chapter_again` is.
-const WITHOUT_BULLETS: [&str; 2] = [
+const WITHOUT_BULLETS: [&str; 4] = [
     "a_run_played_to_its_clear_without_a_bomb",
     "the_extra_played_to_its_clear",
+    "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
+    "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
 ];
 
 /// What the launch before left under its directory, re-rooted under this one — the trace left out, that
@@ -228,6 +233,12 @@ fn a_chapter_of_th06nc_further_back_taken_again() {
     the_chain_passes("a_chapter_further_back_taken_again");
 }
 
+/// And the same list over a death, the question the hit raised answered by the recipe and not the rules.
+#[test]
+fn a_death_of_th06nc_answered_by_a_chapter_further_back() {
+    the_chain_passes("a_death_answered_by_a_chapter_further_back");
+}
+
 /// **The run left in its second chapter and picked up there** — the chain a stage's own boundary is
 /// needed for, which this game has once its fight starts: the recipes wait on the boss before asking for
 /// a second chapter, and both checks are th06c's unchanged.
@@ -293,4 +304,20 @@ fn a_run_of_th06nc_played_to_its_clear_and_the_extra_it_unlocked() {
 #[test]
 fn a_run_of_th06nc_played_to_its_clear_in_pointdevice_mode() {
     the_chain_passes("a_run_played_to_its_clear");
+}
+
+/// **A death in the nonspell after a card, answered by that nonspell again** — the laid-out midboss's own,
+/// whose card at `CARD_STARTS` is the run's first and whose attack after it at `ATTACK_CHANGES` is the one
+/// the hit lands in.
+#[test]
+fn a_death_in_the_nonspell_after_a_card_of_th06nc_answered_by_that_nonspell() {
+    the_chain_passes("a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell");
+}
+
+/// **And the Normal run with no hit and no bomb**, over a field with nothing on it here — see
+/// [`WITHOUT_BULLETS`]: what the laid-out game says of it is the walk, the ending, the name and the word
+/// never pressing the bomb, the hits being the real game's to take.
+#[test]
+fn a_normal_run_of_th06nc_played_to_its_clear_with_no_hit_and_no_bomb() {
+    the_chain_passes("a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb");
 }

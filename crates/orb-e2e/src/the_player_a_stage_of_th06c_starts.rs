@@ -1,23 +1,27 @@
-//! **What a stage of th06c leaves its player as, which is 270 frames nothing can kill them in.**
+//! **What a stage of th06c leaves its player as, which is 240 frames nothing can kill them in.**
 //!
 //! th06 1.02h's own answer is `the_player_a_stage_starts.rs` and this game has the same one, read off its
 //! exe rather than carried over:
 //!
-//! - **`0x140049de0` is the player's own register.** It reads the character at `0x1403a33bc` and the shot at
-//!   `0x1403a33bd`, fills the four speeds at `+0x7380` from the table at `0x140396420`, and writes the state
-//!   byte at `+0x73b8` to **1** (`0x14004a072`), the count at `+0x7378` to **120** (`0x14004a08c`) and the
-//!   timer at `+0x7374` to **-999** (`0x14004a096`). Its own `cmp DWORD PTR [0x140b7762c],0x3` at
-//!   `0x140049e01` is it telling a stage's build from a run's start, so it runs at both.
-//! - **The walk-in lasts thirty frames.** `0x14004aaba`'s `cmp r8d,0x1e` is the gate, and past it
-//!   `0x14004aac0` onwards writes the state **3**, the count **0xf0**, the timer -999 and six frames of
-//!   deathbomb window at `+0x7254`.
-//! - **And state 3 counts down to nothing.** `0x14004ab8e` tests the state against 3 and
-//!   `0x14004ab9d`–`0x14004aba9` takes one off the count and puts the state back to nought where it runs out.
+//! - **`0x140049ea0` is the player's own register.** It reads the character at `0x1403ed02c` and the shot at
+//!   `0x1403ed02d`, fills the four speeds at `+0x7380` from the table at `0x1403e0090`, and writes the state
+//!   byte at `+0x73b8` to **1** (`0x14004a132`), the count at `+0x7378` to **120** (`0x14004a14c`) and the
+//!   timer at `+0x7374` to **-999** (`0x14004a156`). Its own `cmp DWORD PTR [0x140bc28ac],0x3` at
+//!   `0x140049ec1` is it telling a stage's build from a run's start, so it runs at both.
+//! - **The walk-in ends on that count.** `0x14004ab7a`'s `cmp r8d,0x1e` is the gate — `r8d` being the
+//!   count, loaded at `0x14004aaf2` — and past it `0x14004ab80` onwards writes the state **3**, the count
+//!   **0xf0**, the timer -999 and six frames of deathbomb window at `+0x7254`. A death leaves nought on the
+//!   count and walks the player in for thirty updates; the register's 120 is past the gate already, so a
+//!   stage's walk-in ends on its first update.
+//! - **And state 3 counts down to nothing**, in that same update: `0x14004ac4e` tests the state against 3
+//!   and `0x14004ac5d`–`0x14004ac69` takes one off the count and puts the state back to nought where it runs
+//!   out.
 //!
-//! **So the hit test cannot reach the player for 30 + 240 = 270 frames of every stage**, `0x14004c6ce`
-//! gating a hit on that byte being nought. Which is what the second test here is about, and what the first
-//! one is is the two numbers the register leaves — the state a chapter cannot be taken in, and a count
-//! nobody but state 3 reads.
+//! **So the hit test cannot reach the player for the first 240 frames of every stage**, `0x14004c78e`
+//! gating a hit on that byte being nought — and **a real launch read it so**: `state=3` on the Extra's stage
+//! frame 1 and every frame to 239, and `state=0` from 240, with `unsettled=False` from frame 1 on the
+//! Extra and on Normal stages 1 and 2. Which is what the second test here is about, and what the first one
+//! is is the two numbers the register leaves before any update has run.
 //!
 //! **Read off the exe and not off this tree**, because the laid-out game is both the writer and the reader
 //! of the memory orb is driven through: a build that left the player playing would be one every e2e test
@@ -40,10 +44,9 @@ const PLAYING: u8 = 0;
 const COMING_BACK: u8 = 1;
 const UNTOUCHABLE: u8 = 3;
 
-/// What the register leaves on the count, what the walk-in leaves there, and how long the walk-in is.
+/// What the register leaves on the count, and what the walk-in's end leaves there.
 const THE_REGISTER_LEAVES: i32 = 120;
 const THE_WALK_IN_LEAVES: i32 = 0xf0;
-const THE_WALK_IN_TAKES: u32 = 30;
 
 fn launched(name: &str) -> Box<Fake> {
     Fake::attach_configured(
@@ -79,43 +82,37 @@ fn a_stage_of_th06c_starts_its_player_coming_back() {
     });
 }
 
-/// And nothing reaches the player until the walk-in and the invulnerability after it have both run out,
-/// which is 270 frames of every stage.
+/// And the stage's first update ends the walk-in, the register's count being past its gate, and nothing
+/// reaches the player until the invulnerability after it runs out, on the stage's 240th frame.
 #[test]
-fn nothing_of_a_stage_of_th06c_reaches_its_player_for_the_first_270_frames() {
+fn nothing_of_a_stage_of_th06c_reaches_its_player_for_the_first_240_frames() {
     in_its_own_process(|| {
         let game = launched("th06c-the-players-first-frames");
         game.in_a_run_in_the_stage(THE_FIRST_STAGE);
 
-        // The walk-in, which is the state the build left and the frames it lasts.
-        for frame in 0..THE_WALK_IN_TAKES {
-            game.frame();
-            let state = game.image().the_players_state();
-            assert!(
-                state == COMING_BACK || (state == UNTOUCHABLE && frame + 1 == THE_WALK_IN_TAKES),
-                "the player is in state {state} on frame {} of a walk-in of {THE_WALK_IN_TAKES}",
-                frame + 1,
-            );
-        }
+        // The walk-in, over on the one update: the count handed over and one off it in the same update.
+        game.frame();
         assert_eq!(
             (
                 game.image().the_players_state(),
                 game.image().the_frames_the_player_is_untouchable_for(),
             ),
-            (UNTOUCHABLE, THE_WALK_IN_LEAVES),
-            "the walk-in did not hand the player over to the count the game's own gives it",
+            (UNTOUCHABLE, THE_WALK_IN_LEAVES - 1),
+            "the stage's first update did not hand the player over to the count the walk-in's end gives",
+        );
+        assert!(
+            !game.state().unsettled,
+            "a player past the walk-in reads as one still coming back",
         );
 
         // And the invulnerability after it, run out frame by frame: the player is playing on the frame the
         // count reaches nothing and in no frame before it.
-        game.frames_until(
-            "the player playing",
-            THE_WALK_IN_LEAVES as u32 + THE_WALK_IN_TAKES,
-            || game.image().the_players_state() == PLAYING,
-        );
+        game.frames_until("the player playing", THE_WALK_IN_LEAVES as u32, || {
+            game.image().the_players_state() == PLAYING
+        });
         assert_eq!(
             game.state().stage_frames,
-            THE_WALK_IN_TAKES + THE_WALK_IN_LEAVES as u32,
+            THE_WALK_IN_LEAVES as u32,
             "the player began playing on another frame of the stage than the count says",
         );
 

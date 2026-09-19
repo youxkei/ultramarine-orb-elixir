@@ -5,10 +5,10 @@
 //! `cargo xtask real` walks this menu by pressing at it, so a laid-out menu that lands on another item
 //! reaches a screen the case is not about. Where each number comes from:
 //!
-//! - **Eight items in th06 1.02h's own order**, which `0x14002d4a2` steps the cursor over the second of
+//! - **Eight items in th06 1.02h's own order**, which `0x14002d592` steps the cursor over the second of
 //!   where no clear has unlocked the Extra — `inc eax; mov [rdi+0x28],eax`.
 //! - **And the decide ignored for twenty frames**, `cmp DWORD PTR [rdi+0x9450],0x14` inside the title's own
-//!   case at `0x14002d524`, which is what every recipe's six-frame tap is repeated past.
+//!   case at `0x14002d614`, which is what every recipe's six-frame tap is repeated past.
 //!
 //! The item orb's own question stands over is `the_mode_question_over_th06c`'s subject; what this file is
 //! about is the menu underneath it, so the mode is fixed rather than asked — see

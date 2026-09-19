@@ -6,13 +6,13 @@
 # card that is up where a chapter is taken again — the game counts an attempt where a card *starts* and a
 # chapter beginning inside one never starts it — and `Th06nc::put_back_the_cards_a_run_left` is what keeps
 # that count: the build of a run's *first* stage reads the score file over all 134 records,
-# `0x14006cc40(the parsed file, manager + 0x968)` at `0x14003ad68`, so a count is lost at the start of the
+# `0x14006e310(the parsed file, manager + 0x968)` at `0x14003c5e7`, so a count is lost at the start of the
 # run after the one that made it and nowhere else. A launch that quits at the retry says nothing about that
 # half, which is what the probe beside the copy did.
 #
-# **The card is reached through the fight and not through the midstage table**, `game/th06nc/chapters.rs`
-# holding seven empty rows: a probe read the boss bit at stage frame 1,925 and `State::spellcard` at 6,245,
-# so the wait is on the boss and then on the card.
+# **The card is reached by waiting on it and not on a chapter**, which moves with the midstage table: a
+# probe read the boss bit at stage frame 1,925 and `State::spellcard` at 6,245, so the wait is on the boss
+# and then on the card.
 #
 # **Nothing is taken at all, the chapter being asked for again rather than lost**: orb counts an attempt
 # for any chapter taken again with a card up, and a hit is drawn for once as a chapter starts — so rules
@@ -87,9 +87,9 @@
 # way it gives a run up, and the cycle starts again at 16.
 # **And the way back to the menu is the cancel and not the decide.** What a run given up leaves is the
 # front end's own attract cycle — `front end: screen 16, 17, 18` — and **18 is the replay list**:
-# `0x140048b45` waits forty frames, moves a cursor on `0x40` and `0x80` through the entries at
-# `+0x34 + n*0x200` that state 16 formats `replay/th6_%.2d.rpy` into, and its decide calls `0x14006af60`
-# and then `0x14004d680`, the replay's own start. A launch that pressed the decide there sat on 18 for its
+# `0x14004a2a5` waits forty frames, moves a cursor on `0x40` and `0x80` through the entries at
+# `+0x34 + n*0x200` that state 16 formats `replay/th6_%.2d.rpy` into, and its decide calls `0x14006c670`
+# and then `0x14004ede0`, the replay's own start. A launch that pressed the decide there sat on 18 for its
 # whole bound while the game went on to `screen 20`, `26` and a playback of its own. So this presses the
 # cancel until the main menu is up, and then aims the cursor at item 0 — a cancel at the *menu* puts the
 # cursor on the item that ends the game, which is why the walk below re-aims it rather than pressing on.

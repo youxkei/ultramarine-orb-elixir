@@ -262,18 +262,19 @@ pub fn chains_of(game: Game) -> Vec<Vec<Case>> {
 /// nineteen chapter restores without a fault, wrote its run to `pointdevice_resume` and gave the run up
 /// to the title.
 ///
-/// **What keeps the list apart is `game/th06nc/chapters.rs`**, whose seven rows are empty — and what
-/// that costs is narrower than it reads. A stage of this game is one chapter **until its fight starts**:
-/// the boundaries a fight has of its own still chapter it, and a launch of a probe recipe that played
-/// into stage 1's boss reached `retry chapter 6 (retry 1)` at stage frame 9,542. So what the empty table
-/// costs is the boundaries *before* the fight, and a case that wants a second chapter of a stage wants a
-/// recipe that plays as far as the midboss — which arrives later than stage frame 1,925, past where
-/// every case here asks. That table is the person at the keyboard's to fill, which is a change of its
-/// own; what this list grows by until then is the cases that need no chapter past the one a stage begins
-/// in.
+/// **What kept the list apart was `game/th06nc/chapters.rs`**, whose seven rows were empty when these
+/// cases were written: a stage of this game was one chapter until its fight started, so every case here
+/// that is about a chapter of a stage was written about chapter 1 or about the midboss's chapters, and its
+/// check is th06c's less the wait for a chapter after the one retried. The table holds th06c's rows now,
+/// moved onto this game's clock, so those waits are there to be had again.
 pub fn cases_of(game: Game) -> Vec<Case> {
     match game {
-        Game::Th06 | Game::Th07 | Game::Th06c => the_cases_of_a_game_orb_rewinds(game),
+        Game::Th06 | Game::Th07 => the_cases_of_a_game_orb_rewinds(game),
+        Game::Th06c => {
+            let mut cases = the_cases_of_a_game_orb_rewinds(game);
+            cases.extend(the_no_hit_cases_of_th06c());
+            cases
+        }
         Game::Th06nc => the_cases_of_th06nc(),
         Game::Th08 => the_cases_of_th08(),
     }
@@ -502,6 +503,26 @@ fn the_cases_of_th08() -> Vec<Case> {
             within: WITHIN,
             check: checks::a_chapter_further_back_taken_again,
         },
+        // **And the same list over a death**, and a death in the nonspell after a card — the cases the
+        // rewinding games have of these names, with their checks.
+        Case {
+            game: Game::Th08,
+            name: "a_death_answered_by_a_chapter_further_back",
+            recipe: include_str!("../recipes/th08/a_death_answered_by_a_chapter_further_back.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_answered_by_a_chapter_further_back,
+        },
+        Case {
+            game: Game::Th08,
+            name: "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
+            recipe: include_str!(
+                "../recipes/th08/a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell.yaml"
+            ),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
+        },
         // **And one stage practised on its own**, the title's fourth item, which a copy with nothing cleared
         // draws and whose stage select offers that copy the first stage.
         Case {
@@ -525,12 +546,10 @@ fn the_cases_of_th08() -> Vec<Case> {
 /// the chain, and a clear is known from the ending's own job arriving. Both are `orb-core`'s
 /// `game/th06nc/asm.md`'s.
 ///
-/// **And a list of its own rather than the rewinding games', because this game's midstage table is
-/// empty.** `Th06nc::rewinds` answers true and a launch has taken nineteen chapters of a run of it, but
-/// `game/th06nc/chapters.rs` has no boundary inside a stage — so every case the rewinding list writes
-/// about a chapter *of* a stage is written here about **chapter 1** instead, which a stage's own start is
-/// and which a death goes back to. What the table's rows would buy is a boundary in the middle of a
-/// stage to retry at, and the cases waiting on that are `orb-e2e`'s rather than these. See [`cases_of`].
+/// **And a list of its own rather than the rewinding games', because this game's midstage table was
+/// empty when it was written.** So every case the rewinding list writes about a chapter *of* a stage is
+/// written here about **chapter 1** instead, which a stage's own start is and which a death goes back to,
+/// or about the midboss's chapters. See [`cases_of`].
 ///
 /// **The Extra continues the clear**, in the directory the clear's launch left its records in: this game
 /// offers its Extra only once a run has been cleared, and the records that say so are the score file the
@@ -539,11 +558,10 @@ fn the_cases_of_th08() -> Vec<Case> {
 fn the_cases_of_th06nc() -> Vec<Case> {
     vec![
         // **The mode's own case, and the one chapter 1 alone can reach**: a death answered by the chapter
-        // again. Every other case about a chapter of a stage wants a boundary inside one and this game has
-        // none until its midstage table is filled — but a death in a stage goes back to that stage's
-        // start, which is chapter 1, so the retry, the restore and the run carrying on out of it are all
-        // here. Its check is this game's own for one step of it: what says the run went on is the stage's
-        // own clock and not a chapter after the one it died in, there being none.
+        // again. A death early in a stage goes back to that stage's start, which is chapter 1, so the
+        // retry, the restore and the run carrying on out of it are all here. Its check is this game's own
+        // for one step of it: what says the run went on is the stage's own clock and not a chapter after
+        // the one it died in, the recipe stopping inside that chapter.
         Case {
             game: Game::Th06nc,
             name: "a_death_answered_by_the_chapter_again",
@@ -575,6 +593,18 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             continues: true,
             within: WITHIN,
             check: checks::an_attempt_of_the_kept_replay_watched,
+        },
+        // **A death in a fight's nonspell after a card, answered by that nonspell again** — the mode's promise
+        // over a fight, each of a boss's attacks a chapter, which none of the cases before this one held.
+        Case {
+            game: Game::Th06nc,
+            name: "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
+            recipe: include_str!(
+                "../recipes/th06nc/a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell.yaml"
+            ),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
         },
         // **The other two answers the same question takes**, which need no boundary inside a stage
         // either: the stage again from its own start — which for this game *is* chapter 1, so what it
@@ -618,11 +648,23 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             within: WITHIN,
             check: checks::a_chapter_further_back_taken_again,
         },
+        // **And the same list over a death**, which is where somebody playing meets it — the case the
+        // rewinding games have of this name.
+        Case {
+            game: Game::Th06nc,
+            name: "a_death_answered_by_a_chapter_further_back",
+            recipe: include_str!(
+                "../recipes/th06nc/a_death_answered_by_a_chapter_further_back.yaml"
+            ),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_answered_by_a_chapter_further_back,
+        },
         // **The run left in its second chapter and picked up there** — the pair a stage's *own* boundary
-        // is needed for, which this game has once its fight starts: `game/th06nc/chapters.rs` is empty,
-        // so a stage of it is one chapter until then and the fight's boundaries chapter it after — see
-        // [`cases_of`]. The recipes therefore wait on the boss before asking for a second chapter, and
-        // both checks are th06c's unchanged, every line of them being orb's rather than a game's.
+        // is needed for, which stage 1 of this game has first where its midboss arrives, its one row of
+        // `game/th06nc/chapters.rs` coming after the midboss. The recipes therefore wait on the boss before
+        // asking for a second chapter, and both checks are th06c's unchanged, every line of them being
+        // orb's rather than a game's.
         Case {
             game: Game::Th06nc,
             name: "a_run_left_in_its_second_chapter",
@@ -640,10 +682,9 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             check: checks::the_run_picked_up_where_it_was_left,
         },
         // **The stage after the first, and the run left there picked up in it** — the pair of cases about
-        // a stage a run *walked into* rather than started at, which want no boundary inside one: each
-        // stage of this game is a chapter from its own start, so the second stage's chapter 1 is reached
-        // by playing the first stage out. Each check is th06c's less the wait for a chapter after the one
-        // retried, which this game has not got.
+        // a stage a run *walked into* rather than started at: the second stage's chapter 1 is reached by
+        // playing the first stage out. Each check is th06c's less the wait for a chapter after the one
+        // retried, written while this game had none inside a stage.
         Case {
             game: Game::Th06nc,
             name: "a_chapter_of_the_stage_after_the_first",
@@ -675,9 +716,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             check: checks::an_attempt_at_a_card_of_th06nc_counted_and_kept,
         },
         // **The other mode's own run, which wants no chapter of anything**: a run with no chapters is
-        // what the normal mode is, so this case is reachable here while every one about a boundary inside
-        // a stage waits on the midstage table. th06c's own check, unchanged — every line it reads is
-        // orb's and not a game's.
+        // what the normal mode is. th06c's own check, unchanged — every line it reads is orb's and not a
+        // game's.
         Case {
             game: Game::Th06nc,
             name: "a_normal_mode_run_nothing_is_kept_of",
@@ -737,8 +777,68 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             within: A_WHOLE_GAME,
             check: checks::the_extra_of_th06nc_played_to_its_clear,
         },
+        // **The two clears with no hit and no bomb**, as th06c's are: the Extra's first, continuing the
+        // Extra above in the directory the unlock is in, and then the Normal run, which needs nothing of it.
+        Case {
+            game: Game::Th06nc,
+            name: "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
+            recipe: include_str!(
+                "../recipes/th06nc/the_extra_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
+            ),
+            continues: true,
+            within: A_WHOLE_GAME,
+            check: checks::the_extra_of_th06nc_played_to_its_clear_with_no_hit_and_no_bomb,
+        },
+        Case {
+            game: Game::Th06nc,
+            name: "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
+            recipe: include_str!(
+                "../recipes/th06nc/a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
+            ),
+            continues: false,
+            within: A_WHOLE_GAME,
+            check: checks::a_normal_run_of_th06nc_played_to_its_clear_with_no_hit_and_no_bomb,
+        },
     ]
 }
+
+/// **th06c's two clears with no hit and no bomb**, after the rest of its cases: the Extra's first, straight after
+/// `the_extra_a_cleared_run_unlocked` and continuing it, the Extra being offered only where the game's own
+/// records hold the clear that case's predecessor left; then the Normal run, which needs nothing of them.
+///
+/// **Played at the game's own speed and not [`A_WHOLE_GAME`]'s four**, which is what that bound would give
+/// the Normal run: every measurement the two recipes' ways were read off was a launch at one, and the Extra
+/// fits [`WITHIN`] at it.
+fn the_no_hit_cases_of_th06c() -> Vec<Case> {
+    vec![
+        Case {
+            game: Game::Th06c,
+            name: "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
+            recipe: include_str!(
+                "../recipes/th06c/the_extra_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
+            ),
+            continues: true,
+            within: WITHIN,
+            check: checks::the_extra_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb,
+        },
+        Case {
+            game: Game::Th06c,
+            name: "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
+            recipe: include_str!(
+                "../recipes/th06c/a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
+            ),
+            continues: false,
+            within: A_NO_HIT_RUN,
+            check: checks::a_normal_run_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb,
+        },
+    ]
+}
+
+/// **What th06c's Normal run with no hit may take**, a whole game at the game's own speed — its own number,
+/// because [`Case::speed`] reads [`A_WHOLE_GAME`] as a case to play at four updates a frame, which none of
+/// what this run's ways were measured by was. Six stages at sixty frames a second are forty minutes and a
+/// little, and every death retried on top.
+pub const A_NO_HIT_RUN: u32 = 100 * 60;
 
 /// The cases of a game orb rewinds, which is th06, th07 and th06c — see [`cases_of`].
 fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
@@ -813,6 +913,29 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             continues: false,
             within: WITHIN,
             check: checks::a_chapter_further_back_taken_again,
+        },
+        // **And the same list over a death**, which is where somebody playing meets it: the one above asks
+        // for it over a run asked to start over, which is nobody's death.
+        Case {
+            game,
+            name: "a_death_answered_by_a_chapter_further_back",
+            recipe: recipe!(game, "a_death_answered_by_a_chapter_further_back"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_answered_by_a_chapter_further_back,
+        },
+        // **A death in the attack a boss moves to after a card**, answered by that attack again — th06nc's
+        // case of this name, where a fight whose nonspells were no chapters of their own was first missed.
+        Case {
+            game,
+            name: "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
+            recipe: recipe!(
+                game,
+                "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell"
+            ),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
         },
         Case {
             game,
@@ -1199,6 +1322,101 @@ pub mod checks {
         th08_took_a_last_spell(trace, started, ending).map(|_| ())
     }
 
+    /// **th06c's bomb in the word a run is played with** — `orb_core`'s `th06c::button::BOMB`, written out for
+    /// the reason [`TH08_BOMB`] is.
+    const TH06C_BOMB: u16 = 0x0002;
+
+    /// **A run from `started` to its clear at `cleared` with no hit and no bomb**, `bomb` being the game's
+    /// bomb in the word: no `died in chapter` said between — every death a Pointdevice run takes being
+    /// answered by the chapter again, so a death a run went on from is still one said — and no record
+    /// inside the run whose word pressed the bomb.
+    fn took_no_hit_and_no_bomb(
+        trace: &Trace,
+        started: usize,
+        cleared: usize,
+        bomb: u16,
+    ) -> Result<(), String> {
+        let run = &trace.records[started..cleared];
+        let hit = run.iter().find(|record| {
+            record
+                .lines
+                .iter()
+                .any(|line| line.starts_with("died in chapter"))
+        });
+        expect(hit.is_none(), || {
+            format!(
+                "the run was hit, on frame {}",
+                hit.map_or(0, |record| record.frame)
+            )
+        })?;
+        let bombed = run.iter().find(|record| {
+            record.state.is_some_and(|state| state.in_run) && record.word & bomb != 0
+        });
+        expect(bombed.is_none(), || {
+            format!(
+                "a bomb was pressed inside the run, on frame {}",
+                bombed.map_or(0, |record| record.frame)
+            )
+        })
+    }
+
+    /// **th06c's Normal run in Pointdevice mode, played to its ending with no hit and no bomb** — the
+    /// goal it was written for: `th06cのautoplayで被弾なしでボムを使わずにクリア`.
+    pub fn a_normal_run_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        let normal = trace.records[started]
+            .state
+            .ok_or("the run stood over no state")?
+            .difficulty;
+        expect(normal == 1, || {
+            format!("the run was started on difficulty {normal} and not on Normal")
+        })?;
+        let ending = trace
+            .ending_from(started)
+            .ok_or("the run never reached its ending")?;
+        took_no_hit_and_no_bomb(trace, started, ending, TH06C_BOMB)
+    }
+
+    /// **And th06c's Extra, played the same way** — its three cards with ways of their own, `禁忌「レーヴァテイン」`,
+    /// `禁弾「過去を刻む時計」` and `秘弾「そして誰もいなくなるか？」`, and chapter 7 and 8's wait, all in its
+    /// recipe.
+    ///
+    /// **Cleared where its boss left all but out of life and the run then ended with nothing leaving it**,
+    /// the Extra having no ending to reach — see [`the_last_boss_was_beaten`]. The boss alone is not enough:
+    /// a pick-up of chapter 7 the recipe left after the midboss read her beaten too, at 11,386 frames, and
+    /// what it did not have is a `run ended` said before its recipe `leaves the run`.
+    pub fn the_extra_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        let extra = trace.records[started]
+            .state
+            .ok_or("the run stood over no state")?
+            .difficulty;
+        expect(extra == EXTRA, || {
+            format!("the run was started on difficulty {extra} and not on the Extra's {EXTRA}")
+        })?;
+        let cleared = the_last_boss_was_beaten(trace, started)?;
+        let ended = trace
+            .line_from(cleared, "run ended after")
+            .ok_or("the run never ended after its last boss")?;
+        let left = trace.records[started..ended].iter().find(|record| {
+            record
+                .lines
+                .iter()
+                .any(|line| line.ends_with("leaves the run"))
+        });
+        expect(left.is_none(), || {
+            format!(
+                "the recipe left the run on frame {}, so it ended without being cleared",
+                left.map_or(0, |record| record.frame)
+            )
+        })?;
+        took_no_hit_and_no_bomb(trace, started, cleared, TH06C_BOMB)
+    }
+
     /// **The Last Spells a Normal run of th08 has met, by their records' own numbers** — which is what
     /// `State::spellcard` answers, the index of the card's `CATK` record — and the name the game wrote into
     /// each record the first time the card was declared, read back out of the mode's own score file:
@@ -1495,10 +1713,61 @@ pub mod checks {
             })
             .map(|at| at + started)
             .ok_or("the run started was not on the Extra's difficulty")?;
-        let last_with_a_boss = trace.records[extra..]
+        let last_with_a_boss = the_last_boss_was_beaten(trace, extra)?;
+        // **And the name the ranking was registered under**, the Extra reaching the same entry with no
+        // ending in front of it.
+        the_name_was_typed(trace, last_with_a_boss)
+    }
+
+    /// **th06nc's 完全無欠モード run on Normal, played to its ending with no hit and no bomb** — th06c's
+    /// case of that name, over this game's walk and its ending.
+    pub fn a_normal_run_of_th06nc_played_to_its_clear_with_no_hit_and_no_bomb(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        let normal = trace.records[started]
+            .state
+            .ok_or("the run stood over no state")?
+            .difficulty;
+        expect(normal == 1, || {
+            format!("the run was started on difficulty {normal} and not on Normal")
+        })?;
+        let last = trace
+            .stage_from(started, 6)
+            .ok_or("the run never reached its sixth stage")?;
+        let ending = the_ending_ran(trace, last)?;
+        took_no_hit_and_no_bomb(trace, started, ending, TH06NC_BOMB)?;
+        the_name_was_typed(trace, ending)
+    }
+
+    /// **And th06nc's Extra, played the same way** — th06c's ways through its three cards and after its
+    /// midboss, under this game's numbers, all in its recipe; cleared where its boss left all but out of
+    /// life, as [`the_extra_of_th06nc_played_to_its_clear`] reads it.
+    pub fn the_extra_of_th06nc_played_to_its_clear_with_no_hit_and_no_bomb(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        let extra = trace.records[started..]
+            .iter()
+            .position(|record| {
+                record
+                    .state
+                    .is_some_and(|state| state.in_run && state.difficulty == EXTRA)
+            })
+            .map(|at| at + started)
+            .ok_or("the run started was not on the Extra's difficulty")?;
+        let cleared = the_last_boss_was_beaten(trace, extra)?;
+        took_no_hit_and_no_bomb(trace, extra, cleared, TH06NC_BOMB)?;
+        the_name_was_typed(trace, cleared)
+    }
+
+    /// **The last frame from `from` on that a boss stood on, where she left it all but out of life** — see
+    /// [`the_extra_of_th06nc_played_to_its_clear`] for why that and not an ending says an Extra was cleared.
+    fn the_last_boss_was_beaten(trace: &Trace, from: usize) -> Result<usize, String> {
+        let last_with_a_boss = trace.records[from..]
             .iter()
             .rposition(|record| record.state.is_some_and(|state| state.boss_present))
-            .map(|at| at + extra)
+            .map(|at| at + from)
             .ok_or("no boss was ever up")?;
         let life = trace.records[last_with_a_boss]
             .state
@@ -1509,14 +1778,12 @@ pub mod checks {
                 "the boss left with {life} life, so the run was lost under her rather than cleared"
             )
         })?;
-        // **And the name the ranking was registered under**, the Extra reaching the same entry with no
-        // ending in front of it.
-        the_name_was_typed(trace, last_with_a_boss)
+        Ok(last_with_a_boss)
     }
 
-    /// **How much life a boss of th06nc leaves with where she was beaten**: her last attack ends the frame
-    /// the shot that empties it lands, so what is read is the life the frame before — `5` on the launch that
-    /// cleared the Extra. A bound and not that number, because how much the last shot took is the shot's.
+    /// **How much life a boss leaves with where she was beaten**: her last attack ends the frame the shot
+    /// that empties it lands, so what is read is the life the frame before — `5` on the launch that cleared
+    /// th06nc's Extra. A bound and not that number, because how much the last shot took is the shot's.
     const A_BOSS_ALL_BUT_BEATEN: i32 = 100;
 
     /// Whether th06nc's ending ran at or after `from` — see [`a_run_of_th06nc_played_to_its_clear_without_a_bomb`].
@@ -1858,6 +2125,7 @@ pub mod checks {
         expect(trace.records[back].retries >= 1, || {
             "the retry was not counted".to_owned()
         })?;
+        put_back_where_its_chapter_began(trace, back)?;
         trace
             .chapter_from(back, 1, died_in + 1)
             .map(|_| ())
@@ -1914,7 +2182,148 @@ pub mod checks {
         expect(trace.records[back].retries >= 1, || {
             "the retry was not counted".to_owned()
         })?;
+        put_back_where_its_chapter_began(trace, back)?;
         carried_past(trace, back, before.stage_frames)
+    }
+
+    /// **A death in the attack a boss moves to after a card, answered by that attack again** — th06nc's and
+    /// th06c's case of this name. The chapter the run died in began as a nonspell and the one before it as a
+    /// card, and the run the chapter again put back is in that same chapter with no card up: a fight whose
+    /// nonspells were not chapters of their own read the death as one in the card and put the run back at
+    /// the card's start.
+    ///
+    /// **The death looked for among the run's, and not the first of them**: the recipe hands the rules the
+    /// chance while the card is up, and a chance handed over counts for the attempt already under way — see
+    /// `orb_bot::hits::Hits::told` — so the card is died in first, its retry played clean, and the nonspell
+    /// after it is where the next death lands.
+    pub fn a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was started")?;
+        // The line each chapter of the stage began with, the newest before `until` of each number.
+        let began = |chapter: u32, until: usize| {
+            let said = format!(" chapter {chapter} at frame");
+            trace.records[started..until]
+                .iter()
+                .rev()
+                .flat_map(|record| record.lines.iter())
+                .find(|line| line.contains(&said) && line.contains(": a "))
+                .cloned()
+        };
+        let mut from = started;
+        let mut deaths = Vec::new();
+        let (retry, died_in) = loop {
+            let retry = trace.question_from(from, "retry").ok_or_else(|| {
+                format!(
+                    "no death was in a nonspell after a card; the run died in {}",
+                    match deaths.is_empty() {
+                        true => "no chapter at all".to_owned(),
+                        false => deaths.join(", "),
+                    }
+                )
+            })?;
+            let died_in = trace.records[retry].chapter;
+            let its_start = began(died_in, retry).unwrap_or_default();
+            let before = began(died_in.saturating_sub(1), retry).unwrap_or_default();
+            if its_start.contains("nonspell") && before.contains("spellcard") {
+                break (retry, died_in);
+            }
+            deaths.push(format!("chapter {died_in}"));
+            // Past the frames the question stands on, to the next death: it stands for several.
+            from = trace.records[retry..]
+                .iter()
+                .position(|record| record.question.as_deref() != Some("retry"))
+                .map(|after| retry + after)
+                .ok_or("the retry question never went down")?;
+        };
+        let answered = trace
+            .line_from(retry, "retry: the chapter again")
+            .ok_or("the retry question was not answered with the chapter again")?;
+        let back = trace
+            .in_run_from(answered + 1)
+            .ok_or("the run never came back after the retry")?;
+        expect(trace.records[back].chapter == died_in, || {
+            format!(
+                "the run came back in chapter {} rather than chapter {died_in}, which it died in",
+                trace.records[back].chapter
+            )
+        })?;
+        put_back_where_its_chapter_began(trace, back)?;
+        let after = trace.records[back]
+            .state
+            .expect("in_run_from answers a record with a state");
+        expect(after.spellcard.is_none(), || {
+            format!(
+                "the run came back with card {:?} up, so it was put back at the card and not at the nonspell",
+                after.spellcard
+            )
+        })
+    }
+
+    /// **A death answered by a chapter further back**: the retry question a death raised is answered with
+    /// the chapters behind the one died in, the nearest of them is chosen and confirmed, and the run comes
+    /// back on the frame that chapter began on — then plays up to the one it died in again.
+    ///
+    /// **The question the death raised, and not the pause menu's**: [`a_chapter_further_back_taken_again`]
+    /// asks the same list over a run asked to start over, which is nobody's death. The question is found
+    /// back from where the list was asked for, so a death the rules answered with the chapter again before
+    /// the recipe turned its hits on is not the one read.
+    pub fn a_death_answered_by_a_chapter_further_back(trace: &Trace) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was started")?;
+        let listed = trace
+            .line_from(started, "retry: asking which chapter further back")
+            .ok_or("the chapters behind the one the run died in were never listed")?;
+        expect(
+            trace
+                .line_from(started, "retry: the run was asked to start over")
+                .is_none_or(|asked| asked > listed),
+            || "the list was asked for over a run asked to start over, not over a death".to_owned(),
+        )?;
+        let up = trace.records[..listed]
+            .iter()
+            .rposition(|record| record.question.as_deref() != Some("retry"))
+            .map_or(0, |at| at + 1);
+        let before = trace.records[up]
+            .state
+            .ok_or("the retry stood over no state")?;
+        let died_in = trace.records[up].chapter;
+        expect(before.deaths >= 1, || {
+            format!(
+                "the retry stood with the game counting {} deaths",
+                before.deaths
+            )
+        })?;
+        let answered = trace
+            .line_from(listed, "retry: a chapter further back")
+            .ok_or("no chapter behind the one the run died in was chosen")?;
+        let back = trace
+            .in_run_from(answered + 1)
+            .ok_or("the run never came back after the chapter behind was chosen")?;
+        let after = trace.records[back]
+            .state
+            .expect("in_run_from answers a record with a state");
+        let came_back_in = trace.records[back].chapter;
+        expect(came_back_in < died_in, || {
+            format!(
+                "the run came back in chapter {came_back_in} rather than behind chapter {died_in}, which it \
+                 died in"
+            )
+        })?;
+        expect(after.stage_frames < before.stage_frames, || {
+            format!(
+                "the stage's clock did not go back: {} before the retry, {} after",
+                before.stage_frames, after.stage_frames
+            )
+        })?;
+        put_back_where_its_chapter_began(trace, back)?;
+        trace
+            .chapter_from(back, 1, died_in)
+            .map(|_| ())
+            .ok_or_else(|| {
+                format!(
+                    "the run never played back up to chapter {died_in} from the chapter behind it"
+                )
+            })
     }
 
     /// **th08's death answered by the chapter again**, which is
@@ -1998,8 +2407,8 @@ pub mod checks {
     /// `Th06nc::count_card_attempt` counts an attempt where a chapter inside a card is taken again,
     /// because the game counts one where a card *starts* and a chapter beginning inside one never starts
     /// it. `Th06nc::put_back_the_cards_a_run_left` is what keeps it: the build of a run's *first* stage
-    /// reads the score file over all 134 records — `0x14006cc40(the parsed file, manager + 0x968)` at
-    /// `0x14003ad68` — so the count is lost at the start of the next run and nowhere else, which is why
+    /// reads the score file over all 134 records — `0x14006e310(the parsed file, manager + 0x968)` at
+    /// `0x14003c5e7` — so the count is lost at the start of the next run and nowhere else, which is why
     /// the second run is in the recipe at all.
     ///
     /// **Both are read off orb's own lines and not off the state**, no field of a card record being in
@@ -2131,6 +2540,7 @@ pub mod checks {
         expect(trace.records[back].retries >= 1, || {
             "the retry was not counted".to_owned()
         })?;
+        put_back_where_its_chapter_began(trace, back)?;
         carried_past(trace, back, before.stage_frames)
     }
 
@@ -2192,6 +2602,61 @@ pub mod checks {
         });
         expect(carried_on, || {
             format!("the run never played past frame {frames} of the stage")
+        })
+    }
+
+    /// **The frame of the stage `chapter` of `stage` began on, as the chapter's own line said it** — the
+    /// newest before `until`, the stage counted from one — out of `stage S chapter N (stage start) at frame F`
+    /// and `stage S chapter N at frame F (script X): …` alike.
+    fn the_frame_a_chapter_began_on(
+        trace: &Trace,
+        stage: i32,
+        chapter: u32,
+        until: usize,
+    ) -> Option<u32> {
+        let said = format!("stage {stage} chapter {chapter} ");
+        trace.records[..until.min(trace.records.len())]
+            .iter()
+            .rev()
+            .flat_map(|record| record.lines.iter())
+            .filter(|line| line.starts_with(&said))
+            .find_map(|line| {
+                let (_, after) = line.split_once(" at frame ")?;
+                after
+                    .split(|c: char| !c.is_ascii_digit())
+                    .next()?
+                    .parse()
+                    .ok()
+            })
+    }
+
+    /// **The run put back on the frame the chapter it came back in began on**, and not merely somewhere
+    /// behind where it was: the stage's clock at `back` is the one the chapter's own line wrote down, or the
+    /// frame after it.
+    ///
+    /// **The game's clock and not orb's count of chapters**, because the count is orb's own and agrees with
+    /// itself whatever went wrong: a fight whose nonspells were no chapters of their own read a death in a
+    /// nonspell as one in the card before it, put the run back at the card, and said it came back in the
+    /// chapter it died in — which every check that compared chapter numbers passed.
+    ///
+    /// **And one frame late allowed**, measured and not guessed: judged again over the sessions each game
+    /// was last played in, 2026-09-27, the first record in the run after a restore read the chapter's frame
+    /// plus one in every case of th06, th07, th06c and th06nc — 10 against 9 at a stage's start, 7329
+    /// against 7328 at th06nc's nonspell, 2010 against 2009 at th06's midboss — and the chapter's frame
+    /// itself in th08's death, 790, the record being written after the update the restored frame ran or
+    /// before it by the path the retry took. A chapter put back anywhere else is the fault this is for.
+    fn put_back_where_its_chapter_began(trace: &Trace, back: usize) -> Result<(), String> {
+        let after = trace.records[back]
+            .state
+            .ok_or("the run came back to a record with no state")?;
+        let chapter = trace.records[back].chapter;
+        let began = the_frame_a_chapter_began_on(trace, after.stage + 1, chapter, back)
+            .ok_or_else(|| format!("no line said where chapter {chapter} began"))?;
+        expect((began..=began + 1).contains(&after.stage_frames), || {
+            format!(
+                "the run came back on frame {} of the stage, where chapter {chapter} began on frame {began}",
+                after.stage_frames
+            )
         })
     }
 
@@ -2290,6 +2755,7 @@ pub mod checks {
                 before.stage_frames, after.stage_frames
             )
         })?;
+        put_back_where_its_chapter_began(trace, back)?;
         trace
             .chapter_from(back, 1, asked_in)
             .map(|_| ())
@@ -2390,8 +2856,8 @@ pub mod checks {
     /// asked to start over in.
     ///
     /// A function of its own rather than a flag on that check, so that neither caller can read the other's
-    /// tail: what a game whose midstage table is empty has to say instead is the stage's own clock
-    /// carrying on — see [`carried_past`].
+    /// tail: what a recipe that stops inside the chapter retried has to say instead is the stage's own
+    /// clock carrying on — see [`carried_past`].
     fn the_stage_after_the_first_and_its_chapter_again(
         trace: &Trace,
     ) -> Result<(usize, u32), String> {

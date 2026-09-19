@@ -1100,8 +1100,9 @@ pub unsafe fn the_first_word_a_playback_will_feed() -> Option<u16> {
         .map(|played| played.buttons)
 }
 
-/// See [`the_first_word_a_playback_will_feed`], whose doc has why this is 1.
-const THE_FIRST_FRAME_A_FILE_HOLDS: usize = 1;
+/// See [`the_first_word_a_playback_will_feed`], whose doc has why this is 1 — and which is the stage's
+/// frame a playback is begun on as well, `runtime`'s landing asks.
+pub(crate) const THE_FIRST_FRAME_A_FILE_HOLDS: usize = 1;
 
 /// Hands the keyboard back, the chapter having been reached, and gives up what that chapter was
 /// written down as so the two can be held against each other.

@@ -3,12 +3,12 @@
 //! Every other game orb plays hands its skip button over: `orb_bot::steer` puts `Keys::skip` into the
 //! word the frame a line is up, and th07's Ctrl ends a conversation in the frames it takes to draw one.
 //! th06nc has no such button among `Th06nc::BUTTONS` — its own skip bit is `0x8` of the word at
-//! `0x140a6ec60`, built at `0x140012fc9` out of a binding this build fills per keyboard layout and not
+//! `0x140abae80`, built at `0x1400136f9` out of a binding this build fills per keyboard layout and not
 //! out of any key orb knows to hold — so `Game::button_bit("skip")` finds nothing and `Keys::skip` is
 //! nought.
 //!
-//! **So what moves a line on is the shot going down**, `0x14003f41a` masking that word with `0x301` —
-//! the shot's `0x1` among the three — against the frame before's, and `0x14003f437` wanting
+//! **So what moves a line on is the shot going down**, `0x140040cfa` masking that word with `0x301` —
+//! the shot's `0x1` among the three — against the frame before's, and `0x140040d17` wanting
 //! `[dialogue + 0x3420]`, the characters of the line that are out, at eight or more.
 //!
 //! **Which at one release a second is a line a second.** A Normal run the rules drove read the line up at

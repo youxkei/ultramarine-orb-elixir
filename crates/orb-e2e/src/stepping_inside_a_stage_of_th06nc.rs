@@ -8,7 +8,7 @@
 //! **A pass over this game watches its own replay, and every playback of it reads as one**: `runtime::step`
 //! asks for `during_replay && state.replay && state.in_run` together, and this game's `demo` answers false
 //! whatever is playing — no flag telling the game's own attract playback from a replay somebody asked for
-//! has been found, and both of `0x14004d680`'s callers are the front end's. See
+//! has been found, and both of `0x14004ede0`'s callers are the front end's. See
 //! `Th06nc::say_what_a_playback_is_told_by_when_it_changes`, the instrument that watched the four bytes and
 //! the state a playback could have been told by, and `th06nc/asm.md`'s *What is not established*.
 //!
@@ -189,7 +189,7 @@ fn a_step_forward_inside_a_stage_of_th06nc_does_not_leave_it() {
         // it to be a chapter rather than folded into that one.
         game.frames(APART);
         game.image().plays_the_track(THE_FIGHTS_OWN_TRACK);
-        game.image().a_boss_is_fighting(THE_FIGHTS_LIFE);
+        game.image().a_boss_is_fighting(THE_FIGHTS_LIFE, 0);
         game.frames_until("the fight's own chapter", APART, || log.said("chapter 5"));
         let the_fight = game.state().stage_frames;
         // And won, which is the wall: the stage is over and every chapter of it is still a snapshot.
@@ -237,7 +237,7 @@ fn a_step_forward_inside_a_stage_of_th06nc_does_not_leave_it() {
 /// so and the pass stays where it was.
 ///
 /// `Th06nc::jump_to_stage` answers false, the second argument of this game's own replay start —
-/// `0x14004d680`, which the front end calls with the slot in `rcx` — not being read: the per-stage pointers
+/// `0x14004ede0`, which the front end calls with the slot in `rcx` — not being read: the per-stage pointers
 /// at `+0x40` and the null test either side of them are, and what the call wants beside the slot is not, so
 /// a jump written from a guess is a playback asked for a stage nobody can say it would start. See the
 /// change's own TODO and `th06nc/asm.md`'s *What is not established*.

@@ -31,10 +31,10 @@ const WORK_US: i64 = 700;
 const FRAMES: u32 = 30_000;
 
 /// **Two bytes of `.data` past everything this game has an address for**, whose highest static is
-/// `0x140c22148` where the range runs to `0x140c29660` — so what is written here is read by nothing and
+/// `0x140c6e368` where the range runs to `0x140c75884` — so what is written here is read by nothing and
 /// what a restore does to them is the whole of what changes them.
 ///
-/// Offsets and not addresses, because that is what the flag takes: `.data` begins at `0x140323000`, and
+/// Offsets and not addresses, because that is what the flag takes: `.data` begins at `0x14036d000`, and
 /// the span held back is the first of them alone.
 const HELD_BACK: usize = 0x90_0000;
 const PUT_BACK: usize = 0x90_0100;

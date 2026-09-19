@@ -1,7 +1,7 @@
 //! **The screen a run of th06c ends at is the game's to walk, and orb writes one state into it.**
 //!
-//! That screen is several one after another, off the jump table at `0x140053538`: the name entry a played
-//! run opens in (state 9, `0x14004fd59`), the stats the name's decide opens (15, which takes a decide of its
+//! That screen is several one after another, off the jump table at `0x1400535c8`: the name entry a played
+//! run opens in (state 9, `0x14004fde9`), the stats the name's decide opens (15, which takes a decide of its
 //! own once up ninety frames), the thirty frames those fade for (16), the question about saving a replay
 //! (10) and that question with its cursor live (14), and the way out (17).
 //!

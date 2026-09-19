@@ -52,7 +52,7 @@ const FRAMES: u32 = 100_000;
 const A_STAGE: u32 = 4_500;
 
 /// **The case each chain gated here starts at** — see `Case::continues`, and [`the_chain_from`].
-const CHAINS: [&str; 13] = [
+const CHAINS: [&str; 15] = [
     "a_run_started_and_given_up",
     "a_normal_mode_run_played_without_a_bomb",
     "a_death_answered_by_the_chapter_again",
@@ -62,6 +62,8 @@ const CHAINS: [&str; 13] = [
     "the_stage_taken_again_from_its_start",
     "the_run_given_up_at_the_retry",
     "a_chapter_further_back_taken_again",
+    "a_death_answered_by_a_chapter_further_back",
+    "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
     "a_normal_mode_run_nothing_is_kept_of",
     "a_run_played_to_its_clear_without_a_bomb",
     "a_normal_mode_run_played_to_its_clear",
@@ -273,6 +275,18 @@ fn the_run_of_th08_given_up_at_the_retry() {
 #[test]
 fn a_chapter_of_th08_further_back_taken_again() {
     the_chain_passes("a_chapter_further_back_taken_again");
+}
+
+/// And the same list over a death, the question the hit raised answered by the recipe and not the rules.
+#[test]
+fn a_death_of_th08_answered_by_a_chapter_further_back() {
+    the_chain_passes("a_death_answered_by_a_chapter_further_back");
+}
+
+/// And a death in the nonspell after a card, answered by that nonspell again.
+#[test]
+fn a_death_in_the_nonspell_after_a_card_of_th08_answered_by_that_nonspell() {
+    the_chain_passes("a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell");
 }
 
 #[test]

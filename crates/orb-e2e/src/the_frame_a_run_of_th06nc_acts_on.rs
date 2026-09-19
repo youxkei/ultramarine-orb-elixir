@@ -6,14 +6,14 @@
 //! at 0x10, so the player moves on the frame before's keys until orb hands the read to the run.
 //!
 //! **This game has no such gap to close either**, and where that was read is `th06nc/asm.md`'s reading of
-//! the supervisor: `0x140079d26` onwards copies `0x140a6ec60` into `0x140a6ec64` and then builds the new
-//! word into `0x140a6ec60`, all at the calc chain's priority nought — and the player's own job is
+//! the supervisor: `0x14007b8a6` onwards copies `0x140abae80` into `0x140abae84` and then builds the new
+//! word into `0x140abae80`, all at the calc chain's priority nought — and the player's own job is
 //! priority 7, behind it in the same walk. So `Th06nc` hands no read to the run and this file says what
 //! is left to say: that nothing of orb's puts a frame between the keys and the update, and that the pair
 //! an edge is taken from is still a pair.
 //!
-//! **Which the pair is for**: the menus' own decide is edge-checked against it — `0x140048345` masks
-//! `0x140a6ec60` against `0x140a6ec64` at the main menu and `0x14004c277` does the same at the last
+//! **Which the pair is for**: the menus' own decide is edge-checked against it — `0x140049aa5` masks
+//! `0x140abae80` against `0x140abae84` at the main menu and `0x14004d9d7` does the same at the last
 //! screen before a stage — so a key held over two frames has to read as a press on the first and a hold
 //! on the second. A word moved on without its predecessor would read as a hold on every frame and no
 //! decide would ever fire.

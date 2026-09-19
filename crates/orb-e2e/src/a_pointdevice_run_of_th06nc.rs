@@ -49,7 +49,7 @@ const A_STAGE: u32 = 1_200;
 
 /// **The bits of this game's own word that orb drives a run with** — the shot `0x1`, the bomb `0x2`, the
 /// focus `0x4`, the four directions `0x10` to `0x80` and the decide `0x100`, as `game/th06nc/asm.md` reads
-/// them off the player's walk at `0x140069072` and the binding at `0x140012d69`.
+/// them off the player's walk at `0x14006a790` and the binding at `0x140013499`.
 ///
 /// **The game's own numbers and not orb's**, which are a different set — orb's decide is `0x1000` — and
 /// the field this masks is the game's. Written out here rather than asked of the game, the way every other

@@ -281,6 +281,7 @@ mod tests {
             typing_a_name: false,
             spell: None,
             card_frames: None,
+            stage_frames: None,
         }
     }
 

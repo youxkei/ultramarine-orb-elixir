@@ -1,7 +1,7 @@
 //! **The eight numbers a run of th06c is made with, and that a run picked up out of a file comes back with
 //! every one of them.**
 //!
-//! `Th06c::numbers` reads them where the game's own replay record reads them — `0x14004d9d2` onwards — and
+//! `Th06c::numbers` reads them where the game's own replay record reads them — `0x14004da71` onwards — and
 //! `Th06c::put_the_numbers_back` writes them where its playback does. Eight fields, and none of them is
 //! anything the buttons play against: this game's extra lives are bought with score, and the panel counts up
 //! from whatever the front end left. So a run resumed without them plays out right and is *recorded* wrong,
@@ -25,7 +25,7 @@
 //! a read of the game's own field tells the two apart.
 //!
 //! **The sub-rank is not among the eight**, and that is the game's own doing rather than an omission:
-//! `resume::Numbers` carries the rank, which `0x14002420f` starts at eight and the enemies read, and the
+//! `resume::Numbers` carries the rank, which `0x1400243cf` starts at eight and the enemies read, and the
 //! sub-rank at `+0x197c` counts towards the next step of it. A stage's own start puts that counter back to
 //! nothing, so there is nothing of it for a chapter to carry.
 

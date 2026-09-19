@@ -1,0 +1,30 @@
+# A run of th06 hit on purpose in the first attack a boss moves to after a card, and the death answered by the
+# rules with the chapter again — which has to put the run back at that attack's own start and not at the
+# card's. th06nc's case of this name is where this was first missed, and says why the card and not a
+# chapter's number is what the hit is aimed by. The walk is a_death_answered_by_the_chapter_again's.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# The first card of the run.
+- play_until: { card: true }
+  give_up_after: 18000
+# Hit in each chapter's first attempt and not in its retry: the card first, and then the attack after it.
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { frames: 9000 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

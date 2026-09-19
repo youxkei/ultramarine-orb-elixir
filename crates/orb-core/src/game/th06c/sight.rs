@@ -8,7 +8,7 @@
 //! rules are `orb-bot`'s: an enemy the game will not run its body against is handed over with what the
 //! game says of it rather than left out.
 //!
-//! **Nothing here is a hitbox of its own.** What a hit is is the game's own test at `0x14004c5d0`, two
+//! **Nothing here is a hitbox of its own.** What a hit is is the game's own test at `0x14004c690`, two
 //! boxes overlapping, and both boxes are read: the player's own corners at `[player+0x410]`..`+0x424`,
 //! each bullet's `+0x5a4`, and each enemy's `+0x2a4` cut to a third.
 //!
@@ -17,12 +17,13 @@
 use orb_api::mem;
 
 use crate::game::{Beam, Frame, Hazard, Kind, Pickup, Worth};
+use crate::trace;
 
 use super::{
-    A_REPLAY_IS_PLAYING, BOMBS, BULLET_MANAGER, ENEMY_MANAGER, EVERYTHING_HELD, FIELD_SIZE,
-    INPUT_THE_RUN_ACTS_ON, ITEM_MANAGER, LASERS, LIVES, PLAYER, PLAYER_AREA, POWER, POWER_FULL,
-    STATE_GAMEMANAGER, STATE_GAMEMANAGER_REINIT, SUPERVISOR, THE_PLAYBACK_IS_THE_DEMO, at,
-    bullet_manager, enemy, enemy_manager, item, laser, player, supervisor,
+    A_REPLAY_IS_PLAYING, BOMBS, BULLET_MANAGER, CURRENT_CARD, ENEMY_MANAGER, EVERYTHING_HELD,
+    FIELD_SIZE, INPUT_THE_RUN_ACTS_ON, ITEM_MANAGER, LASERS, LIVES, PLAYER, PLAYER_AREA, POWER,
+    POWER_FULL, STATE_GAMEMANAGER, STATE_GAMEMANAGER_REINIT, SUPERVISOR, THE_PLAYBACK_IS_THE_DEMO,
+    at, bullet_manager, enemy, enemy_manager, item, laser, player, supervisor,
 };
 
 /// **One frame of a run, out of the game's own arrays**, and `false` off a stage.
@@ -58,7 +59,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     into.items.clear();
     for slot in 0..bullet_manager::SLOTS {
         let bullet = at(BULLET_MANAGER) + bullet_manager::BULLETS + slot * bullet_manager::BYTES;
-        // The walk's own gate at `0x14000d9f0`: a slot whose state is nought holds nothing at all.
+        // The walk's own gate at `0x14000dcc0`: a slot whose state is nought holds nothing at all.
         let state = unsafe { mem::read::<u16>(bullet + bullet_manager::STATE) };
         if state == 0 {
             continue;
@@ -81,11 +82,11 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         });
     }
     // **And the lasers, which are a line rather than a box**: the player's own test for one at
-    // `0x14004c7d0` turns the player about the laser's own origin by its angle and compares it with a
+    // `0x14004c890` turns the player about the laser's own origin by its angle and compares it with a
     // box that is *along* and *across*. What that box reaches across is a quarter of the width the beam
     // carries — see [`laser::HALF_OF_ITS_WIDTH`], which is two halvings read off the exe.
     //
-    // **A warning is handed over with the frames until it fires and not left out**: `0x14000e4d1` runs
+    // **A warning is handed over with the frames until it fires and not left out**: `0x14000e7a1` runs
     // that test only once the frames have reached [`laser::HITS_FROM`], so one still warning hits
     // nothing at all — and whether that is a frame to be elsewhere for is the bot's to decide.
     for slot in 0..laser::SLOTS {
@@ -100,9 +101,9 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         let near = unsafe { mem::read::<f32>(beam + laser::NEAR) };
         let far = unsafe { mem::read::<f32>(beam + laser::FAR) };
         // **And what a fading one takes down is its own length and not its width**, which is the one
-        // thing about this game's lasers no reading would have guessed: `0x14000e5ed` works out
+        // thing about this game's lasers no reading would have guessed: `0x14000e8bd` works out
         // `width × (1 − frames ÷` [`laser::NARROWS_OVER`]`)` and writes it into the *length's* slot of
-        // the pair the test is handed — `[rsp+0x30]`, which `0x14004c89a` compares along the beam — so
+        // the pair the test is handed — `[rsp+0x30]`, which `0x14004c95a` compares along the beam — so
         // what is left of a fading laser is a stub of its own line about the middle of it, at the width
         // it always had. `th06c/asm.md` has the registers.
         let (near, far) = match phase >= laser::FADING {
@@ -163,7 +164,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         });
     }
     // **Every slot walked and not the live count taken**, because the count says how many there are and
-    // not which slots they are in — the same walk `0x14002aae0` makes.
+    // not which slots they are in — the same walk `0x14002abe0` makes.
     for slot in 0..item::SLOTS {
         let pickup = at(ITEM_MANAGER) + item::ITEMS + slot * item::BYTES;
         if unsafe { mem::read::<u8>(pickup + item::ALIVE) } == 0 {
@@ -174,10 +175,32 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             at: unsafe { position(pickup + item::POSITION) },
         });
     }
+    unsafe { trace_the_field(into) };
     true
 }
 
-/// **Which of the shared kinds one of this game's items is**, as the table at `0x14002ba1c` indexes them.
+/// **The field as it goes across, into the trace, on a frame of the card a launch named** — see
+/// `trace::TheField` — with the boss's own attack clock, [`enemy::TIMER`], as how far into the card it is.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn trace_the_field(frame: &Frame) {
+    let up =
+        unsafe { mem::read::<i32>(at(ENEMY_MANAGER + enemy_manager::SPELLCARD_IS_ACTIVE)) } != 0;
+    let card = up.then(|| unsafe { mem::read::<u32>(at(CURRENT_CARD)) });
+    if !trace::the_field_is_wanted_in(card) {
+        return;
+    }
+    let card_frames = unsafe { the_boss_the_fights_own_slot() }
+        .map_or(-1, |body| unsafe { mem::read::<i32>(body + enemy::TIMER) });
+    trace::the_field(trace::TheField::of(
+        frame,
+        card.unwrap_or(trace::NO_CARD),
+        card_frames,
+    ));
+}
+
+/// **Which of the shared kinds one of this game's items is**, as the table at `0x14002bb1c` indexes them.
 ///
 /// **Both of the power items that fill it are the big one.** This game has two on top of the ordinary
 /// power item — one worth eight steps and one that fills the meter outright — and the shared vocabulary
@@ -199,7 +222,7 @@ const fn worth(kind: i8) -> Worth {
 /// **The boss the fight is with**, where there is one.
 ///
 /// **A walk and not a slot**, which is the shape of this game: nothing keeps a pointer to it, and what
-/// marks it is a bit on the enemy itself — [`enemy::IS_THE_BOSS`], which `0x140020f62` is the only test
+/// marks it is a bit on the enemy itself — [`enemy::IS_THE_BOSS`], which `0x140021222` is the only test
 /// of and which decides whose life the panel's own bar is drawn from.
 ///
 /// # Safety
@@ -226,7 +249,7 @@ pub unsafe fn the_boss_the_fights_own_slot() -> Option<usize> {
 /// **Half the player's own box**, which is the player's half of what a hit is.
 ///
 /// Off the two corners the game's own test is given rather than the half they are worked out from: those
-/// are the numbers being compared at `0x14004c692` onwards.
+/// are the numbers being compared at `0x14004c752` onwards.
 ///
 /// # Safety
 /// Must run on the game's main thread.
@@ -249,7 +272,7 @@ unsafe fn player_box() -> (f32, f32) {
 ///
 /// **And the state is the supervisor's, not the front end's**: the front end's state eleven, which this
 /// read before the supervisor was found, sits under a stage and under the shot select alike, and
-/// `0x14002f95d`'s table of six — reached from twelve to seventeen — is not a stage's phases at all. A
+/// `0x14002fa4d`'s table of six — reached from twelve to seventeen — is not a stage's phases at all. A
 /// launch that took those six for one never steered: nothing pressed, and the run was over at
 /// `得点 000001800` with the panel's lives row empty and the game asking 「コンティニュ〜？」.
 ///
@@ -358,11 +381,11 @@ unsafe fn field() -> (f32, f32, f32, f32) {
     (0.0, 0.0, width, height)
 }
 
-/// **What one frame of holding a direction moves the player by**, as `0x14004af14` works it out: the
+/// **What one frame of holding a direction moves the player by**, as `0x14004afd4` works it out: the
 /// speed for that kind of move, times the player's own scale for the axis.
 ///
 /// **Whichever pair the caller asks for**, and both are asked for: the four speeds are the player's own
-/// fields and the switch at `0x14004acbf` picks between them by the focus bit, so which pair a frame
+/// fields and the switch at `0x14004ad7f` picks between them by the focus bit, so which pair a frame
 /// takes is decided by a key the *rules* press — see `Frame::focused_straight`, which is why the answer
 /// is not this reading's to choose.
 ///
@@ -436,7 +459,7 @@ pub unsafe fn say_what_was_near() {
         player.1,
     );
     // **The two corners the game's own test is handed, beside the position the model reads.** Those
-    // corners are the whole of the player's half of a hit — `0x14004c692`–`0x14004c6c8` compares them
+    // corners are the whole of the player's half of a hit — `0x14004c752`–`0x14004c788` compares them
     // and nothing else — so a hit reported with room to spare on every one of the nine moves is either
     // a hazard the model never had or a box the model put somewhere the game did not.
     let min = unsafe { position(at(PLAYER) + player::BOX_MIN) };

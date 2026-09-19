@@ -9,6 +9,7 @@
 //! orb-real <session-dir> [<game>]
 //! orb-real list
 //! orb-real show <trace> [<needle>]
+//! orb-real spawns <trace>
 //! ```
 //!
 //! `<session-dir>/<case>/trace.msgpack` is where each case's trace is looked for; a case with no trace there
@@ -39,7 +40,7 @@ fn main() -> ExitCode {
         eprintln!(
             "usage: orb-real <session-dir> [th06|th07]\n       orb-real list\n       \
              orb-real show <trace> [<needle>]\n       orb-real watching <trace>\n       \
-             orb-real picture <trace> <out.bmp> [<frame>]"
+             orb-real picture <trace> <out.bmp> [<frame>]\n       orb-real spawns <trace>"
         );
         return ExitCode::FAILURE;
     };
@@ -76,6 +77,19 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         };
         return match shown(&path, args.next().as_deref()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                eprintln!("orb-real: {why}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if session == "spawns" {
+        let Some(path) = args.next() else {
+            eprintln!("usage: orb-real spawns <trace>");
+            return ExitCode::FAILURE;
+        };
+        return match spawns(&path) {
             Ok(()) => ExitCode::SUCCESS,
             Err(why) => {
                 eprintln!("orb-real: {why}");
@@ -232,6 +246,42 @@ fn watching(path: &str) -> Result<(), String> {
     println!("  step: {}", step.as_deref().unwrap_or("no step said yet"));
     println!("  event: {}", event.as_deref().unwrap_or("nothing yet"));
     println!("  {} frame(s), {pictures} picture(s)", trace.records.len());
+    Ok(())
+}
+
+/// **The script frames enemies came on at**, a line apiece: the stage counted from one, the script frame,
+/// and how many more enemies there were than the frame before.
+///
+/// **What holds one game's midstage table against another's clock.** A stage's waves come on when its
+/// script says and leave when the run shoots them, so the frames the count rises on are the script's
+/// alone and the same in any run of the stage, where a gap between waves — what `--tune` proposes a
+/// boundary in — opens as fast as that run kills. th06nc's stages are th06c's waves on a clock shifted by
+/// a different number of frames from stage to stage, and the rises of two runs laid side by side say by
+/// how many where a row of the table stands. A frame whose script clock stands still — a boss holding it —
+/// is left out, since every rise there has the one frame number.
+fn spawns(path: &str) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
+    let trace = Trace::read(&bytes)?;
+    let mut before: Option<&orb_core::game::State> = None;
+    for state in trace
+        .records
+        .iter()
+        .filter_map(|record| record.state.as_ref())
+    {
+        if let Some(last) = before
+            && last.stage == state.stage
+            && state.script_frames > last.script_frames
+            && state.enemy_count > last.enemy_count
+        {
+            println!(
+                "s{} {} +{}",
+                state.stage + 1,
+                state.script_frames,
+                state.enemy_count - last.enemy_count,
+            );
+        }
+        before = Some(state);
+    }
     Ok(())
 }
 

@@ -4,26 +4,26 @@
 //! `the_player_a_stage_of_th06c_starts.rs`; this game has the same one, read off its own exe rather than
 //! carried over — `th06nc/asm.md`'s *The 270 frames of a stage nothing can reach its player in*:
 //!
-//! - **`0x14006841c` is the register.** Where `[0x1404f27b5]` is nought it leaves the state and the count
-//!   at nought, and otherwise `0x14006842b` puts **1** in `cl` and **0x78** in `eax` and `0x140068432`
-//!   and `0x14006843f` write the pair, with `-999` into `+0x7854` beside it.
-//! - **The walk-in lasts thirty frames.** `0x140068da7`'s `cmp ecx,0x1e` is the gate, and `0x140068f8b`'s
-//!   `cmp r8d,0x1e` is the one past which `0x140068f95` writes the state **3** and `0x140068fb1` the count
+//! - **`0x140069b2c` is the register.** Where `[0x14053d405]` is nought it leaves the state and the count
+//!   at nought, and otherwise `0x140069b3b` puts **1** in `cl` and **0x78** in `eax` and `0x140069b42`
+//!   and `0x140069b4f` write the pair, with `-999` into `+0x7854` beside it.
+//! - **The walk-in lasts thirty frames.** `0x14006a4b7`'s `cmp ecx,0x1e` is the gate, and `0x14006a6a9`'s
+//!   `cmp r8d,0x1e` is the one past which `0x14006a6b3` writes the state **3** and `0x14006a6cf` the count
 //!   **0xf0**.
-//! - **And state 3 counts down to nothing.** `0x140068c6e` tests the state against 3, `0x140068c81` takes
-//!   one off the count and `0x140068c91` writes nought over both where it runs out.
+//! - **And state 3 counts down to nothing.** `0x14006a37e` tests the state against 3, `0x14006a391` takes
+//!   one off the count and `0x14006a3a1` writes nought over both where it runs out.
 //!
-//! **So the hit test cannot reach the player for 30 + 240 = 270 frames of every stage**, `0x14006aaa5`
+//! **So the hit test cannot reach the player for 30 + 240 = 270 frames of every stage**, `0x14006c1b5`
 //! gating a hit on that byte being nought. Which is what the second test here is about, and what the
 //! first one is is the two numbers the register leaves — the state a chapter cannot be taken in, and a
 //! count nobody but state 3 reads.
 //!
 //! **And the third is the shot the register leaves the player firing, which is none.** The pair at
 //! `+0x408` and `+0x40c` is the phase of the shot being fired and the phase the update before had —
-//! `th06nc/asm.md`'s row for it — and a stage carries neither in: `0x140068736` writes the idle pair
-//! beside the eighty slots `0x140068664`–`0x14006872f` clears. What the test holds is the cycle the press
-//! then starts: `0x1400696f4` on the composed word's own `0x1`, `0x140069c6a` a phase an update, and
-//! `0x140069c7e` the end of it at thirty.
+//! `th06nc/asm.md`'s row for it — and a stage carries neither in: `0x140069e46` writes the idle pair
+//! beside the eighty slots `0x140069d74`–`0x140069e3f` clears. What the test holds is the cycle the press
+//! then starts: `0x14006ae14` on the composed word's own `0x1`, `0x14006b38a` a phase an update, and
+//! `0x14006b39e` the end of it at thirty.
 //!
 //! **Read off the exe and not off this tree**, because the laid-out game is both the writer and the
 //! reader of the memory orb is driven through: a build that left the player playing would be one every
@@ -54,8 +54,8 @@ const THE_REGISTER_LEAVES: i32 = 0x78;
 const THE_WALK_IN_LEAVES: i32 = 0xf0;
 const THE_WALK_IN_TAKES: u32 = 0x1e;
 
-/// **The pair a player firing nothing holds, and how many updates a cycle lasts** — `0x140069c94`'s
-/// qword and `0x140069c7e`'s thirty. Written out here for this file's own reason: a number read off the
+/// **The pair a player firing nothing holds, and how many updates a cycle lasts** — `0x14006b3b4`'s
+/// qword and `0x14006b39e`'s thirty. Written out here for this file's own reason: a number read off the
 /// code under test is one the test agrees with whatever either says.
 const NOT_FIRING: (i32, i32) = (-1, -999);
 const A_FIRING_CYCLE_LASTS: i32 = 30;

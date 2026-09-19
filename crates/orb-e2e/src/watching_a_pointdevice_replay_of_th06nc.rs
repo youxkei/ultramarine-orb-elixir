@@ -5,9 +5,9 @@
 //! game's own screen, and what that list offers is four levels deep: the replay, the stage inside it, the
 //! chapter inside that, and which attempt at that chapter.
 //!
-//! **The item is the menu's fourth and the screen behind it is state 16**: item 4's case at `0x14004862d`
+//! **The item is the menu's fourth and the screen behind it is state 16**: item 4's case at `0x140049d8d`
 //! fills the screen's table and writes `0xf` into the front end's state, state 15's case writes 16, and 16
-//! is the list — `0x1400488e2` formats `replay/th6_%.2d.rpy` sixty times into it. orb's question stands
+//! is the list — `0x14004a042` formats `replay/th6_%.2d.rpy` sixty times into it. orb's question stands
 //! over the *item*, the press that would open that screen being held back, so for a pointdevice run the
 //! game never reaches its own list at all. `the_mode_question_over_th06nc` is what the drawing of a list
 //! of orb's is held to; `watching_a_pointdevice_replay_of_th06c` is the same subject over the other 64-bit

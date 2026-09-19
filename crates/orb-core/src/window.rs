@@ -262,12 +262,10 @@ pub type CreateWindowExW = unsafe extern "system" fn(
 /// manager treats as an ordinary one is a window in the way — in the taskbar, in alt-tab, and taking a
 /// turn at being focused.
 ///
-/// **But not the size, because this game's drawing is not orb's to lay out.** It presents through a
-/// swapchain of its own, built for the window it asked for, and orb has no hold on that present: a
-/// client of [`OUT_OF_THE_WAY_CLIENT`] clips the game rather than making it small, and the launch that
-/// asked for one lost the corner as well — its window measured back in the middle of the primary
-/// monitor at the swapchain's own size. So the size and the style are what the game's own startup
-/// dialog was told, and `game::Dialog` is where the smallest window it offers is chosen.
+/// **But not the size here**, which is [`keeps_its_corner`]'s to hold: the game moves and sizes its own
+/// window again after it is made, applying the resolution its startup dialog was told, so a size asked for
+/// here is a size undone. What makes a small window a small picture rather than a cut one is
+/// `crate::dxgi`'s — see its `resizes_its_buffers`.
 ///
 /// **And nothing at all for a launch somebody plays**, which is the other thing this does differently: a
 /// game that looks this call up has had no [`settle`] run for it — the installation that one is part of
@@ -349,14 +347,14 @@ static MOVE_WINDOW: AtomicUsize = AtomicUsize::new(0);
 /// `BOOL MoveWindow(HWND, int x, int y, int cx, int cy, BOOL repaint)`.
 pub type MoveWindow = unsafe extern "system" fn(*mut c_void, i32, i32, i32, i32, i32) -> i32;
 
-/// **Holds the window orb plays in in its corner**, for a game that moves its own afterwards — and
-/// leaves the size it is asking for alone.
+/// **Holds the window orb plays in in its corner and at its size**, for a game that moves its own
+/// afterwards — the size being [`OUT_OF_THE_WAY_CLIENT`] inside the window's own frame, for a game that
+/// draws at the size it asked for, and the game's own for any other: see [`the_size_it_plays_at`].
 ///
-/// **The corner and not the size, which is measured rather than chosen.** th06c's own move asks for
-/// that same corner and a bigger window: it is applying the resolution its dialog was told, and its
-/// swapchain is that size. A launch that answered the size too was measured with its window back in the
-/// middle of the primary monitor at the swapchain's own size — the size is DXGI's to enforce, and
-/// fighting it costs the corner as well.
+/// **The size as well as the corner, because the game's own moves are what undid it.** th06c's move asks
+/// for that corner and the resolution its dialog was told, and a launch that held the size in
+/// [`keeps_its_corner`] alone was put back every frame — `sized 662x536; putting it back … sized 342x296`
+/// on line after line — and never held long enough to be shown.
 ///
 /// **A launch nobody asked to play itself is moved exactly as it asked.**
 ///
@@ -378,12 +376,31 @@ pub unsafe extern "system" fn move_window(
         Some(monitor) => (monitor.left, monitor.top),
         None => (x, y),
     };
-    if corner.is_some() && (into_x, into_y) != (x, y) {
+    let ours = corner.is_some() && window as usize == PLAYED_IN.load(Ordering::Relaxed);
+    let (into_width, into_height) = match ours {
+        true => the_size_asked_of(window as usize, width, height),
+        false => (width, height),
+    };
+    if corner.is_some() && (into_x, into_y, into_width, into_height) != (x, y, width, height) {
         detail!(
-            "screen: the game moved its window to {x},{y}; it goes to {into_x},{into_y} instead"
+            "screen: the game moved its window to {x},{y} sized {width}x{height}; it goes to \
+             {into_x},{into_y} sized {into_width}x{into_height} instead"
         );
     }
-    unsafe { original(window, into_x, into_y, width, height, repaint) }
+    unsafe { original(window, into_x, into_y, into_width, into_height, repaint) }
+}
+
+/// **The size a move of the window orb plays in is made at in place of the game's own `width` by
+/// `height`**: the whole window whose client is [`OUT_OF_THE_WAY_CLIENT`] — see [`the_size_it_plays_at`] —
+/// and the size asked where the host will not say where the window is.
+fn the_size_asked_of(window: usize, width: i32, height: i32) -> (i32, i32) {
+    if !unsafe { crate::runtime::the_game_draws_at_the_size_it_asked_for() } {
+        return (width, height);
+    }
+    match orb_api::window::window_rect(Hwnd(window)) {
+        Some(is_at) => the_size_it_plays_at(window, is_at),
+        None => (width, height),
+    }
 }
 
 /// Says which function [`move_window`] calls through.
@@ -446,9 +463,10 @@ static SET_WINDOW_POS: AtomicUsize = AtomicUsize::new(0);
 pub type SetWindowPos =
     unsafe extern "system" fn(*mut c_void, *mut c_void, i32, i32, i32, i32, u32) -> i32;
 
-/// `SWP_NOMOVE` and `SWP_SHOWWINDOW`, written out for [`BORDERLESS_STYLE`]'s reason and held against
-/// Windows' own numbers by `orb::window`: what crosses into here is the game's own argument, and these
-/// are the two bits of it orb reads.
+/// `SWP_NOSIZE`, `SWP_NOMOVE` and `SWP_SHOWWINDOW`, written out for [`BORDERLESS_STYLE`]'s reason and held
+/// against Windows' own numbers by `orb::window`: what crosses into here is the game's own argument, and
+/// these are the three bits of it orb reads.
+pub const SWP_NOSIZE: u32 = 0x0001;
 pub const SWP_NOMOVE: u32 = 0x0002;
 pub const SWP_SHOWWINDOW: u32 = 0x0040;
 
@@ -460,8 +478,8 @@ pub const SWP_SHOWWINDOW: u32 = 0x0040;
 /// `-2160,-1676` to `1269,656` and then to `1749,926` — are moves [`keeps_its_corner`] put back a frame
 /// later, which is a frame of the window somewhere else. Answered here, they never land.
 ///
-/// **The position and not the size**, for [`create_window_ex_w`]'s reason: the size is the game's own and
-/// its swapchain is built for it. A call carrying `SWP_NOMOVE` asks for no move and gets none.
+/// **The size as well as the position**, for [`move_window`]'s reason. A call carrying `SWP_NOMOVE` asks
+/// for no move and gets none, and one carrying `SWP_NOSIZE` no size.
 ///
 /// # Safety
 /// The arguments are `SetWindowPos`'s own, and [`answers_the_window_placed`] must have run first.
@@ -486,9 +504,14 @@ pub unsafe extern "system" fn set_window_pos(
         Some(monitor) if flags & SWP_NOMOVE == 0 => (monitor.left, monitor.top),
         _ => (x, y),
     };
-    if (into_x, into_y) != (x, y) {
+    let (into_width, into_height) = match corner {
+        Some(_) if flags & SWP_NOSIZE == 0 => the_size_asked_of(window as usize, width, height),
+        _ => (width, height),
+    };
+    if (into_x, into_y, into_width, into_height) != (x, y, width, height) {
         detail!(
-            "screen: the game placed its window at {x},{y}; it goes to {into_x},{into_y} instead"
+            "screen: the game placed its window at {x},{y} sized {width}x{height}; it goes to \
+             {into_x},{into_y} sized {into_width}x{into_height} instead"
         );
     }
     // And the show, for the reason [`show_window`] swallows one: a window put on the screen here is one
@@ -501,7 +524,17 @@ pub unsafe extern "system" fn set_window_pos(
     } else {
         flags
     };
-    unsafe { original(window, after, into_x, into_y, width, height, flags) }
+    unsafe {
+        original(
+            window,
+            after,
+            into_x,
+            into_y,
+            into_width,
+            into_height,
+            flags,
+        )
+    }
 }
 
 /// Says which function [`set_window_pos`] calls through.
@@ -510,6 +543,77 @@ pub unsafe extern "system" fn set_window_pos(
 /// Must run before the game has placed its window.
 pub unsafe fn answers_the_window_placed(original: usize) {
     SET_WINDOW_POS.store(original, Ordering::Relaxed);
+}
+
+/// The game's own `SetWindowLongW`, which [`set_window_long_w`] calls through.
+static SET_WINDOW_LONG_W: AtomicUsize = AtomicUsize::new(0);
+
+/// `LONG SetWindowLongW(HWND, int index, LONG value)`.
+pub type SetWindowLongW = unsafe extern "system" fn(*mut c_void, i32, i32) -> i32;
+
+/// `GWL_STYLE` and `GWL_EXSTYLE`, written out for [`BORDERLESS_STYLE`]'s reason and held against Windows'
+/// own numbers by `orb::window`: what crosses into here is the game's own argument, and these are the two
+/// indices of it orb reads.
+pub const GWL_STYLE: i32 = -16;
+pub const GWL_EXSTYLE: i32 = -20;
+
+/// **The dialog frame kept and the show stripped where the game writes its window's styles itself** —
+/// the write that put the window orb plays in on the screen as an ordinary window, which a window manager
+/// then placed as it places any other.
+///
+/// th06c enters its window mode through the pair at `0x14009d12e`/`0x14009d151` (and `0x14009d8a4`/
+/// `0x14009d8c4`), both through `SetWindowLongW` looked up by name: the extended style first, out of a
+/// table holding `0x100` — no dialog frame and back in the taskbar — and then the style, with
+/// `WS_VISIBLE` added at `0x14009d0ee`, a style write being a show of its own. th06nc makes the same pair
+/// at `0x1400befee`/`0x1400bf011` and `0x1400bf764`/`0x1400bf784`. A launch was measured with the window
+/// on the screen and its extended style `0x100` before orb had shown it, and moved to `-2146,853` by the
+/// window manager, which is not a place orb or the game chose. [`keeps_its_frame`] puts the frame back a
+/// frame later, which is a frame too late: what decides a window manager is what the window is when it
+/// first reaches the screen.
+///
+/// **`SetWindowLongW` and not its `A` twin beside it**: the game's wrapper at `0x140096f40` takes `W`
+/// where `0x140442194` is set, which `0x140095b28` sets on any system with Unicode — every NT.
+///
+/// Everything else through: another window of the game's, a launch nobody asked to play itself, another
+/// index, and the style written once orb has shown the window.
+///
+/// # Safety
+/// The arguments are `SetWindowLongW`'s own, and [`answers_the_window_restyled`] must have run first.
+pub unsafe extern "system" fn set_window_long_w(
+    window: *mut c_void,
+    index: i32,
+    value: i32,
+) -> i32 {
+    let original: SetWindowLongW =
+        unsafe { std::mem::transmute(SET_WINDOW_LONG_W.load(Ordering::Relaxed)) };
+    let ours =
+        unsafe { *OUT_OF_THE_WAY.get() } && window as usize == PLAYED_IN.load(Ordering::Relaxed);
+    let value = match index {
+        GWL_EXSTYLE if ours && value as u32 & DIALOG_EX_STYLE != DIALOG_EX_STYLE => {
+            detail!(
+                "screen: the game wrote the extended style {value:#010x} over the window orb plays in; \
+                 it keeps the dialog frame"
+            );
+            (value as u32 | DIALOG_EX_STYLE) as i32
+        }
+        GWL_STYLE if unsafe { held_off_the_screen(window) } && value as u32 & WS_VISIBLE != 0 => {
+            detail!(
+                "screen: the game wrote the style {value:#010x} over the window orb plays in; \
+                 it stays hidden"
+            );
+            (value as u32 & !WS_VISIBLE) as i32
+        }
+        _ => value,
+    };
+    unsafe { original(window, index, value) }
+}
+
+/// Says which function [`set_window_long_w`] calls through.
+///
+/// # Safety
+/// Must run before the game has written its window's styles.
+pub unsafe fn answers_the_window_restyled(original: usize) {
+    SET_WINDOW_LONG_W.store(original, Ordering::Relaxed);
 }
 
 /// **Whether this is the window orb is keeping off the screen**: the one a launch that plays itself made
@@ -598,20 +702,26 @@ pub unsafe fn keeps_its_corner() {
              whatever moves it now is seen",
         );
     }
-    // **The corner and not the size**, for [`create_window_ex_w`]'s reason: the size is the game's own
-    // and a smaller one clips what it draws. Where the corner is already right there is nothing to do,
-    // which is every frame but the few something moved it on — except the first of them, which is where
-    // a window made hidden is shown.
-    if (is_at.left, is_at.top) == (corner.left, corner.top) {
+    // **The corner and the size both**, the size being [`OUT_OF_THE_WAY_CLIENT`] inside whatever frame the
+    // window has. Where both are already right there is nothing to do, which is every frame but the few
+    // something moved it on — except the first of them, which is where a window made hidden is shown.
+    let (width, height) = the_size_it_plays_at(window, is_at);
+    if (is_at.left, is_at.top, is_at.width(), is_at.height())
+        == (corner.left, corner.top, width, height)
+    {
         shown_now_the_corner_is_held(window);
         return;
     }
     detail!(
-        "screen: the window orb plays in is at {},{}; putting it back to {},{}",
+        "screen: the window orb plays in is at {},{} sized {}x{}; putting it back to {},{} sized {}x{}",
         is_at.left,
         is_at.top,
+        is_at.width(),
+        is_at.height(),
         corner.left,
         corner.top,
+        width,
+        height,
     );
     HELD_FOR.store(0, Ordering::Relaxed);
     let original: MoveWindow = unsafe { std::mem::transmute(putting_back) };
@@ -620,11 +730,32 @@ pub unsafe fn keeps_its_corner() {
             window as *mut c_void,
             corner.left,
             corner.top,
-            is_at.width(),
-            is_at.height(),
+            width,
+            height,
             1,
         )
     };
+}
+
+/// **The whole window whose client is [`OUT_OF_THE_WAY_CLIENT`]**, measured off the window as it is: the
+/// frame it has around the client it has now, around the client wanted. The size it is at where the host
+/// will not say what its client is.
+///
+/// **And the size it is at for a game that draws at the size of its buffers**, which is th06nc — see
+/// `Game::draws_at_the_size_it_asked_for`. That one is made small by its own window mode, which lays its
+/// frame out for the size it chose; held small from here as well, its picture was a quarter of the window
+/// with its buffers left large and a null texture read at `0x140258665` with them made small.
+fn the_size_it_plays_at(window: usize, is_at: Rect) -> (i32, i32) {
+    if !unsafe { crate::runtime::the_game_draws_at_the_size_it_asked_for() } {
+        return (is_at.width(), is_at.height());
+    }
+    match orb_api::window::client_rect(Hwnd(window)) {
+        Some(client) if client.width() > 0 && client.height() > 0 => (
+            is_at.width() - client.width() + OUT_OF_THE_WAY_CLIENT.0,
+            is_at.height() - client.height() + OUT_OF_THE_WAY_CLIENT.1,
+        ),
+        _ => (is_at.width(), is_at.height()),
+    }
 }
 
 /// **Shows the window orb plays in once it has been in its corner for

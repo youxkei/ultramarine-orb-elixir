@@ -180,6 +180,11 @@ pub const UPDATE: &str = "update";
 pub const SOUND: &str = "sound";
 pub const DRAW: &str = "draw";
 pub const PRESENT: &str = "present";
+/// **And the sprites a draw queued handed over at last**, which only a game that batches them has: th06c's
+/// and th06nc's Steam builds queue every sprite of a job into a batch of their renderer's and draw the
+/// batch as the job is done. Those two being the 64-bit games, nothing of the 32-bit build asks for it.
+#[cfg(target_arch = "x86_64")]
+pub const FLUSH: &str = "flush";
 
 /// How long an e2e test waits before it presses a *direction* at a menu of orb's that has just come up.
 ///
@@ -194,6 +199,33 @@ pub const PRESENT: &str = "present";
 /// way — a list of three that wraps is on another item every press — so this is what the two-key
 /// answers wait out.
 pub const READS_KEYS_AFTER: u32 = 30;
+
+/// **The frame of the stage chapter `chapter` of `stage` began on**, the stage counted from one, as the
+/// newest of its own lines in `lines` said it — what a retry of it has to put the run back on.
+///
+/// # Panics
+///
+/// Where no line said that chapter began, which is a test asking about a chapter its run never took.
+pub fn the_frame_chapter_began_on(lines: &[String], stage: i32, chapter: u32) -> u32 {
+    let said = format!("stage {stage} chapter {chapter} at frame ");
+    lines
+        .iter()
+        .rev()
+        .find_map(|line| {
+            let (_, after) = line.split_once(&said)?;
+            after
+                .split(|c: char| !c.is_ascii_digit())
+                .next()?
+                .parse()
+                .ok()
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "no line said where chapter {chapter} began:\n  {}",
+                lines.join("\n  ")
+            )
+        })
+}
 
 /// How many frames [`Launched::frames_until_a_thread`] gives a thread of orb's own to do something in,
 /// one turn of the host's scheduler apiece.
@@ -418,16 +450,7 @@ pub struct Presented {
 /// tests do not drive one for: th07 declined it until its own frame had been read, and a laid-out game
 /// that called `render` anyway would have been asserting about a configuration no launch installs.
 pub fn orbs_own_loop(config: &orb_config::Config, game: &dyn orb_core::game::Game) -> bool {
-    // **Or whose frame is a stretch of its own loop**, which is th06nc: that game has no `render` to
-    // stand in at all — orb's frame is jumped to from fourteen patched bytes inside `main` — and its
-    // frame is orb's for exactly the reason a `render` game's is. A laid-out game left on the frame-off
-    // path instead runs `Launched::own_render`, which calls the two chains and the present and **not**
-    // `Game::end_drawing` — so nothing of the frame's own end happens, and for th06nc that is the call
-    // the swapchain is presented through. Measured: `the_mode_question_over_th06nc` had the canvas, the
-    // overlay and both presents taken, and `pictures_finished()` nought on every frame.
-    config.own_frame_loop
-        && config.frame_hooks
-        && (game.hooks().render.is_some() || game.hooks().frame_in_the_loop.is_some())
+    config.own_frame_loop && config.frame_hooks && game.hooks().render.is_some()
 }
 
 impl Launch {

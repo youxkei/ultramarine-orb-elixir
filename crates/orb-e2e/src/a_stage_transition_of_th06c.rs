@@ -1,17 +1,17 @@
 //! **What a stage transition of th06c carries, and what only the start of a run puts in place.**
 //!
-//! The game manager's own added callback is `0x140024110`, one function reached two ways, and the whole of
-//! the difference is its first condition: `cmp DWORD PTR [0x140b7762c],0x3` at `0x140024139` — the
-//! supervisor's state against the one a stage is rebuilt in — jumps a transition to `0x140024b38` and lets a
+//! The game manager's own added callback is `0x1400242d0`, one function reached two ways, and the whole of
+//! the difference is its first condition: `cmp DWORD PTR [0x140bc28ac],0x3` at `0x1400242f9` — the
+//! supervisor's state against the one a stage is rebuilt in — jumps a transition to `0x140024cf5` and lets a
 //! run's first stage fall through.
 //!
 //! **What falls through is a run being made**: the movement area at `+0xc`..`+0x18` and the box at
-//! `+0x17e4`..`+0x17f0`, the rank at `+0x1970` set to eight (`0x14002420f`), the score's own fields cleared,
+//! `+0x17e4`..`+0x17f0`, the rank at `+0x1970` set to eight (`0x1400243cf`), the score's own fields cleared,
 //! the extra life the score has paid for, and the `0x186a0` the next one costs.
 //!
-//! **What the transition takes is eight instructions and nothing of the run's numbers**: `0x140024b38` copies
+//! **What the transition takes is eight instructions and nothing of the run's numbers**: `0x140024cf5` copies
 //! the score into the panel's own copy of it (`+0x7b0` into `+0x7ac`), zeroes the next increment at `+0x7b4`,
-//! the sub-rank at `+0x197c` (`0x140024b53`), `+0x7c4`, `+0x17d0` and `+0x7bc`, and steps the stage word at
+//! the sub-rank at `+0x197c` (`0x140024d10`), `+0x7c4`, `+0x17d0` and `+0x7bc`, and steps the stage word at
 //! `+0x20` up by one. The lives, the bombs, the power and the rank are written **nowhere in it** — which is
 //! what a run *is*: six stages with one set of numbers walked through them.
 //!
