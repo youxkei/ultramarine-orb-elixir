@@ -20,10 +20,14 @@ use orb_config::Screen;
 use windows_sys::Win32::Foundation::{COLORREF, RECT};
 use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, HBRUSH};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    WNDCLASSA, WS_CAPTION, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_VISIBLE,
+    SWP_NOMOVE, SWP_SHOWWINDOW, WNDCLASSA, WS_CAPTION, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+    WS_VISIBLE,
 };
 
-use orb_core::window::{BORDERLESS_STYLE, WINDOWED_STYLE, create_window_ex_a, is_game_class};
+use orb_core::window::{
+    BORDERLESS_STYLE, SWP_NOMOVE as NO_MOVE_ABOVE_THE_SEAM, SWP_SHOWWINDOW as SHOW_ABOVE_THE_SEAM,
+    WINDOWED_STYLE, WS_VISIBLE as VISIBLE_ABOVE_THE_SEAM, create_window_ex_a, is_game_class,
+};
 
 use crate::hook;
 
@@ -36,6 +40,13 @@ const BLACK: COLORREF = 0x0000_0000;
 const _: () = {
     assert!(BORDERLESS_STYLE == WS_POPUP | WS_VISIBLE);
     assert!(WINDOWED_STYLE == WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE);
+    // And the bit a window orb plays in is made without, which is the same style read the other way
+    // round: `orb_core::window::create_window_ex_w` strips it from the game's own argument.
+    assert!(VISIBLE_ABOVE_THE_SEAM == WS_VISIBLE);
+    // And the two flags `orb_core::window::set_window_pos` reads out of the game's own call: the one
+    // that says the position is not to be used, and the one that would put the window on the screen.
+    assert!(NO_MOVE_ABOVE_THE_SEAM == SWP_NOMOVE);
+    assert!(SHOW_ABOVE_THE_SEAM == SWP_SHOWWINDOW);
 };
 
 // And `orb_api::Rect` held against `RECT` field by field, this being the last place in the tree that

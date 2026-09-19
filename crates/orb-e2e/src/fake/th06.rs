@@ -621,6 +621,8 @@ pub fn the_run() -> RunStart {
         shot_type: 0,
         practice: false,
         stage: 0,
+        // th06 has one mode — see `RunStart::mode`, which th06nc is the game with two of.
+        mode: 0,
     }
 }
 

@@ -107,6 +107,14 @@ pub struct Canvas {
     sampler: d3d11::Sampler,
     /// How big the output is, which is what a vertex's pixels are turned into clip space against.
     output: (f32, f32),
+    /// **How big the surface that output is stretched onto is**, which is the viewport every frame is
+    /// drawn through — the back buffer's own size, asked of the swapchain and refreshed with the buffer.
+    ///
+    /// **Two sizes and not one, because they are two different things**: [`Canvas::output`] is the
+    /// coordinate space orb places everything in — `overlay`'s 640x480 — and this is the pixels that
+    /// space is mapped onto. Setting the viewport to the coordinate space instead is what left orb's
+    /// own menus drawn in the top-left corner of a `1280x720` window at a quarter of its area.
+    viewport: std::cell::Cell<(f32, f32)>,
 }
 
 /// A texture and the view a shader reads it through, which are always made and released together.
@@ -202,10 +210,19 @@ impl Canvas {
             )
         }?;
 
+        // **Both sizes, because they are two things and a launch has to be able to tell them apart**:
+        // the coordinate space everything is placed in, and the surface it is stretched onto. A line
+        // that said only the first is a line that could not have shown the overlay drawn into the
+        // corner of a larger window — see [`Canvas::viewport`].
+        let viewport = unsafe { crate::dxgi::the_size_of(swapchain) };
         log!(
-            "canvas: drawing through this game's own Direct3D 11, over {}x{}",
+            "canvas: drawing through this game's own Direct3D 11, over {}x{} stretched onto {}",
             output.0,
-            output.1
+            output.1,
+            match viewport {
+                Some((width, height)) => format!("{width}x{height}"),
+                None => "a buffer of a size the swapchain will not say".to_owned(),
+            },
         );
         Some(Self {
             device,
@@ -219,6 +236,14 @@ impl Canvas {
             blend,
             sampler,
             output: (output.0 as f32, output.1 as f32),
+            // **The back buffer's own size where the swapchain will say it, and the output's where it
+            // will not**: a viewport of nought draws nothing at all, so the coordinate space is the
+            // answer that at least puts the overlay on the screen.
+            viewport: std::cell::Cell::new(
+                viewport.map_or((output.0 as f32, output.1 as f32), |(width, height)| {
+                    (width as f32, height as f32)
+                }),
+            ),
         })
     }
 
@@ -284,6 +309,12 @@ impl Canvas {
         };
         let was = self.target.replace(target);
         unsafe { d3d11::release(Object::Target(was)) };
+        // **And the size that buffer is**, which a resized window changes: the viewport is what the
+        // output's coordinates are stretched onto, so a stale one draws the overlay at the size the
+        // window used to be. Left as it was where the swapchain will not say.
+        if let Some((width, height)) = unsafe { crate::dxgi::the_size_of(self.swapchain) } {
+            self.viewport.set((width as f32, height as f32));
+        }
     }
 
     /// **One quad, in the output's own pixels.** `uv` is the piece of the sheet to read, as
@@ -345,11 +376,15 @@ impl Canvas {
         let saved = unsafe { Saved::of(self.context) };
         unsafe {
             d3d11::set_render_targets(self.context, &[self.target.get()], d3d11::DepthView(0));
+            // **The whole of the surface and not the coordinate space** — see [`Canvas::viewport`],
+            // which is the back buffer's own size: the vertices are in [`Canvas::output`]'s pixels and
+            // the viewport is what maps them onto whatever the window measures.
+            let (width, height) = self.viewport.get();
             d3d11::set_viewports(
                 self.context,
                 &[d3d11::Viewport {
-                    width: self.output.0,
-                    height: self.output.1,
+                    width,
+                    height,
                     max_depth: 1.0,
                     ..d3d11::Viewport::default()
                 }],

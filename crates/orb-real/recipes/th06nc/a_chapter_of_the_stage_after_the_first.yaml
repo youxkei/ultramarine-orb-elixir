@@ -1,0 +1,62 @@
+# A run of th06nc played through its whole first stage into the second's first chapter, that chapter taken
+# again from the retry menu — which is a chapter whose snapshot was taken as the stage was built — and then
+# played on, which leaves a run in the stage it walked into for
+# the_run_picked_up_in_the_stage_it_walked_into.
+#
+# **The walk to the run is `a_death_answered_by_the_chapter_again`'s as far as the mode question**, which
+# is where the reading of this game's screens is written down: 2 the title, 3 the main menu, then 9 the
+# difficulty, 11 the character, 13 the shot, and 14, 24 and 25 each taking a press before the stage. Past
+# the question the selects are pressed through in one step — see below for why.
+#
+# **This is the one case about a stage after the first that wants no boundary inside one**: the second
+# stage's chapter 1 is a chapter the run reaches by walking into that stage, and the nine hundred frames
+# played after the retry stop well before that stage's own fight — so what says the run played on is the
+# stage's own clock rather than a chapter after the one retried. A stage of this game is one chapter until
+# its fight starts, `game/th06nc/chapters.rs` being empty; the fight's own boundaries chapter it after
+# that.
+#
+# **And the chapter again is item 0 whichever way the question comes up.** The ways on are three where
+# there is no chapter behind the one that was lost and four where there is, 更に前からやり直す being the
+# one left out — see `retry_ui` — and the first of them is そのまま続ける either way. Which is why this
+# case answers 0 where `the_stage_taken_again_from_its_start` has to count.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# **The selects pressed through in one step rather than one step apiece**, which is what the two cases of
+# this chain need and the cases before them do not: a select of this game goes by on its own after a
+# while, so a step that waits for screen 11 can be a step the game has already walked past — and a step
+# that gives up costs its whole bound, which is how a launch of this reached the shot select with the
+# recipe three steps behind it. The difficulty is then whatever the cursor starts on, which neither case
+# is about.
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 3600
+# **The whole of the first stage**, which is what reaching the second costs: a Normal stage 1 of this game
+# is a few thousand frames and the rules play it, so the bound is the stage over again.
+- play_until: { stage: 2, chapter: 1 }
+  give_up_after: 36000
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# And on into the stage the run walked into, which is where the run is left for the case after this one.
+- play_until: { frames: 900 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

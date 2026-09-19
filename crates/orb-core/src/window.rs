@@ -132,13 +132,21 @@ use crate::{detail, log, profile};
 /// `WS_POPUP | WS_VISIBLE`, written out rather than taken from `windows-sys`: what a style is is the
 /// game's own `CreateWindowExA` argument, and this is the half that decides it. `orb::window` holds the
 /// two against Windows' own numbers at compile time, so a wrong one here is a build that stops.
-pub const BORDERLESS_STYLE: u32 = 0x8000_0000 | 0x1000_0000;
+pub const BORDERLESS_STYLE: u32 = 0x8000_0000 | WS_VISIBLE;
 /// A window of a chosen size: a caption to move it by and a system menu to close it with, and nothing to
 /// resize it with. The size is one of the settings, so dragging the edge of the window would be a second
 /// place to say it and the one that is not written down.
 ///
 /// `WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE`.
-pub const WINDOWED_STYLE: u32 = 0x00c0_0000 | 0x0008_0000 | 0x0002_0000 | 0x1000_0000;
+pub const WINDOWED_STYLE: u32 = 0x00c0_0000 | 0x0008_0000 | 0x0002_0000 | WS_VISIBLE;
+
+/// **The one bit that decides whether a window is on the screen the moment it is made** — `WS_VISIBLE`,
+/// written out for [`BORDERLESS_STYLE`]'s reason and held against Windows' own number by `orb::window`.
+///
+/// In the two styles above, and taken out of the one a window orb plays in is made with — see
+/// [`create_window_ex_w`], which strips it, and [`keeps_its_corner`], which shows the window once the
+/// corner has held.
+pub const WS_VISIBLE: u32 = 0x1000_0000;
 
 /// How tall the lines written beside the game are, in pixels of the monitor rather than
 /// of the game — this text is not scaled with the game's output. Reduced where the widest
@@ -295,6 +303,15 @@ pub unsafe extern "system" fn create_window_ex_w(
         Some(monitor) => (monitor.left, monitor.top),
         None => (x, y),
     };
+    // **And made hidden, for a window orb chose the corner of.** Something moves this window after it is
+    // made — [`keeps_its_corner`] is what that costs — so a window that is on the screen from the moment
+    // it is created is one somebody sees in the middle of the primary monitor before it is put back. What
+    // is on the screen while that is settled is nothing at all, and [`keeps_its_corner`] shows it once the
+    // corner has held.
+    let style = match corner {
+        Some(_) => style & !WS_VISIBLE,
+        None => style,
+    };
     let window = unsafe {
         original(
             // Added to the game's own rather than written over it, the same as the other rewrite.
@@ -313,11 +330,14 @@ pub unsafe extern "system" fn create_window_ex_w(
         )
     };
     if !window.is_null() && corner.is_some() {
-        // Remembered so that [`keeps_its_corner`] has a window to put back, whatever moves it.
+        // Remembered so that [`keeps_its_corner`] has a window to put back, whatever moves it — and the
+        // frames this one has held its corner for counted from nought, this game making its window over
+        // once the settings are applied and the window it made first not the one that is played in.
         PLAYED_IN.store(window as usize, Ordering::Relaxed);
+        HELD_FOR.store(0, Ordering::Relaxed);
         log!(
             "screen: the window orb plays in is at {into_x},{into_y} sized {width}x{height}, \
-             which is the size the game asked for",
+             which is the size the game asked for, and is hidden until its corner holds",
         );
     }
     window
@@ -374,9 +394,169 @@ pub unsafe fn answers_the_window_moved(original: usize) {
     MOVE_WINDOW.store(original, Ordering::Relaxed);
 }
 
+/// The game's own `ShowWindow`, which [`show_window`] calls through — or nothing at all while the window
+/// orb plays in is being kept off the screen.
+static SHOW_WINDOW: AtomicUsize = AtomicUsize::new(0);
+
+/// `BOOL ShowWindow(HWND, int how)`.
+pub type ShowWindow = unsafe extern "system" fn(*mut c_void, i32) -> i32;
+
+/// **Keeps the window orb plays in off the screen until its corner has held**, for a game that shows its
+/// own window — which is what [`create_window_ex_w`]'s stripped `WS_VISIBLE` would otherwise be undone
+/// by.
+///
+/// **Because the style is not the only way a window reaches the screen.** th06nc looks `ShowWindow` up by
+/// name at its startup — `hook: the game looked ShowWindow up` — and a launch whose window was made
+/// hidden was measured on the screen one frame later with orb having shown nothing, which put every
+/// put-back [`keeps_its_corner`] makes in front of somebody: the window appeared at `1269,656`, the
+/// middle of the primary monitor, and jumped to the corner a frame afterwards.
+///
+/// **Swallowed rather than deferred**: what the game asks for here is the window it has just made put on
+/// the screen, and orb shows that same window itself once the corner is settled — so the ask is answered
+/// by the show that is coming, and nothing is queued. Nought is the answer, which is `ShowWindow`'s for a
+/// window that was not visible, and true at the moment it is given.
+///
+/// Everything else through: another window of the game's, a launch nobody asked to play itself, and every
+/// call after orb has shown the window — a game hiding or minimising its own window after that is a game
+/// doing what it was told to.
+///
+/// # Safety
+/// The arguments are `ShowWindow`'s own, and [`answers_the_window_shown`] must have run first.
+pub unsafe extern "system" fn show_window(window: *mut c_void, how: i32) -> i32 {
+    let original: ShowWindow = unsafe { std::mem::transmute(SHOW_WINDOW.load(Ordering::Relaxed)) };
+    if unsafe { held_off_the_screen(window) } {
+        detail!("screen: the game asked to show the window orb plays in ({how}); it stays hidden");
+        return 0;
+    }
+    unsafe { original(window, how) }
+}
+
+/// Says which function [`show_window`] calls through.
+///
+/// # Safety
+/// Must run before the game has shown its window.
+pub unsafe fn answers_the_window_shown(original: usize) {
+    SHOW_WINDOW.store(original, Ordering::Relaxed);
+}
+
+/// The game's own `SetWindowPos`, which [`set_window_pos`] calls through.
+static SET_WINDOW_POS: AtomicUsize = AtomicUsize::new(0);
+
+/// `BOOL SetWindowPos(HWND, HWND after, int x, int y, int cx, int cy, UINT flags)`.
+pub type SetWindowPos =
+    unsafe extern "system" fn(*mut c_void, *mut c_void, i32, i32, i32, i32, u32) -> i32;
+
+/// `SWP_NOMOVE` and `SWP_SHOWWINDOW`, written out for [`BORDERLESS_STYLE`]'s reason and held against
+/// Windows' own numbers by `orb::window`: what crosses into here is the game's own argument, and these
+/// are the two bits of it orb reads.
+pub const SWP_NOMOVE: u32 = 0x0002;
+pub const SWP_SHOWWINDOW: u32 = 0x0040;
+
+/// **The corner kept and the show swallowed where the game places its own window** — the other half of
+/// [`show_window`], `SetWindowPos` being the one call that moves a window and puts it on the screen at
+/// once.
+///
+/// th06nc looks this up beside `ShowWindow`, and the two moves a launch of it was measured making —
+/// `-2160,-1676` to `1269,656` and then to `1749,926` — are moves [`keeps_its_corner`] put back a frame
+/// later, which is a frame of the window somewhere else. Answered here, they never land.
+///
+/// **The position and not the size**, for [`create_window_ex_w`]'s reason: the size is the game's own and
+/// its swapchain is built for it. A call carrying `SWP_NOMOVE` asks for no move and gets none.
+///
+/// # Safety
+/// The arguments are `SetWindowPos`'s own, and [`answers_the_window_placed`] must have run first.
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "system" fn set_window_pos(
+    window: *mut c_void,
+    after: *mut c_void,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    flags: u32,
+) -> i32 {
+    let original: SetWindowPos =
+        unsafe { std::mem::transmute(SET_WINDOW_POS.load(Ordering::Relaxed)) };
+    let ours =
+        unsafe { *OUT_OF_THE_WAY.get() } && window as usize == PLAYED_IN.load(Ordering::Relaxed);
+    let corner = ours
+        .then(|| the_leftmost_of(&orb_api::window::monitors()))
+        .flatten();
+    let (into_x, into_y) = match corner {
+        Some(monitor) if flags & SWP_NOMOVE == 0 => (monitor.left, monitor.top),
+        _ => (x, y),
+    };
+    if (into_x, into_y) != (x, y) {
+        detail!(
+            "screen: the game placed its window at {x},{y}; it goes to {into_x},{into_y} instead"
+        );
+    }
+    // And the show, for the reason [`show_window`] swallows one: a window put on the screen here is one
+    // put there before its corner is settled.
+    let flags = if unsafe { held_off_the_screen(window) } && flags & SWP_SHOWWINDOW != 0 {
+        detail!(
+            "screen: the game asked to show the window orb plays in as it placed it; it stays hidden"
+        );
+        flags & !SWP_SHOWWINDOW
+    } else {
+        flags
+    };
+    unsafe { original(window, after, into_x, into_y, width, height, flags) }
+}
+
+/// Says which function [`set_window_pos`] calls through.
+///
+/// # Safety
+/// Must run before the game has placed its window.
+pub unsafe fn answers_the_window_placed(original: usize) {
+    SET_WINDOW_POS.store(original, Ordering::Relaxed);
+}
+
+/// **Whether this is the window orb is keeping off the screen**: the one a launch that plays itself made
+/// in a corner, up to the moment [`shown_now_the_corner_is_held`] shows it.
+///
+/// # Safety
+/// Must run on the game's main thread, after [`answers_the_window_made`].
+unsafe fn held_off_the_screen(window: *mut c_void) -> bool {
+    let window = window as usize;
+    let ours = unsafe { *OUT_OF_THE_WAY.get() };
+    ours && window != 0
+        && window == PLAYED_IN.load(Ordering::Relaxed)
+        && window != SHOWN.load(Ordering::Relaxed)
+}
+
 /// The window a game that looks its own creation up was given, so that [`keeps_its_corner`] has one to
 /// put back.
 static PLAYED_IN: AtomicUsize = AtomicUsize::new(0);
+
+/// How many frames running that window has been found already in its corner, counted from the frame it
+/// was made and from every frame it had to be put back on.
+static HELD_FOR: AtomicUsize = AtomicUsize::new(0);
+
+/// And the window [`shown_now_the_corner_is_held`] has shown, so that a game making its window over gets
+/// the new one shown too — the handle and not a flag, that being what says which window it was.
+static SHOWN: AtomicUsize = AtomicUsize::new(0);
+
+/// Whether a window orb made hidden has been found on the screen with orb not having shown it, which is
+/// said once a launch — see [`keeps_its_corner`].
+static WAS_SHOWN_BY_SOMETHING_ELSE: AtomicBool = AtomicBool::new(false);
+
+/// **How long the corner has to hold before the window is shown**, in frames.
+///
+/// A second of them, and not the one frame that would say the corner was held at all: what moves the
+/// window does it while the game is starting — at the swapchain it builds for the window it has just made
+/// — and orb has no hold on which frame that is. A window shown before then is one that flashes in the
+/// middle of the monitor, which is the whole thing being avoided, and a second of nothing on the screen
+/// is a second of a game that is loading anyway. Whatever moves it later is [`keeps_its_corner`]'s to
+/// answer, as it was before the window was made hidden at all.
+///
+/// **And not the swapchain answered instead**, which was the other way out: orb already stands in front
+/// of `CreateDXGIFactory2` for these games, and putting the corner back inside `CreateSwapChainForHwnd`
+/// before it returns would be a put-back no frame comes between. What that costs is a reading of whether
+/// the move even happens there — the two moves a launch of th06nc was measured making, from
+/// `-2160,-1676` to `1269,656` and then to `1749,926`, are moves nothing in the log says the maker of —
+/// and a window nobody can see needs no such reading, whoever moves it and however many times.
+const FRAMES_THE_CORNER_HOLDS_FIRST: usize = 60;
 
 /// **Puts the window orb plays in back in its corner where something has moved it**, asked once a frame.
 ///
@@ -406,10 +586,24 @@ pub unsafe fn keeps_its_corner() {
     let Some(is_at) = orb_api::window::window_rect(Hwnd(window)) else {
         return;
     };
+    // **And whether something else has shown it**, which is what says the wait above is worth anything:
+    // orb made this window hidden, so a window that is up before orb showed it is a window somebody else
+    // put on the screen — and every put-back below it is a move somebody can see.
+    if SHOWN.load(Ordering::Relaxed) != window
+        && orb_api::window::is_visible(Hwnd(window))
+        && !WAS_SHOWN_BY_SOMETHING_ELSE.swap(true, Ordering::Relaxed)
+    {
+        log!(
+            "screen: the window orb plays in is on the screen and orb did not show it; \
+             whatever moves it now is seen",
+        );
+    }
     // **The corner and not the size**, for [`create_window_ex_w`]'s reason: the size is the game's own
     // and a smaller one clips what it draws. Where the corner is already right there is nothing to do,
-    // which is every frame but the few something moved it on.
+    // which is every frame but the few something moved it on — except the first of them, which is where
+    // a window made hidden is shown.
     if (is_at.left, is_at.top) == (corner.left, corner.top) {
+        shown_now_the_corner_is_held(window);
         return;
     }
     detail!(
@@ -419,6 +613,7 @@ pub unsafe fn keeps_its_corner() {
         corner.left,
         corner.top,
     );
+    HELD_FOR.store(0, Ordering::Relaxed);
     let original: MoveWindow = unsafe { std::mem::transmute(putting_back) };
     unsafe {
         original(
@@ -432,6 +627,30 @@ pub unsafe fn keeps_its_corner() {
     };
 }
 
+/// **Shows the window orb plays in once it has been in its corner for
+/// [`FRAMES_THE_CORNER_HOLDS_FIRST`] frames** — the window [`create_window_ex_w`] made hidden, and once
+/// per window it made.
+///
+/// Nothing on every frame after that one: the count climbs and the handle shown is written down, so a
+/// game making its window over shows the new one and a window already up is left alone.
+fn shown_now_the_corner_is_held(window: usize) {
+    let held = HELD_FOR.load(Ordering::Relaxed);
+    if held >= FRAMES_THE_CORNER_HOLDS_FIRST {
+        return;
+    }
+    HELD_FOR.store(held + 1, Ordering::Relaxed);
+    if held + 1 < FRAMES_THE_CORNER_HOLDS_FIRST || SHOWN.swap(window, Ordering::Relaxed) == window {
+        return;
+    }
+    log!(
+        "screen: the window orb plays in has held its corner for \
+         {FRAMES_THE_CORNER_HOLDS_FIRST} frames; showing it",
+    );
+    if !orb_api::window::show(Hwnd(window)) {
+        log!("screen: the window orb plays in could not be shown");
+    }
+}
+
 /// **Whether the window is one orb plays in**, which is what [`answers_the_window_made`] was told — for a
 /// game that sizes its own window afterwards and has to be told to keep it small.
 ///
@@ -441,10 +660,21 @@ pub unsafe fn plays_out_of_the_way() -> bool {
     unsafe { *OUT_OF_THE_WAY.get() }
 }
 
-/// **Frames the window orb plays in as a dialog again**, for a game that made its window over after
-/// [`create_window_ex_w`] framed it — th06nc's window mode does, and the frame it puts back is an
-/// ordinary one, in the taskbar and in alt-tab. [`DIALOG_EX_STYLE`] is added to what the window has;
-/// nothing where the launch is somebody's or the window is not made yet.
+/// **Frames the window orb plays in as a dialog again where something has taken that frame off**, asked
+/// once a frame beside [`keeps_its_corner`] — for a game that makes its own window over after
+/// [`create_window_ex_w`] framed it, whose frame is an ordinary one, in the taskbar and in alt-tab.
+///
+/// **Read rather than written every frame, and read for the same reason the corner is.** Both games do
+/// this and neither does it through a call orb answers: th06c's window was measured with an extended
+/// style of `0x100` where orb had made it with [`DIALOG_EX_STYLE`] — `dialog-frame False
+/// off-the-taskbar False`, read from outside the process by
+/// `.claude/skills/driving-orb-with-autoplay/scripts/window-style.ps1` — so the game had written its own
+/// style over orb's some time after the window was made. A put-back on one chosen frame is a put-back
+/// that can happen before the game's own write: this asks every frame and writes only where the bits are
+/// gone, which costs one `GetWindowLongPtrW` a frame.
+///
+/// Nothing where the launch is somebody's own, where no such window was made, or where the host will not
+/// say what the style is.
 ///
 /// # Safety
 /// Must run on the game's main thread, with the window made.
@@ -456,6 +686,14 @@ pub unsafe fn keeps_its_frame() {
     if window == 0 {
         return;
     }
+    let has = orb_api::window::ex_style(Hwnd(window));
+    if has & DIALOG_EX_STYLE == DIALOG_EX_STYLE {
+        return;
+    }
+    detail!(
+        "screen: the window orb plays in has the extended style {has:#010x}; \
+         framing it as a dialog again",
+    );
     if !orb_api::window::add_ex_style(Hwnd(window), DIALOG_EX_STYLE) {
         log!("screen: the window orb plays in could not be framed as a dialog again");
     }

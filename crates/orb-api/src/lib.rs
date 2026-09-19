@@ -270,15 +270,21 @@ pub trait Win: Send + Sync + 'static {
     /// object's vtable pointer looks like.
     fn vtable_in_image(&self, address: usize) -> bool;
 
-    /// The committed regions the game owns, as `(base, len)` — what a snapshot walks. The
+    /// The committed regions the game owns, as `(base, len, source)` — what a snapshot walks. The
     /// data range comes first, as a real game's does; a region of the game's code is left out,
     /// since a chapter is a copy of the game's state and not of itself.
+    ///
+    /// The source is which of the things the game took the region came out of, and a host answers it
+    /// with the names its own memory has: [`mem::Source::Heap`] and [`mem::Source::Reservation`] for a
+    /// real process, [`mem::Source::LaidOut`] for a space an e2e test put objects in. It is what a
+    /// launch bisecting a restore names a span by, so a name one host invents for the other's memory is
+    /// a name no bisect can use — see [`mem::Source`].
     ///
     /// No two entries may cover the same pages. That is this side's rule to keep because it is a rule
     /// about *these* pages: a real walk finds a heap region and a reservation naming the same ones and
     /// merges them, and laid-out memory answers with the objects an e2e test put there, two of which
     /// merged because they abut is one range nothing in that space can read.
-    fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize)>;
+    fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize, mem::Source)>;
 
     /// Remembers a heap the game has just allocated from, so [`game_regions`](Win::game_regions) walks
     /// it.
@@ -579,6 +585,27 @@ pub trait Win: Send + Sync + 'static {
     /// host took it.
     fn add_ex_style(&self, _window: Hwnd, _ex_style: u32) -> bool {
         true
+    }
+
+    /// `ShowWindow` with `SW_SHOW` — see [`crate::window::show`], and `orb_core::window`'s own reason for
+    /// a window that is made hidden. A laid-out host has nothing to show, so the default answers that the
+    /// host took it.
+    fn show(&self, _window: Hwnd) -> bool {
+        true
+    }
+
+    /// `IsWindowVisible` — see [`crate::window::is_visible`]. A laid-out host has the style the window was
+    /// made with and every show it was asked for, so it can answer; the default is a host that says the
+    /// window is up, which is what one with nothing to hide a window with would be.
+    fn is_visible(&self, _window: Hwnd) -> bool {
+        true
+    }
+
+    /// `GetWindowLongPtrW` on the extended style — see [`crate::window::ex_style`]. A laid-out host keeps
+    /// the style it made each window with and every bit [`Win::add_ex_style`] added to it, so it can
+    /// answer; the default is a host that will not say.
+    fn ex_style(&self, _window: Hwnd) -> u32 {
+        0
     }
 
     // --- the status line, in the black beside the game ---------------------------

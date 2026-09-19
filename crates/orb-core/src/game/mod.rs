@@ -581,6 +581,21 @@ pub struct Hooks {
     ///
     /// `None` for a game that leaves its window where it made it, which is th06 and th07.
     pub moves_its_window: Option<Lookup>,
+    /// **And the name it asks for to put that window on the screen**, which is what a window made hidden
+    /// has to be answered by: `orb_core::window::create_window_ex_w` strips `WS_VISIBLE` so that no
+    /// put-back of the corner is seen, and a game that shows its own window undoes that.
+    ///
+    /// th06nc does — a launch whose window was made hidden was measured on the screen a frame later with
+    /// orb having shown nothing — so what this answers keeps the window off the screen until the corner
+    /// has held and lets every later call through.
+    ///
+    /// `None` for a game whose window orb does not hide, which is th06 and th07.
+    pub shows_its_window: Option<Lookup>,
+    /// **And the name it asks for to place it**, `SetWindowPos` being the one call that moves a window
+    /// and shows it at once — so a game that looks it up can undo both halves.
+    ///
+    /// `None` for a game that places its window through neither, which is th06 and th07.
+    pub places_its_window: Option<Lookup>,
     /// **The name it asks for to read a pad**, which orb answers by being one.
     ///
     /// **A pad rather than the keys, because a pad is read the same way whatever screen is up.** This
@@ -627,12 +642,17 @@ pub enum Memory {
     /// and nothing else allocates from. th06 1.02h and th07 are built this way, and the hooks over those six
     /// entries notice the heap and the reservations as the game takes them.
     Kernel32Imports,
-    /// `malloc` and `free` out of `api-ms-win-crt-heap-l1-1-0.dll`: the universal CRT, whose `malloc` is the
-    /// *process* heap — the one D3D11, DXGI, Steam and every other module in the process allocate from too,
-    /// so a copy of it is a copy of theirs and a restore of it rewinds them. So orb stands in front of the two
-    /// imports and routes them to a heap it made for the game alone; every `new` in the exe reaches `malloc`
-    /// through the exe's own `operator new`, which is what makes the two imports the whole of it. th06c and
-    /// th06nc are built this way — neither imports a `Heap*` or `VirtualAlloc` at all.
+    /// `malloc`, `free` and `realloc` out of `api-ms-win-crt-heap-l1-1-0.dll`: the universal CRT, whose
+    /// `malloc` is the *process* heap — the one D3D11, DXGI, Steam and every other module in the process
+    /// allocate from too, so a copy of it is a copy of theirs and a restore of it rewinds them. So orb
+    /// stands in front of those imports and routes them to a heap it made for the game alone; every `new`
+    /// in the exe reaches `malloc` through the exe's own `operator new`, which is what makes the allocator's
+    /// own imports the whole of it. th06c and th06nc are built this way — neither imports a `Heap*` or
+    /// `VirtualAlloc` at all.
+    ///
+    /// **And which of those imports an exe has is the exe's own business**: th06nc has all three where
+    /// th06c has two, and the third one had nothing in front of it — see `orb::memtrack`'s `realloc`,
+    /// which is a hazard read off the exe rather than a fault any launch has been watched going through.
     UcrtImports,
 }
 
@@ -855,6 +875,12 @@ pub struct RunStart {
     pub practice: bool,
     /// Counted from zero, the way orb counts stages everywhere.
     pub stage: i32,
+    /// **Which of the game's own modes the run is in**, for a game that has more than one: th06nc
+    /// offers 標準モード and チャレンジモード and they start a run with different lives, so two runs
+    /// alike in every field above are still two runs. **Nought where a build has one mode**, which is
+    /// th06, th07 and th06c — see [`Game::run_slot`], which is what the number has to reach, and
+    /// `game::th06nc::game_manager` for where this game keeps it.
+    pub mode: i32,
 }
 
 /// **There is no shared shape for the run's numbers.** What a stage has to start with is the game's own —
@@ -1658,6 +1684,23 @@ pub trait Game {
         let _ = left;
     }
 
+    /// Whether the game's own **run** build lays its score file's card records over the ones in memory, so
+    /// that the run before this one loses what it counted the moment another starts.
+    ///
+    /// **th07 loses them there too and has a hook for it; th06nc has this instead**, and the difference is
+    /// only where the read can be bracketed: th07's is inside the save [`Hooks::card_records_read`] stands
+    /// over, and th06nc's is `0x14006cc40(the parsed file, manager + 0x968)` at `0x14003ad68` — on the
+    /// run-start branch of the stage build `Hooks::stage_begun` *already* stands over, after the loop at
+    /// `0x14003ab00` has laid all 134 records out. So answering true asks `runtime::the_stage_begun` to
+    /// put the note a run's end left back once the original returns, and to spend it there.
+    ///
+    /// **A question rather than one more `Hooks` entry**, because there is nothing left to patch: the jump
+    /// is written, and `0x14006cc40` itself could not take one — twelve bytes of prologue stand before its
+    /// `jne` where a 64-bit jump needs fourteen.
+    fn its_run_build_lays_its_file_over_the_cards(&self) -> bool {
+        false
+    }
+
     /// Whether the game writes its own score file, so that nothing above has to build a ranking screen for
     /// it.
     ///
@@ -2063,6 +2106,64 @@ pub trait Game {
     /// Must run on the game's main thread, from inside that read.
     unsafe fn hand_the_read_to_the_run(&self, word: u16, moved_on: bool) {
         let _ = (word, moved_on);
+    }
+
+    /// **Makes the game forget when it last read its keyboard and its pad**, so that the next read it
+    /// makes is a read and not the answer it kept.
+    ///
+    /// **What this is for is a playback, where a game's own rate is the wrong one.** th06nc reads at most
+    /// once a millisecond — its read holds a stored `timeGetTime` against the clock and skips itself where
+    /// the two are equal, and the pad's poll does the same — which for a run somebody plays is one read a
+    /// frame and exactly right. A playback drives its updates in a burst inside one frame of the host, so
+    /// all but the first of them fall in the same millisecond and compose their word out of the snapshot
+    /// the first one left: the word a frame of the run acted on is then the word of whichever update
+    /// happened to open a millisecond. Measured over a pair of real launches of one chapter — the same
+    /// `chose=` on every frame and the *composed* word apart on seven of 3,474, the first of them a frame
+    /// orb fed nothing for whose word held the shot.
+    ///
+    /// Nothing for a game that reads when it is asked, which is th06 and th07: their reads are orb's hook
+    /// and there is nothing kept between two of them.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, before the update whose word is about to be composed.
+    unsafe fn forgets_when_it_read(&self) {}
+
+    /// **Starts whatever a stage's own first frame started in the game's player** — so that a resumed
+    /// stage carries on from where the run's did rather than from where its build left it.
+    ///
+    /// **What this is for is the one frame a playback never feeds, and the one frame the file holds no
+    /// word for.** A run's stage begins on its first frame and the word that frame was played with reaches
+    /// the player; a resumed run spends that same frame building the stage and landing in it, and orb
+    /// feeds it nought. Feeding the file's own word instead is not open: `Game::stage_frame` answers
+    /// `None` at that read, the player's job not being in the chain until the build registers it, so
+    /// [`resume::Record::note`](crate::resume) writes nothing down for it — see
+    /// [`crate::runtime::the_frames_word`], whose comment carries the launches that measured both.
+    ///
+    /// **Measured on th06nc, where what it started is the shot's own phase.** A pair of the same chapter of
+    /// stage 3 — recorded and picked up minutes apart — agreed on the word, the player, the generator, the
+    /// script's clock, the items, the score and the enemies, and parted on **frame 2** in that phase
+    /// alone: `shot=2,1` against `shot=1,0`. Of the 3,410 frames the two had in common it parted on
+    /// **3,405** — a drift and not a transient — and 216 frames later the enemies' life, the count of
+    /// draws and the generator all parted together on frame 218, which is the run's shot landing where the
+    /// playback's had not yet. With the phase put back, the pair's first parting moves to the shots
+    /// themselves and 2,194 of 3,474 frames part rather than 3,405 of 3,410.
+    ///
+    /// **`word` is the first the playback is going to feed and not that frame's own**, which the file does
+    /// not hold — see
+    /// [`resume::the_first_word_a_playback_will_feed`](crate::resume::the_first_word_a_playback_will_feed).
+    /// What it is for is deciding whether the run was pressing at all across the stage's start: the rules
+    /// hold the shot on fifty-nine frames in sixty (`orb_bot`'s `SHOT_LET_GO_EVERY`), so the frame after
+    /// answers for the frame before, and a run that was not firing there gets no cycle it never had. The
+    /// laid-out games measure that half: their own first word is the recipe's decide, `0x1000`, and a real
+    /// launch's is `0x0011`.
+    ///
+    /// Nothing for a game whose player orb has read no such state of, which is the other three.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, inside the frame that built the stage, after the build has
+    /// registered the player and before the playback's own updates.
+    unsafe fn starts_the_shot_a_stage_began_with(&self, word: u16) {
+        let _ = word;
     }
 
     /// Which bits of a frame's input decide how a run goes, and so are the ones worth writing

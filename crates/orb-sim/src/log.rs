@@ -57,7 +57,16 @@ impl Log {
     pub fn write(&self, file: LogFile, bytes: &[u8]) {
         assert_eq!(file, HANDLE, "a log handle no simulated open handed out");
         let mut state = self.state.lock().unwrap();
-        assert!(!state.closed, "written to after being closed");
+        // **A write after the close is dropped rather than made a panic**, which is what the host does
+        // with one: a thread of orb's own — the replay's writer, the joystick's poll, the sampler — can be
+        // inside `log!` while the game closes its file at the end of a launch, and a `WriteFile` on a
+        // closed handle fails there and costs nothing. Held as a panic it failed a test whose subject was
+        // somewhere else entirely: `th07::the_frames_reach_the_device_inside_a_letterbox_of_the_games_own_shape`
+        // came back `written to after being closed` under a suite heavy enough for that thread to be late,
+        // and passed alone. What the assert was for is the handle, which is checked above.
+        if state.closed {
+            return;
+        }
         // Lossy rather than refused: orb formats its own lines and they are all UTF-8, so a
         // failure here would be a test's own bad bytes and not something to make it prove.
         state

@@ -1,0 +1,91 @@
+# A run of th06nc whose first attempt at its chapter is hit on purpose and whose next is played clean, so
+# that the retry question comes up and is answered by the rules with the chapter again — the whole content
+# of the mode, which a run that dodges everything never reaches.
+#
+# **The walk is this game's own screens**, read off the eighth launch of `into-a-chapter.yaml`, whose
+# thirty-three steps walked it with none given up: 2 the title, 3 the main menu — item 0 is the one orb's
+# question stands over — then 9 the difficulty, 11 the character, 13 the shot, and 14, 24 and 25 each
+# taking a press before the stage. Six frames a press, these menus repeating a held key.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+# **The menu's own grace is twenty frames** — `0x14004832d` against `0x14` — so the tap that raises orb's
+# question is repeated past it.
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 9, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# **Hit on purpose, so that the mode has something to answer.** The rules take every hit offered and never
+# give the run up.
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+# **A window of frames for the one death this case is about**, and not a chapter: which chapter the death
+# falls in is a thing of how well the rules play and of where the stage's own bullets are, and this window
+# stops before the midboss — which arrives later than stage frame 1,925 — so a chapter further on is
+# nothing to wait for. The question itself cannot be waited for, the rules answering the offer the frame
+# it comes up.
+#
+# **Eighteen hundred and not th06c's four hundred**, because a hit has to be there to be taken: the rules
+# walk into one where the stage offers one, and a launch of this game given four hundred frames from the
+# stage's start played them all out untouched — `the retry question never stood, so nothing was hit`.
+- play_until: { frames: 1800 }
+  give_up_after: 7200
+# And then on with no chance of being hit, which is what the chapter again has to carry the run through.
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { frames: 1200 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

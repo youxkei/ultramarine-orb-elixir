@@ -33,6 +33,7 @@ fn the_practice_run() -> RunStart {
         shot_type: 0,
         practice: true,
         stage: THE_STAGE,
+        mode: 0,
     }
 }
 

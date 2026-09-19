@@ -11,9 +11,9 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRect, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetWindowLongPtrW,
-    GetWindowRect, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_SYSTEMMODAL, MessageBoxW,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetProcessDPIAware,
-    SetWindowLongPtrW, SetWindowPos,
+    GetWindowRect, IsWindowVisible, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_SYSTEMMODAL,
+    MessageBoxW, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SetProcessDPIAware, SetWindowLongPtrW, SetWindowPos, ShowWindow,
 };
 
 use crate::real::gdi;
@@ -122,6 +122,25 @@ pub fn add_ex_style(window: Hwnd, ex_style: u32) -> bool {
             SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         ) != 0
     }
+}
+
+pub fn show(window: Hwnd) -> bool {
+    // `ShowWindow` answers whether the window *was* visible, which is nought for the one this is for —
+    // it was made hidden. So the answer is thrown away and the call is what there is; a window that
+    // refuses to show has no other sign to give.
+    unsafe { ShowWindow(window.0 as _, SW_SHOW) };
+    true
+}
+
+pub fn is_visible(window: Hwnd) -> bool {
+    unsafe { IsWindowVisible(window.0 as _) != 0 }
+}
+
+pub fn ex_style(window: Hwnd) -> u32 {
+    // Through `u32` for [`add_ex_style`]'s reason: the style is one on both targets and the call's own
+    // integer is not.
+    let has = unsafe { GetWindowLongPtrW(window.0 as _, GWL_EXSTYLE) };
+    has as u32
 }
 
 /// A font at `em` pixels of em, in whatever face the host substitutes for no name at all: the lines

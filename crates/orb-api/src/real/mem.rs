@@ -14,6 +14,8 @@ use windows_sys::Win32::System::Memory::{
 };
 use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
 
+use crate::mem::Source;
+
 /// The ranges orb has said are its own, so that [`private_regions`] can leave them out: they hold
 /// copies of the game's memory, and a walk that counted them would report orb's own copies as memory
 /// something changed behind a snapshot's back.
@@ -365,43 +367,69 @@ pub fn hold_what_a_restore_needs(address: usize) -> Option<(usize, usize)> {
 /// walking *for*: this one is what a chapter is a copy of, and it covers only what the game itself took.
 ///
 /// Walking a heap takes its lock, so no thread may be suspended when this is called.
-pub fn game_regions(data: &std::ops::Range<usize>) -> Vec<(usize, usize)> {
-    let mut regions = vec![(data.start, data.len())];
+pub fn game_regions(data: &std::ops::Range<usize>) -> Vec<(usize, usize, Source)> {
+    let mut regions = vec![(data.start, data.len(), Source::Data)];
 
     let (heaps, reservations) = match TRACKED.lock() {
         Ok(tracked) => (tracked.heaps.clone(), tracked.reservations.clone()),
         Err(_) => return regions,
     };
-    for heap in heaps {
-        collect_heap(heap, &mut regions);
+    // Counted from one in the order the hooks noticed them, which is what makes the name mean the same
+    // pages in the next launch: `TRACKED` is only ever pushed to, so the `n`th heap of one launch is the
+    // `n`th of the next wherever the OS put its handle. For a game whose allocator is the UCRT's there is
+    // exactly one, `orb::memtrack::install_ucrt`'s own `HeapCreate`, so `heap1.N` names a region of the
+    // game's heap and nothing about which heap has to be worked out to bisect it.
+    for (which, heap) in heaps.into_iter().enumerate() {
+        collect_heap(heap, which + 1, &mut regions);
     }
-    for (base, len) in reservations {
-        collect_committed(base..base + len, &mut regions);
+    for (which, (base, len)) in reservations.into_iter().enumerate() {
+        collect_committed(
+            base..base + len,
+            Source::Reservation(which + 1),
+            &mut regions,
+        );
     }
     regions
 }
 
-fn collect_heap(heap: usize, out: &mut Vec<(usize, usize)>) {
+/// **The regions counted as the walk hands them over**, which is the ordinal a bisect names one by: the
+/// heap manager's own list is appended to as the heap grows rather than reordered, so the `n`th region of
+/// one launch is the `n`th of the next — measured, as five launches of th06nc printing the same seven
+/// sizes in the same order.
+fn collect_heap(heap: usize, which: usize, out: &mut Vec<(usize, usize, Source)>) {
     let heap = heap as *mut c_void;
     if unsafe { HeapLock(heap) } == 0 {
         return;
     }
     let mut entry: PROCESS_HEAP_ENTRY = unsafe { std::mem::zeroed() };
+    let mut regions = 0;
     while unsafe { HeapWalk(heap, &mut entry) } != 0 {
         if entry.wFlags & PROCESS_HEAP_REGION as u16 == 0 {
             continue;
         }
+        regions += 1;
         let region = unsafe { entry.Anonymous.Region };
         let base = entry.lpData as usize;
         let span = base..base + region.dwCommittedSize as usize + region.dwUnCommittedSize as usize;
-        collect_committed(span, out);
+        collect_committed(
+            span,
+            Source::Heap {
+                which,
+                region: regions,
+            },
+            out,
+        );
     }
     unsafe { HeapUnlock(heap) };
 }
 
 /// Splits `span` into the parts that are committed and readable. Heap regions contain uncommitted holes
 /// and no-access guard pages, and reading those would fault rather than return zeroes.
-fn collect_committed(span: std::ops::Range<usize>, out: &mut Vec<(usize, usize)>) {
+fn collect_committed(
+    span: std::ops::Range<usize>,
+    from: Source,
+    out: &mut Vec<(usize, usize, Source)>,
+) {
     let mut address = span.start;
     while address < span.end {
         let Some(info) = query(address) else {
@@ -416,7 +444,7 @@ fn collect_committed(span: std::ops::Range<usize>, out: &mut Vec<(usize, usize)>
             let start = address.max(base);
             let end = next.min(span.end);
             if start < end {
-                push_merged(out, (start, end - start));
+                push_merged(out, (start, end - start), from);
             }
         }
         address = next.max(address + 1);
@@ -435,17 +463,29 @@ fn collect_committed(span: std::ops::Range<usize>, out: &mut Vec<(usize, usize)>
 /// be got wrong quietly: it is a rule about real pages. A laid-out game answers with the objects an
 /// e2e test put there, and two of those merged because they abut is one range nothing in that space can
 /// read — measured, as 26 of `orb-core`'s own tests failing on a 61440-byte range that is two.
-fn push_merged(out: &mut Vec<(usize, usize)>, (base, len): (usize, usize)) {
+/// **The merged entry is named after whichever of them starts lowest**, and where two start together
+/// after the one already in the list. That is a property of the pages and not of the order the walk
+/// happened to find them in, which the name has to be: the list is unordered, so a rule reading "the one
+/// that was already here" would answer differently for the same three ranges arriving the other way
+/// round. The tie goes to the standing entry because the walk goes `.data`, then the heaps as they were
+/// noticed, then the reservations — so it is the earlier source, and for the pair the merging exists for
+/// (a range the game reserved from the OS that its heap manager has since taken over) the earlier source
+/// is the heap that hands those pages out.
+fn push_merged(out: &mut Vec<(usize, usize, Source)>, (base, len): (usize, usize), from: Source) {
     let (mut base, mut end) = (base, base + len);
-    out.retain(|(at, len)| {
+    let mut lowest = (base, from);
+    out.retain(|(at, len, theirs)| {
         let touching = base <= at + len && *at <= end;
         if touching {
+            if *at <= lowest.0 {
+                lowest = (*at, *theirs);
+            }
             base = base.min(*at);
             end = end.max(at + len);
         }
         !touching
     });
-    out.push((base, end - base));
+    out.push((base, end - base, lowest.1));
 }
 
 pub fn process_heap_regions() -> Vec<(usize, usize)> {
@@ -483,18 +523,30 @@ pub fn read_committed_bytes(address: usize, len: usize) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::push_merged;
+    use super::{Source, push_merged};
+
+    /// The first region of the game's first heap, which is what the walk's own entries are named.
+    const A_REGION: Source = Source::Heap {
+        which: 1,
+        region: 1,
+    };
+
+    /// And the one after it, to say that two regions of one heap are two names.
+    const THE_NEXT_REGION: Source = Source::Heap {
+        which: 1,
+        region: 2,
+    };
 
     /// Nothing in the set covers the same pages as anything else, whichever order the walk found
     /// them in — including where what arrives bridges two that were apart.
     #[test]
     fn a_region_bridging_two_entries_leaves_one() {
         for mut out in [
-            vec![(0x1000, 0x1000), (0x3000, 0x1000)],
-            vec![(0x3000, 0x1000), (0x1000, 0x1000)],
+            vec![(0x1000, 0x1000, A_REGION), (0x3000, 0x1000, A_REGION)],
+            vec![(0x3000, 0x1000, A_REGION), (0x1000, 0x1000, A_REGION)],
         ] {
-            push_merged(&mut out, (0x1800, 0x2000));
-            assert_eq!(out, [(0x1000, 0x3000)]);
+            push_merged(&mut out, (0x1800, 0x2000), A_REGION);
+            assert_eq!(out, [(0x1000, 0x3000, A_REGION)]);
         }
     }
 
@@ -502,14 +554,35 @@ mod tests {
     /// touches nothing stands on its own.
     #[test]
     fn what_is_already_covered_is_not_saved_again() {
-        let mut out = vec![(0x1000, 0x3000)];
-        push_merged(&mut out, (0x2000, 0x1000));
-        assert_eq!(out, [(0x1000, 0x3000)]);
+        let mut out = vec![(0x1000, 0x3000, A_REGION)];
+        push_merged(&mut out, (0x2000, 0x1000), A_REGION);
+        assert_eq!(out, [(0x1000, 0x3000, A_REGION)]);
 
-        push_merged(&mut out, (0x4000, 0x1000));
-        assert_eq!(out, [(0x1000, 0x4000)]);
+        push_merged(&mut out, (0x4000, 0x1000), A_REGION);
+        assert_eq!(out, [(0x1000, 0x4000, A_REGION)]);
 
-        push_merged(&mut out, (0x8000, 0x1000));
-        assert_eq!(out, [(0x1000, 0x4000), (0x8000, 0x1000)]);
+        push_merged(&mut out, (0x8000, 0x1000), A_REGION);
+        assert_eq!(
+            out,
+            [(0x1000, 0x4000, A_REGION), (0x8000, 0x1000, A_REGION)],
+        );
+    }
+
+    /// A merged range is named after whichever of them starts lowest, and after the standing entry
+    /// where they start together — so what a bisect is given for a reservation the heap manager has
+    /// taken over is the heap's own region, whichever order the walk met the two in.
+    #[test]
+    fn a_merge_is_named_after_what_starts_lowest() {
+        let mut out = vec![(0x2000, 0x1000, A_REGION)];
+        push_merged(&mut out, (0x1000, 0x1000), Source::Reservation(1));
+        assert_eq!(out, [(0x1000, 0x2000, Source::Reservation(1))]);
+
+        let mut out = vec![(0x1000, 0x1000, A_REGION)];
+        push_merged(&mut out, (0x2000, 0x1000), Source::Reservation(1));
+        assert_eq!(out, [(0x1000, 0x2000, A_REGION)]);
+
+        let mut out = vec![(0x1000, 0x1000, THE_NEXT_REGION)];
+        push_merged(&mut out, (0x1000, 0x2000), Source::Reservation(1));
+        assert_eq!(out, [(0x1000, 0x2000, THE_NEXT_REGION)]);
     }
 }

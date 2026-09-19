@@ -17,8 +17,17 @@
   until: { screen: 3, cursor: 1 }
   give_up_after: 900
 - wait_until: { frames: 30 }
+# **And orb's own question over that item, answered with the mode this case is of** — item 0, as th06c's
+# own Extra answers it. Without this step the menu stands frozen behind a question nobody answers and
+# screen 9 never comes: `a_run_played_to_its_clear_without_a_bomb` had the same hole and a launch of it
+# read `mode: pointdevice to start with; the menu asks which` and then gave up every wait after it. orb
+# has a question over both of the menu's first two items — see `Th06nc::menu_takes_a_press`.
 - press: [decide]
   frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
 - wait_until: { screen: 9 }
   give_up_after: 1800
 - wait_until: { frames: 30 }
@@ -64,7 +73,8 @@
 # The name written into that entry rather than pressed for — see the Normal run's recipe.
 - name: ORB
   give_up_after: 1800
-# And pressed through to the title, so that the game writes its records of it.
+# And pressed through the screen a run ends at to the title, so that the game writes its records of it —
+# the title being where a run that finished comes back: see the Normal run's recipe, whose tail this is.
 - press: [decide]
   frames: 6
   until: { screen: 2 }

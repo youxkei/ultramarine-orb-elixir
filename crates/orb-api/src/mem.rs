@@ -380,18 +380,102 @@ pub fn hold_what_a_restore_needs(address: usize) -> Option<(usize, usize)> {
     host::hold_what_a_restore_needs(address)
 }
 
-/// The committed regions the game owns, as `(base, len)`, with the data range first.
+/// Which of the things the game took a region came out of.
+///
+/// **An ordinal and not the handle or the base**, because what this is for is naming a span a bisect can
+/// hold back across launches: a heap handle and a reservation base are whatever the OS handed out that
+/// time, where the order the game takes them in is the game's own and the same every launch. The
+/// *distances* between a heap's segments are the OS's as well, which is why a heap is named region by
+/// region and not by an offset into the whole of it — see [`Source::Heap`].
+///
+/// **And not the region's place in [`game_regions`]' answer**, which is what `--hold-back-at` had to name
+/// before this: a heap's committed runs are as many regions as the heap manager currently has them in,
+/// and one launch of th06nc listed the game's heap as 8 of them in one chapter and 9 in another — so a
+/// count into that list names different pages within one run, which is what makes it useless as a name.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Source {
+    /// The exe's `.data`, which is always the first region.
+    Data,
+    /// One region of the `n`th heap the game has allocated from — the heap counted from 1 in the order
+    /// [`note_heap`] noticed them, and the region from 1 in the order `HeapWalk` hands them over.
+    ///
+    /// **The region and not the heap alone**, because a heap is megabytes in a handful of segments and
+    /// what a bisect has to be able to name is one of them: five launches of th06nc printed its heap as
+    /// the same seven regions of the same sizes in the same order — `0xf000`, `0x10000`, `0xe0000`,
+    /// `0x5000`, `0x1cf000`, `0xa0000`, `0x2000` — where the *addresses* those sat at differed every
+    /// launch, and so did their distances from each other: one launch's heap had its first segment
+    /// `0x180000` below the rest and the next launch's had them the other way about. So an offset into a
+    /// heap names nothing across launches and a region's own ordinal names the same segment, `HeapWalk`
+    /// walking the heap manager's own list, which is appended to rather than reordered.
+    ///
+    /// **And the ordinal is the walk's and not this list's**, which is the difference that matters: the
+    /// committed parts of one region are as many entries in [`game_regions`]' answer as it has holes —
+    /// th06nc's `heap1.1` read `0xf000` in one snapshot and, in the next, `0x6000` and `0x2000` with an
+    /// uncommitted hole between — so a count into the answer moves where this does not.
+    Heap { which: usize, region: usize },
+    /// The `n`th range the game reserved straight from the OS, counted the same way — see
+    /// [`note_reservation`].
+    Reservation(usize),
+    /// A region of laid-out memory, by the allocation number the space counts it as.
+    ///
+    /// **A name of its own and not one of the two above**, which is the one thing about this a fake
+    /// could get wrong quietly: laid-out memory is divided into neither heaps nor reservations — an e2e
+    /// test puts the game's objects at the addresses the real game has them at — so answering `Heap(1)`
+    /// for them would hand a test a name no launch of the real game can ever produce.
+    LaidOut(usize),
+}
+
+impl std::fmt::Display for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Source::Data => write!(f, "data"),
+            Source::Heap { which, region } => write!(f, "heap{which}.{region}"),
+            Source::Reservation(which) => write!(f, "reserve{which}"),
+            Source::LaidOut(which) => write!(f, "laid-out{which}"),
+        }
+    }
+}
+
+/// Beside the `tests` below rather than in it: that module is windows-only, these names being the same
+/// on every host — and this is the one thing about them that a command line and a log both depend on.
+#[cfg(test)]
+mod names {
+    use super::Source;
+
+    /// What each source reads as, which is the whole of what a launch bisecting a restore has to type:
+    /// `--hold-back-at=heap1.3:0+7800`.
+    #[test]
+    fn a_source_is_named_by_what_it_is_and_which_one() {
+        assert_eq!(Source::Data.to_string(), "data");
+        assert_eq!(
+            Source::Heap {
+                which: 1,
+                region: 3
+            }
+            .to_string(),
+            "heap1.3",
+        );
+        assert_eq!(Source::Reservation(2).to_string(), "reserve2");
+        assert_eq!(Source::LaidOut(3).to_string(), "laid-out3");
+    }
+}
+
+/// The committed regions the game owns, as `(base, len, source)`, with the data range first.
 ///
 /// The real host walks the heaps and the reservations the import hooks noticed — see
 /// [`note_heap`] — and a simulated one answers out of laid-out memory, that *being* the game's. So this
 /// is the seam and nothing else: it used to answer `None` for a real process and `orb_core::memtrack`
 /// branched on that to reach a walk handed the other way, which was the walk being on the wrong side.
 ///
+/// [`Source`] says which of the things the game took each region came out of, and is the whole reason
+/// this answers more than a base and a length: what a restore's own bisect can name is a heap and not a
+/// place in this list.
+///
 /// No two entries cover the same pages, a heap region and a reservation being able to name the same
 /// ones. That rule is the answering host's, being a rule about *its* pages: laid-out memory answers with
 /// the objects an e2e test put there, and two of those merged because they abut is one range nothing in
 /// that space can read.
-pub fn game_regions(data: &std::ops::Range<usize>) -> Vec<(usize, usize)> {
+pub fn game_regions(data: &std::ops::Range<usize>) -> Vec<(usize, usize, Source)> {
     #[cfg(feature = "sim")]
     if let Some(win) = crate::installed() {
         return win.game_regions(data);
@@ -566,7 +650,7 @@ mod host {
     pub fn process_heap_regions() -> Vec<(usize, usize)> {
         no_windows("mem::process_heap_regions")
     }
-    pub fn game_regions(_data: &std::ops::Range<usize>) -> Vec<(usize, usize)> {
+    pub fn game_regions(_data: &std::ops::Range<usize>) -> Vec<(usize, usize, super::Source)> {
         no_windows("mem::game_regions")
     }
     pub fn note_heap(_heap: usize) {

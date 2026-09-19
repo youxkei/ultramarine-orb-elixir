@@ -178,7 +178,11 @@ const EXTENSION: &str = "msgpack";
 const WHILE_PLAYING: &str = "pending";
 
 /// What this file's fields mean, and what a file carrying another number is refused for.
-const VERSION: u32 = 1;
+///
+/// **Two since the run's own mode went in**, which a slot that tells th06nc's 標準モード from its
+/// チャレンジモード needs the file to carry — see [`WrittenRun::mode`]. One was this file without it, and
+/// no release wrote one.
+const VERSION: u32 = 2;
 
 /// How long a name a replay carries, in characters.
 ///
@@ -825,6 +829,24 @@ pub fn keep_what_was_being_played(
 ) -> Option<PathBuf> {
     let from = being_played_at(dir, slot);
     let mut replay = read(&from, game)?;
+    // **A replay with no stage in it is taken away rather than kept**, nothing having been played of the run
+    // it is of. Which is not a hypothetical: every run of th06nc left one behind. The frame that catches a
+    // run started by anything but the shot select's own press — `runtime`'s `!asking && !keeping()` — fires
+    // on this game *before* the press is seen, so the press's own settling found a replay already begun and
+    // kept it as interrupted: `0 stage(s), 0 chapter(s), 0 attempt(s)`, written and sealed two frames
+    // apart, once per run and on the real game as much as the laid-out one. Guarded here rather than at
+    // that frame because the emptiness is what makes the file worthless whatever the order was, and a
+    // finished run always has a stage.
+    if replay.stages.is_empty() {
+        detail!(
+            "{ABOUT}: nothing was played of {slot}; {} is taken away rather than kept",
+            from.display()
+        );
+        if let Err(error) = orb_api::fs::remove_file(&from) {
+            log!("{ABOUT}: cannot take {} away: {error}", from.display());
+        }
+        return None;
+    }
     replay.ended = Some(ended);
     // **And whose it is, settled here rather than left as the writes left it.** The name comes from the game's
     // own name entry, which for a run that reached the end is a screen *after* the last chapter was written —
@@ -990,6 +1012,7 @@ fn encode(game: &dyn Game, replay: &Replay) -> Vec<u8> {
             // one is what the character select left — the stage before the one meant, which for a run
             // starting at the first is *minus one* — and a launch on the real game wrote `stage: -1` into
             // every file. Nothing reads the field; what it can honestly say is where the replay starts.
+            mode: replay.run.mode,
             stage: replay
                 .stages
                 .first()
@@ -1104,6 +1127,7 @@ fn decode(game: &dyn Game, bytes: &[u8]) -> Option<Replay> {
             // `Game::run_slot` — so every replay here is a full run's.
             practice: false,
             stage: written.run.stage,
+            mode: written.run.mode,
         },
         name: written.name,
         started: written.started,
@@ -1143,6 +1167,10 @@ struct WrittenRun {
     character: i32,
     shot: i32,
     stage: i32,
+    /// **Which of the game's own modes it was**, nought for a build with one — see [`RunStart::mode`].
+    /// Here because [`find`] matches a replay by `Game::run_slot`'s answer for the run it carries, and a
+    /// slot that tells two modes apart needs the number that tells them apart in the file.
+    mode: i32,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

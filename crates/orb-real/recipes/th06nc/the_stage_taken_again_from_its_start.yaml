@@ -1,0 +1,90 @@
+# A run of th06nc played a moment into its stage, the retry question raised by the recipe and answered
+# with ステージの最初から, so that the stage is built again from its own start, and then played on.
+#
+# **The walk to the run is `a_death_answered_by_the_chapter_again`'s**, which is where the reading of this
+# game's screens is written down: 2 the title, 3 the main menu, then 9, 11, 13, 14, 24 and 25.
+#
+# **ステージの最初から is item 1 here and item 2 of th06c's**, because 更に前からやり直す is left out of
+# the ways on where there is no chapter behind the one that was lost — see `retry_ui`. A launch that
+# answered 3 got `retry: item 3 is past the 3 way(s) on`.
+#
+# **And the question is raised sixty frames in so that both games agree about that.** A fight is a chapter
+# of its own wherever `game/th06nc/chapters.rs` is empty, so a run asked past one has a chapter behind it
+# and four ways — the laid-out game's midboss arrives at frame 400. The real game's is later than that: a
+# launch that played 1,802 frames of its first stage was asked to start over `in chapter 1` and read
+# `boss=` false on every line of the way. Sixty frames is before either.
+#
+# **And the item asks before it acts**, so the confirmation behind it is answered はい — item 0 of the
+# question it raises of its own.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 9, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- play_until: { frames: 60 }
+  give_up_after: 7200
+- start_over: true
+- answer: { question: retry, item: 1 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 900 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

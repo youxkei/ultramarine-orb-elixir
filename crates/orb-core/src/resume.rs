@@ -864,6 +864,34 @@ pub unsafe fn landing() -> Option<u32> {
         .map(|landing| landing.at)
 }
 
+/// **The first word the playback is going to feed**, and `None` while nothing is being put back.
+///
+/// **What wants it is the frame before it**, the one a playback never feeds: the file holds no word for
+/// that frame at all — [`Record::note`] is keyed by `Game::stage_frame`, which answers `None` on its read,
+/// the player's job not being in the chain until the build registers it — so what a resumed stage can know
+/// about the presses of that frame is what the frame *after* it was played with. See
+/// [`Game::starts_the_shot_a_stage_began_with`](crate::game::Game::starts_the_shot_a_stage_began_with),
+/// the one caller, and `runtime::the_frames_word` for the launches that measured the frame's own word not
+/// being there.
+///
+/// **Index 1, which is the first entry a frame ever wrote**: `played[0]` is the gap
+/// [`Record::note`]'s own resize leaves. Measured on both sides — the laid-out th06nc's file holds
+/// `0x1000` there, the recipe's own decide, and a real launch's holds `0x0011`, the shot and the up bit.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn the_first_word_a_playback_will_feed() -> Option<u16> {
+    let record = unsafe { RECORD.get() };
+    record.feeding.as_ref()?;
+    record
+        .played
+        .get(THE_FIRST_FRAME_A_FILE_HOLDS)
+        .map(|played| played.buttons)
+}
+
+/// See [`the_first_word_a_playback_will_feed`], whose doc has why this is 1.
+const THE_FIRST_FRAME_A_FILE_HOLDS: usize = 1;
+
 /// Hands the keyboard back, the chapter having been reached, and gives up what that chapter was
 /// written down as so the two can be held against each other.
 ///

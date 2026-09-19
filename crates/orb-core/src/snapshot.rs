@@ -67,7 +67,7 @@
 use std::ops::Range;
 
 use crate::audio;
-use crate::memtrack::Region;
+use crate::memtrack::{Owned, Region};
 use crate::{crash, detail, log};
 use orb_api::{mem, thread};
 
@@ -121,6 +121,94 @@ static WAITING: std::sync::Mutex<Option<Waiting>> = std::sync::Mutex::new(None);
 /// frame of the wait says so in the log.
 static WAITED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 const FRAMES_A_COMMAND_MAY_TAKE: u32 = 30;
+
+/// **How many of a snapshot's regions a restore writes back**, and nought for all of them, which is what a
+/// launch nobody is bisecting anything with leaves it as.
+///
+/// **What it is for is finding which region's contents the next update cannot survive.** th06nc dies on the
+/// frame a chapter of it is put back — not inside the write loop, every region of it being written and the
+/// lines after them reached, but on the first update over the restored memory — and the thing no launch can
+/// say is which of the eight the game then read something impossible out of. A restore held to the first N
+/// of them answers that in as many launches as a bisection of eight takes, where the write loop's own line
+/// answers only the order.
+///
+/// **A launch under it is a launch whose game is deliberately half restored**, so it is `orb_config::args`'
+/// fault group's and nothing a run anybody plays should carry.
+static PUT_BACK_ONLY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// **And how many of them it leaves alone**, from the front, which is the same bisect from the other end.
+///
+/// **Both halves exist because the regions are not independent.** `.data` is the first of them and it holds
+/// pointers into the heap blocks that follow — the calc chain's head is a static and its elements are
+/// `0x40`-byte blocks — so a prefix that puts `.data` back without the heap is a game whose chain names
+/// blocks that have moved, and it dies of the flag rather than of the fault. Skipping the first region
+/// instead puts the heap back and leaves `.data` as the run had it, which is the turn that says which of
+/// the two the fault is in.
+static PUT_BACK_SKIPPING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Holds every restore of this launch to the first `regions` of what it saved, or to all of them for
+/// nought. Set once, off the launch's own options.
+pub fn put_back_only(regions: usize) {
+    PUT_BACK_ONLY.store(regions, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Leaves the first `regions` of what a restore saved alone, writing back the rest. Nought writes them all.
+pub fn put_back_skipping(regions: usize) {
+    PUT_BACK_SKIPPING.store(regions, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// **Whether a restore holds back none of the ranges it would**, which is the third of the bisects and the
+/// one the other two point at.
+///
+/// A restore ordinarily leaves a *mixture* behind: every region written back as the snapshot had it except
+/// the ranges of [`Snapshot::live`] and the audio's, which stay as the run has them — eleven of them and
+/// 195,276 bytes over th06nc. And that game dies of `.data` coming back and lives when `.data` is left
+/// alone altogether, so whether the mixture is what its next update cannot survive is the question between
+/// the two, and clearing the holes is what asks it. **A restore under this puts back a handle the game has
+/// since replaced**, which is what the holes exist to stop — so it is a fault flag and nothing else.
+static HOLD_BACK_NOTHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Has every restore of this launch write back even the ranges it would hold back.
+pub fn hold_back_nothing(on: bool) {
+    HOLD_BACK_NOTHING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// **Ranges inside a snapshot's memory a restore is told to hold back as well**, as
+/// `(source, offset, len)` with the source named as `orb_api::mem::Source` prints it — `data`,
+/// `heap1.3`, `reserve2` — which is how a bisection inside the game's memory is expressed.
+///
+/// **Offsets and not addresses, because the exe is built with ASLR.** A static of th06nc is written down
+/// as `0x140aa1e90` and lives wherever the loader put the image, so an address on a command line names
+/// nothing; `.data` is one source, and an offset into it is the same span whatever base a launch came up
+/// at. `.data` begins at `0x140323000`, so the enemy manager is `0x140aa1e90 - 0x140323000 = 0x77ee90`
+/// in.
+///
+/// **And a source rather than only `.data`, because the fault moved out of it.** th06nc's chapter retries
+/// died of one byte of `.data`, found by halving it with this; what its stage 2 dies of is somewhere in
+/// the game's heap, whose blocks are at a different address every launch.
+///
+/// **And a source rather than a place in the region list**, which is what this named first and had to
+/// give up: the committed runs of one heap region are as many entries in that list as it has holes, and
+/// one launch of th06nc listed the game's heap as 8 entries with `0xf000` in one chapter and 9 with
+/// `0x6000` in another — so `2:0+7800` named different pages within the one run it was meant to bisect.
+/// A heap's region as `HeapWalk` hands it over is the same segment in the next launch; where it sits and
+/// how much of it is committed are the only parts anything else chooses.
+///
+/// **The offset is from the source's lowest base**, and the span is written back to whichever of that
+/// source's regions it falls in — none of them, where the source has grown no further than the offset.
+/// For a heap region that base is the region's own, which is what makes the offsets of a bisect mean the
+/// same bytes twice: the distances *between* a heap's regions are the OS's, and one launch of th06nc put
+/// the segment another had `0x1a670000` above the first `0x180000` below it.
+static HOLD_BACK_IN_A_SOURCE: std::sync::Mutex<Vec<(String, usize, usize)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Tells every restore of this launch to hold back these `(source, offset, len)` spans, the source named
+/// as `orb_api::mem::Source` prints it.
+pub fn hold_back_in_a_source(spans: &[(String, usize, usize)]) {
+    let mut held = HOLD_BACK_IN_A_SOURCE.lock().unwrap();
+    held.clear();
+    held.extend_from_slice(spans);
+}
 
 enum Waiting {
     /// The offset in the track's own file the chapter's sound was at, and which track that was.
@@ -216,6 +304,10 @@ pub struct Snapshot {
 
 struct Saved {
     region: Region,
+    /// Which of the things the game took these bytes came out of, as the walk named it. What it is for is
+    /// [`HOLD_BACK_IN_A_SOURCE`]: a launch bisecting a restore has to be able to name a span of the
+    /// game's heap, and this region's place in the list is not that name.
+    from: orb_api::mem::Source,
     data: Buffer,
     /// Which allocation the bytes came out of, as the host answered when they were saved. What a
     /// restore holds it against is the answer for the same address then — see `Snapshot::restore`.
@@ -300,7 +392,7 @@ impl Snapshot {
     /// Must run on the game's main thread. `regions` must describe currently
     /// mapped memory; ranges that have gone away since are skipped.
     pub unsafe fn capture(
-        regions: &[Region],
+        regions: &[Owned],
         audio: Audio,
         live: &[Range<usize>],
         with_inventory: bool,
@@ -326,7 +418,7 @@ impl Snapshot {
     /// Must run on the game's main thread.
     pub unsafe fn update(
         &mut self,
-        regions: &[Region],
+        regions: &[Owned],
         audio: Audio,
         live: &[Range<usize>],
         with_inventory: bool,
@@ -382,7 +474,7 @@ impl Snapshot {
                 .saved
                 .iter()
                 .zip(regions)
-                .all(|(saved, region)| saved.region == *region);
+                .all(|(saved, owned)| saved.region == owned.region && saved.from == owned.from);
         if !reusable {
             // What the set it held named is given up and what the new one names is said instead: the
             // address space a restore of this snapshot needs is the ranges it holds *now*, and the host
@@ -394,9 +486,10 @@ impl Snapshot {
             // suspended thread would then never release.
             self.saved = regions
                 .iter()
-                .filter_map(|&region| {
+                .filter_map(|&Owned { region, from }| {
                     Some(Saved {
                         region,
+                        from,
                         data: Buffer::new(region.len)?,
                         allocation: mem::allocation_at(region.base),
                     })
@@ -447,7 +540,14 @@ impl Snapshot {
             saved_music = None;
         }
 
+        // **Under a suspend of its own**, which is what [`fingerprint_untracked`] has always said it runs
+        // under and did not: the guard above is scoped to the copy loop and dropped before this, so the
+        // walk went round a process whose every thread was running. What that costs is the fault its own
+        // doc names — a region found by the walk and freed before the read of it — and a launch of th06nc
+        // with `--self-check` was killed by it at the first chapter of stage 1, the log ending after
+        // `memory: a buffer of orb's own at …` for all nine regions with no chapter line after them.
         self.untracked = if with_inventory {
+            let _suspended = suspend(audio.thread);
             unsafe { fingerprint_untracked(regions) }
         } else {
             Vec::new()
@@ -465,6 +565,22 @@ impl Snapshot {
 
     pub fn regions(&self) -> usize {
         self.saved.len()
+    }
+
+    /// **Every region it covers, as `base+len` apiece**, for a log line two launches can be held against
+    /// each other by.
+    ///
+    /// Written because the count and the total are not enough to tell two snapshots apart: th06nc dies on
+    /// the frame a chapter of its *stage 1* is put back and lives through the same restore in its Extra,
+    /// and the one number that differs between them is this shape — `7 region(s) of 12539488 bytes`
+    /// against `11 region(s) of 12449376`, the `.data` region being the same size in both. Which regions
+    /// those are is what says what the two runs disagree about, and no line said it.
+    pub fn covers(&self) -> String {
+        self.saved
+            .iter()
+            .map(|entry| format!("{:#x}+{:#x}", entry.region.base, entry.region.len))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Whether the music this snapshot holds is the one playing, and so can be put
@@ -647,6 +763,91 @@ impl Snapshot {
             Vec::new()
         };
         holes.extend_from_slice(&self.live);
+        // **Or none of them, where a launch is asking what the holes cost** — see [`HOLD_BACK_NOTHING`].
+        // A restore leaves a mixture behind: most of `.data` as the snapshot had it and these ranges as
+        // the run has them, and whether *that* is what the next update cannot survive is a question one
+        // launch answers where a bisection of nine megabytes wants twenty.
+        if HOLD_BACK_NOTHING.load(std::sync::atomic::Ordering::Relaxed) {
+            log!(
+                "restore: holding back none of the {} range(s) this launch would have",
+                holes.len(),
+            );
+            holes.clear();
+        }
+        // **And the spans a launch bisecting the game's memory named** — see [`HOLD_BACK_IN_A_SOURCE`],
+        // empty for every launch that named none. Held against the regions of the source it names and
+        // not against the whole span from its base: what lies between two of a heap's regions is nobody's,
+        // and a restore never wrote it, so a hole over it would hold back nothing while reading as though
+        // it held back something.
+        for (which, offset, len) in HOLD_BACK_IN_A_SOURCE.lock().unwrap().iter() {
+            let named: Vec<&Saved> = self
+                .saved
+                .iter()
+                .filter(|entry| entry.from.to_string() == *which)
+                .collect();
+            let Some(base) = named.iter().map(|entry| entry.region.base).min() else {
+                log!(
+                    "restore: this snapshot saved nothing of {which}, so there is no {offset:#x} in it \
+                     to hold back",
+                );
+                continue;
+            };
+            let wanted = base + offset..base + offset + len;
+            let mut held = 0;
+            let mut changed = Vec::new();
+            for entry in &named {
+                let start = wanted.start.max(entry.region.base);
+                let end = wanted.end.min(entry.region.end());
+                if start < end {
+                    held += end - start;
+                    unsafe { what_the_run_changed(entry, start..end, base, &mut changed) };
+                    holes.push(Region {
+                        base: start,
+                        len: end - start,
+                    });
+                }
+            }
+            log!(
+                "restore: holding back {held:#x} bytes of the {:#x} asked for at {offset:#x} into \
+                 {which}, which begins at {base:#010x} and is {} region(s) here",
+                len,
+                named.len(),
+            );
+            unsafe { self.say_what_points_into(which, &named) };
+            // **And which bytes of it the run has changed since the chapter**, which is what a bisect of
+            // a span is after rather than the span: a hold-back that turns a death into a survival says
+            // the fault is among the bytes the restore would have *written*, and a byte the run has not
+            // touched is written with what is already there. So this is the span's own shortlist, and
+            // the halvings that would find it one at a time cost a launch each.
+            if !changed.is_empty() {
+                let bytes: usize = changed.iter().map(|(_, was, _)| was.len()).sum();
+                let first = changed.first().map_or(0, |(at, _, _)| *at);
+                let last = changed
+                    .last()
+                    .map_or(0, |(at, was, _)| at + was.len().max(1) - 1);
+                // **The source and the extent in front of the runs**, both because of what a bisect does
+                // with the line: a launch names more than one span, so a line that began with the runs
+                // said nothing about which span's they were; and the runs are cut at
+                // [`WHAT_CHANGED_AT_MOST`], so where the next cut goes is a question about the *last* of
+                // them as much as the first.
+                detail!(
+                    "restore: of {which} the run changed {bytes:#x} byte(s) in {} run(s) between \
+                     {first:#x} and {last:#x}: {}",
+                    changed.len(),
+                    changed
+                        .iter()
+                        .take(WHAT_CHANGED_AT_MOST)
+                        .map(|(at, was, now)| format!(
+                            "{at:#x}+{:#x} {} -> {}",
+                            was.len(),
+                            in_hex(was),
+                            in_hex(now),
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                );
+            }
+        }
         holes.sort_unstable_by_key(|hole| hole.base);
         if !holes.is_empty() {
             let covered: usize = holes.iter().map(|hole| hole.len).sum();
@@ -666,10 +867,51 @@ impl Snapshot {
             );
         }
         {
+            // **Held to some of them where a launch is bisecting them** — see [`PUT_BACK_ONLY`] and
+            // [`PUT_BACK_SKIPPING`], both nought for every launch that is not.
+            match PUT_BACK_ONLY.load(std::sync::atomic::Ordering::Relaxed) {
+                0 => {}
+                only if only < writable.len() => {
+                    log!(
+                        "restore: putting back {only} of this snapshot's {} region(s) and no more",
+                        writable.len(),
+                    );
+                    writable.truncate(only);
+                }
+                _ => {}
+            }
+            match PUT_BACK_SKIPPING.load(std::sync::atomic::Ordering::Relaxed) {
+                0 => {}
+                skipping if skipping < writable.len() => {
+                    log!(
+                        "restore: leaving the first {skipping} of this snapshot's {} region(s) alone",
+                        writable.len(),
+                    );
+                    writable.drain(..skipping);
+                }
+                // Every region skipped is a restore that writes nothing, which is `--no-chapters` said
+                // another way and not what anybody means by it.
+                skipping => log!(
+                    "restore: {skipping} region(s) would be skipped of {}; writing them all instead",
+                    writable.len(),
+                ),
+            }
             let _suspended = suspend(self.audio_thread);
             let regions = writable.len();
             for (at, entry) in writable.into_iter().enumerate() {
                 crash::doing(crash::Doing::PuttingARegionBack, at + 1, regions);
+                // **Said before the write and not after it**, which is the whole use of it: the marker
+                // above is read by `orb::crash`'s filter, and a death that goes through neither that
+                // filter nor a Rust panic loses it — which is how th06nc dies, on the frame a chapter of
+                // its stage 1 whose music is kept is put back. A line here leaves the last region the
+                // process was writing in the log, so one launch names it where bisecting the nine would
+                // want nine.
+                detail!(
+                    "restore: putting back {} of {regions}: {:#x}+{:#x}",
+                    at + 1,
+                    entry.region.base,
+                    entry.region.len,
+                );
                 unsafe { restore_region(entry, &holes) };
             }
         }
@@ -750,6 +992,66 @@ impl Snapshot {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(waiting);
     }
 
+    /// **Which statics of the exe hold a pointer into a source**, said once a launch per source.
+    ///
+    /// **What it is for is the one thing a bisect cannot answer.** Halving a span says which bytes a
+    /// restore must not write and never what they are, where what orb needs in order to hold a block back
+    /// for good is the *pointer the game keeps it in* — [`crate::game::Game::live_handles`] is a list of
+    /// exactly those, each a static read at a chapter. So the chapter's own `.data` is scanned for words
+    /// that land inside the source's regions, and what comes back is `.data + offset`, which `asm.md` and
+    /// a disassembly can put a name to.
+    ///
+    /// **The chapter's copy and not the live memory**, since the two hold the same pointer and this one is
+    /// a buffer of orb's own: a nine-megabyte walk of the game's statics is a walk this can do without.
+    ///
+    /// **Once a launch**, because the answer does not change and the walk is nine megabytes.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with no thread suspended.
+    unsafe fn say_what_points_into(&self, which: &str, named: &[&Saved]) {
+        static ALREADY: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+        let mut already = ALREADY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if already.iter().any(|said| said == which) {
+            return;
+        }
+        already.push(which.to_owned());
+        drop(already);
+        let Some(data) = self
+            .saved
+            .iter()
+            .find(|entry| entry.from == orb_api::mem::Source::Data)
+        else {
+            return log!("restore: this snapshot saved no .data to look for {which} in");
+        };
+        let mut found = Vec::new();
+        let word = size_of::<usize>();
+        for at in (0..data.region.len.saturating_sub(word)).step_by(word) {
+            let value = usize::from_ne_bytes(
+                data.data.bytes[at..at + word]
+                    .try_into()
+                    .expect("a word of the copy"),
+            );
+            if named
+                .iter()
+                .any(|entry| value >= entry.region.base && value < entry.region.end())
+            {
+                found.push((at, value));
+            }
+        }
+        detail!(
+            "restore: {} static(s) of .data point into {which}: {}",
+            found.len(),
+            found
+                .iter()
+                .take(WHAT_POINTS_AT_MOST)
+                .map(|(at, value)| format!("+{at:#x}={value:#x}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+    }
+
     /// Compares memory against the snapshot without changing anything.
     ///
     /// # Safety
@@ -817,13 +1119,18 @@ unsafe fn write_back(entry: &Saved, span: Range<usize>) {
 
 /// Fingerprints every private committed range that `regions` does not cover, so
 /// a later `check` can name game state the snapshot is missing.
-unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
+unsafe fn fingerprint_untracked(regions: &[Owned]) -> Vec<Fingerprint> {
     // Nothing in a test build. The walk is a question about the *process*, and what it relies on is
-    // the one thing a test binary cannot give it: everything that allocates is held still. On a real
-    // host this runs with the game's threads suspended, so a region the walk found is a region that
-    // is still there to be read; in a test binary the harness's other threads are running, and a
-    // region freed between the walk and the read is a fault inside the read. Measured — the suite
-    // crashed here in parallel and passed with `--test-threads=1`.
+    // the one thing a test binary cannot give it: everything that allocates is held still. Its caller
+    // suspends the game's threads for it, so a region the walk found is a region that is still there
+    // to be read; in a test binary the harness's other threads are running, and a region freed between
+    // the walk and the read is a fault inside the read. Measured — the suite crashed here in parallel
+    // and passed with `--test-threads=1`.
+    //
+    // **And the caller did not always suspend for it.** The guard was scoped to the copy loop and
+    // dropped before this, so on a real host the walk went round a live process — which killed a launch
+    // of th06nc with `--self-check` at the first chapter of stage 1, exactly the fault named above. See
+    // `Snapshot::update`.
     //
     // What `self_check` is for, naming game state a snapshot is missing, needs the real process to
     // mean anything anyway: under a laid-out simulated Windows the regions an e2e test did not hand
@@ -853,9 +1160,77 @@ unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
 /// `mem::private_regions` answers a simulated Windows' walk with is nothing — see
 /// `orb_sim::Sim::private_regions`, whose comment says why. So the iterator above runs over an empty list
 /// and these two, which are what it would call per range, are never reached.
-fn overlaps(region: &Region, others: &[Region]) -> bool {
+/// How many of the statics naming a source a line writes out, the rest being counted: a block a table of
+/// pointers refers to is named by hundreds of them and the first few are as much as anybody reads.
+const WHAT_POINTS_AT_MOST: usize = 24;
+
+/// How many of the changed runs a line names, the rest being counted and not written: a span of a few
+/// thousand bytes that the run has rewritten wholesale is a line nobody can read, and the count is what
+/// says that is what happened.
+const WHAT_CHANGED_AT_MOST: usize = 12;
+
+/// How many bytes of a run are written out either side of it, longer runs being cut short: what names a
+/// field is its first few bytes — a pointer, a handle, a count — and a hundred of them in a line is the
+/// same as none.
+const OF_A_RUN_AT_MOST: usize = 8;
+
+/// **The bytes of `span` the run has changed since this snapshot took them**, as runs of
+/// `(offset into the source, what the chapter has, what the run has)` — the shortlist a bisect of a
+/// held-back span is looking for.
+///
+/// **Read before the suspend and so of this frame rather than of the restore.** The restore itself runs
+/// with the game's threads stopped and may neither allocate nor log, and reading the live bytes twice to
+/// have them at the exact moment of the write would be reading the game's memory for the sake of a log
+/// line. A bisect wants to know which fields move at all, and a frame's difference does not change that.
+///
+/// # Safety
+/// `span` must lie inside `entry`'s region, which must be mapped and readable.
+unsafe fn what_the_run_changed(
+    entry: &Saved,
+    span: Range<usize>,
+    from: usize,
+    out: &mut Vec<(usize, Vec<u8>, Vec<u8>)>,
+) {
+    let into = span.start - entry.region.base;
+    let theirs = &entry.data.bytes[into..into + span.len()];
+    let now = unsafe { mem::read_bytes(span.start, span.len()) };
+    let mut at = 0;
+    while at < theirs.len() {
+        if theirs[at] == now[at] {
+            at += 1;
+            continue;
+        }
+        let began = at;
+        while at < theirs.len() && theirs[at] != now[at] {
+            at += 1;
+        }
+        out.push((
+            span.start + began - from,
+            theirs[began..at].to_vec(),
+            now[began..at].to_vec(),
+        ));
+    }
+}
+
+/// A run of bytes as a line can carry it, cut short past [`OF_A_RUN_AT_MOST`] with an ellipsis so that a
+/// cut run is not read as a short one.
+fn in_hex(bytes: &[u8]) -> String {
+    let said = bytes
+        .iter()
+        .take(OF_A_RUN_AT_MOST)
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join("");
+    match bytes.len() > OF_A_RUN_AT_MOST {
+        true => format!("{said}…"),
+        false => said,
+    }
+}
+
+fn overlaps(region: &Region, others: &[Owned]) -> bool {
     others
         .iter()
+        .map(|owned| owned.region)
         .any(|other| region.base < other.end() && other.base < region.end())
 }
 
@@ -894,8 +1269,9 @@ mod tests {
 
     use super::{Audio, Music, Snapshot};
     use crate::game::th06::Th06;
-    use crate::memtrack::Region;
+    use crate::memtrack::{Owned, Region};
     use orb_api::Kind;
+    use orb_api::mem::Source;
     use orb_sim::Sim;
 
     /// The game's static data, and a second region standing for a block of its heap.
@@ -915,16 +1291,25 @@ mod tests {
         }
     }
 
-    fn regions() -> Vec<Region> {
+    /// A region and the source it came out of, as a walk of a laid-out space answers: its allocations,
+    /// counted as they were mapped — see `orb_api::mem::Source::LaidOut`.
+    fn laid_out_region(base: usize, len: usize, allocation: usize) -> Owned {
+        Owned {
+            region: Region { base, len },
+            from: Source::LaidOut(allocation),
+        }
+    }
+
+    fn regions() -> Vec<Owned> {
         vec![
-            Region {
-                base: DATA,
-                len: LEN,
+            Owned {
+                region: Region {
+                    base: DATA,
+                    len: LEN,
+                },
+                from: Source::Data,
             },
-            Region {
-                base: HEAP,
-                len: LEN,
-            },
+            laid_out_region(HEAP, LEN, 2),
         ]
     }
 
@@ -1114,10 +1499,7 @@ mod tests {
         space.fill_bytes(DATA, 0xa1, LEN);
         space.fill_bytes(sound.start, 0xa1, sound.len());
         let mut regions = regions();
-        regions.push(Region {
-            base: sound.start,
-            len: sound.len(),
-        });
+        regions.push(laid_out_region(sound.start, sound.len(), 3));
 
         // A track named, so that the restore below is the harder case: the game answers with no track at all,
         // so this is a chapter whose own track is not the one playing.

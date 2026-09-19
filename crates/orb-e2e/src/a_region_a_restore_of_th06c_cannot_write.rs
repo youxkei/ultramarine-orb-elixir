@@ -90,7 +90,7 @@ fn a_region_of_th06c_that_cannot_be_committed_is_named_and_the_chapter_still_com
             regions.len() > 1,
             "this game is one region, so the one refused would be its data",
         );
-        let (base, len) = *regions
+        let (base, len, _) = *regions
             .last()
             .expect("a game laid out in more than one region");
         game.sim().space().refuses_to_commit(base);

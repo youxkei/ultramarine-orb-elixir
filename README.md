@@ -21,3 +21,4 @@ this game: beside the game, on the desktop, or in the start menu.
 | The Embodiment of Scarlet Devil 1.02h | supported |
 | Perfect Cherry Blossom | supported |
 | The Embodiment of Scarlet Devil: Classic | not supported |
+| The Embodiment of Scarlet Devil: New Classic | not supported |

@@ -1499,6 +1499,10 @@ impl Game for Th06 {
             // move to answer either.
             makes_its_window: None,
             moves_its_window: None,
+            // Nor a show or a place to answer: the window this game is played in is not one orb hides,
+            // its corner being decided inside the one call that makes it.
+            shows_its_window: None,
+            places_its_window: None,
             // And no pad read to answer: th06's own is `joyGetPosEx`, which orb stands in front of and
             // hands a word of — see `Hooks::joystick`.
             reads_a_pad: None,
@@ -2142,6 +2146,9 @@ impl Game for Th06 {
                 // The game counts it from one while a stage runs — see `CURRENT_STAGE` — and orb
                 // counts from zero, which is also what it has to be written back as.
                 stage: mem::read::<i32>(G_GAME_MANAGER + game_manager::CURRENT_STAGE) - 1,
+                // **This build has one mode**, so every run of it is in that one — see
+                // `RunStart::mode`, which th06nc is the game with two of.
+                mode: 0,
             }
         }
     }
@@ -2172,6 +2179,7 @@ impl Game for Th06 {
             // A full run's chapter can be in any of them, and which one is what the mark says rather
             // than part of naming it.
             stage: 0,
+            mode: 0,
         })
     }
 
@@ -4053,6 +4061,7 @@ mod tests {
             shot_type: 1,
             practice: false,
             stage: 3,
+            mode: 0,
         };
         assert_eq!(Th06.run_slot(&run).as_deref(), Some("lunatic-marisa-b"));
         assert_eq!(
@@ -4100,6 +4109,7 @@ mod tests {
                     shot_type: 1,
                     practice: true,
                     stage,
+                    mode: 0,
                 }),
                 None,
             );

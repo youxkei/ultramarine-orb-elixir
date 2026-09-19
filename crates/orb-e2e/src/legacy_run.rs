@@ -25,6 +25,7 @@ fn the_run() -> RunStart {
         shot_type: 0,
         practice: false,
         stage: 0,
+        mode: 0,
     }
 }
 

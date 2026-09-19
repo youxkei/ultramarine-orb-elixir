@@ -466,7 +466,7 @@ impl Win for Sim {
             .retain(|(at, _)| *at != base);
     }
 
-    fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize)> {
+    fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize, orb_api::mem::Source)> {
         self.space.game_regions(data)
     }
 
@@ -637,6 +637,27 @@ impl Win for Sim {
 
     fn client_rect(&self, window: Hwnd) -> Option<Rect> {
         self.windows.client(window)
+    }
+
+    /// A window shown, written down rather than drawn — see [`Windows::shown`], which is where an
+    /// e2e test reads back that the window orb made hidden reached the screen.
+    fn show(&self, window: Hwnd) -> bool {
+        self.windows.show(window)
+    }
+
+    fn is_visible(&self, window: Hwnd) -> bool {
+        self.windows.is_visible(window)
+    }
+
+    /// The bits added to the window's own extended style, which this host keeps — see
+    /// [`Windows::add_ex_style`]. False where it has no such window, which is what a real
+    /// `SetWindowPos` answers for one.
+    fn add_ex_style(&self, window: Hwnd, ex_style: u32) -> bool {
+        self.windows.add_ex_style(window, ex_style)
+    }
+
+    fn ex_style(&self, window: Hwnd) -> u32 {
+        self.windows.ex_style(window)
     }
 
     /// Where the window was asked for, which for a laid-out host is where it is: nothing here moves a

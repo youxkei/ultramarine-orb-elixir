@@ -1,0 +1,35 @@
+# A run of th06nc's other mode — the mode question answered with the normal one — started from the title,
+# played for a while and left: nothing of it is a chapter, nothing of it is kept, and orb puts no question
+# of its own over it.
+#
+# **It is the one case of this game that wants nothing of a chapter at all**, which is why it is here while
+# every case about a boundary inside a stage waits on `game/th06nc/chapters.rs`: a run of the normal mode
+# has no chapters by definition, so what this asks of the game is that the mode question's other answer is
+# obeyed and that orb writes nothing down for what follows.
+#
+# **And the walk is decides at six frames apart rather than a step per screen**, which is the one place
+# this differs from `a_death_answered_by_the_chapter_again`'s: the selects of this game go by on their own
+# after a while, so a step that waits for screen 11 can be a step the game has already walked past — and a
+# step that gives up costs its whole bound, which on the laid-out game put the front end back up in the
+# middle of the recipe and had orb raise its question a second time. The difficulty is therefore whatever
+# the cursor starts on, which is nothing this case is about.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+# **Fifteen seconds of taps**, which is every select and the three screens that each take a press with
+# room to spare, and then the run's own first seconds: the presses past the one that starts the run are
+# shots.
+- press: [decide]
+  frames: 6
+  until: { frames: 900 }
+- play_until: { frames: 1200 }
+  give_up_after: 7200
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

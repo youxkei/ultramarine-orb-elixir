@@ -2971,6 +2971,9 @@ impl Game for Th07 {
             // and the window stays where it was made.
             makes_its_window: None,
             moves_its_window: None,
+            // Nor a show or a place, the same as th06: nothing hides this game's window either.
+            shows_its_window: None,
+            places_its_window: None,
             // Nor a pad read, the same as th06: its own is stood in front of and answered with a word.
             reads_a_pad: None,
             // Nothing: this game's present is an address `Th07::frame_calls` carries, its renderer
@@ -4402,6 +4405,8 @@ impl Game for Th07 {
             shot_type: i32::from(unsafe { mem::read::<u8>(G_GAME_MANAGER + SHOT_TYPE) }),
             practice: unsafe { mem::read::<u32>(G_RUN_KIND) } & RUN_IS_A_PRACTICE != 0,
             stage: unsafe { mem::read::<i32>(G_STAGE) } - STAGE_COUNTS_FROM,
+            // **This build has one mode**, so every run of it is in that one — see `RunStart::mode`.
+            mode: 0,
         }
     }
 
@@ -4437,6 +4442,7 @@ impl Game for Th07 {
             // A whole run's chapter can be in any of its stages, and which one is what the mark says rather
             // than part of naming the run — the same answer th06 gives here.
             stage: 0,
+            mode: 0,
         })
     }
 
@@ -5521,6 +5527,7 @@ mod tests {
             shot_type: 1,
             practice: false,
             stage: 0,
+            mode: 0,
         };
         // **Named and not numbered**, which is what the directory of runs left unfinished is read as: Sakuya's
         // second shot on Lunatic. See [`Th07::run_slot`] for where each half of that name comes from.
@@ -6593,6 +6600,7 @@ mod tests {
                 shot_type: 0,
                 practice: false,
                 stage: 0,
+                mode: 0,
             })
         );
 

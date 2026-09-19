@@ -141,6 +141,25 @@ pub struct Config {
     /// Restore the current chapter every this many frames, 0 to never. Exercises
     /// the snapshot and the music over and over without anyone playing.
     pub stress_restore_frames: u32,
+    /// **Put back only the first this many regions of a snapshot**, 0 for all of them: the finer half of
+    /// `track_memory`'s own bisect, for a fault the contents of one region are suspected of rather than
+    /// the writing of them. A launch under it is a game deliberately half restored — see
+    /// `orb_core::snapshot::put_back_only`.
+    pub put_back_only: u32,
+    /// **Leave the first this many regions of a snapshot alone and put back the rest**, 0 for all of
+    /// them: `put_back_only`'s other half, which exists because the regions are not independent —
+    /// `.data` names the heap blocks after it, so a prefix holding `.data` without them dies of the flag.
+    pub put_back_skipping: u32,
+    /// **Have a restore write back even the ranges it would hold back**, which asks what the mixture a
+    /// restore leaves behind costs — see `orb_core::snapshot::hold_back_nothing`. A restore under it puts
+    /// back a handle the game has since replaced, so it is a fault flag and nothing a run wants.
+    pub hold_back_nothing: bool,
+    /// **Spans of the game's memory a restore holds back as well**, as `(source, offset, len)`, the
+    /// source named as `orb_api::mem::Source` prints it — `data`, `heap1.3`, `reserve2`: how a bisection
+    /// inside the game's memory is expressed, in offsets rather than addresses because the exe is built
+    /// with ASLR and a heap block's base is a different address every launch — see
+    /// `orb_core::snapshot::hold_back_in_a_source`.
+    pub hold_back_at: Vec<(String, usize, usize)>,
     /// Updates to run per drawn frame while a replay plays or a run is being cleared
     /// with `fast_clear`, so a pass or a clear over a full run takes a minute rather
     /// than half an hour.
@@ -544,6 +563,10 @@ impl Config {
             chapter_tuning: false,
             during_replay: false,
             stress_restore_frames: 0,
+            put_back_only: 0,
+            put_back_skipping: 0,
+            hold_back_nothing: false,
+            hold_back_at: Vec::new(),
             speed: 1,
             pace: 1,
             find: false,

@@ -126,6 +126,8 @@
 pub mod th06;
 #[cfg(target_arch = "x86_64")]
 pub mod th06c;
+#[cfg(target_arch = "x86_64")]
+pub mod th06nc;
 #[cfg(target_arch = "x86")]
 pub mod th07;
 
@@ -146,6 +148,17 @@ use orb_sim::{Clock, Compose, DEVICE, Drawn, Log, Quad};
 /// The game's window. Any handle: what it is for is that the host says it is the one in front, which
 /// is what makes a key down a key the game and orb both read.
 pub const WINDOW: Hwnd = Hwnd(0x1234);
+
+/// **How big the back buffer of a laid-out game's swapchain is**, which its own `GetDesc` says — and
+/// deliberately *not* `overlay`'s 640x480: what the canvas has to do with a buffer larger than the
+/// coordinates orb draws in is stretch them onto it, and a fake that described a 640x480 buffer could
+/// not tell a canvas that does from one that draws into the corner. A 1280x720 window is what the
+/// installed `orb.yaml` asks for.
+///
+/// **Gated to the games that have a swapchain at all**, which are the 64-bit ones: th06 and th07 draw
+/// through Direct3D 8 and orb's overlay over them is that device's own.
+#[cfg(target_arch = "x86_64")]
+pub const BACK_BUFFER: (u32, u32) = (1280, 720);
 
 /// The language every scenario here reads orb's own screens in, and the one the simulated host is set
 /// to unless a scenario says otherwise.
@@ -403,7 +416,16 @@ pub struct Presented {
 /// tests do not drive one for: th07 declined it until its own frame had been read, and a laid-out game
 /// that called `render` anyway would have been asserting about a configuration no launch installs.
 pub fn orbs_own_loop(config: &orb_config::Config, game: &dyn orb_core::game::Game) -> bool {
-    config.own_frame_loop && config.frame_hooks && game.hooks().render.is_some()
+    // **Or whose frame is a stretch of its own loop**, which is th06nc: that game has no `render` to
+    // stand in at all — orb's frame is jumped to from fourteen patched bytes inside `main` — and its
+    // frame is orb's for exactly the reason a `render` game's is. A laid-out game left on the frame-off
+    // path instead runs `Launched::own_render`, which calls the two chains and the present and **not**
+    // `Game::end_drawing` — so nothing of the frame's own end happens, and for th06nc that is the call
+    // the swapchain is presented through. Measured: `the_mode_question_over_th06nc` had the canvas, the
+    // overlay and both presents taken, and `pictures_finished()` nought on every frame.
+    config.own_frame_loop
+        && config.frame_hooks
+        && (game.hooks().render.is_some() || game.hooks().frame_in_the_loop.is_some())
 }
 
 impl Launch {

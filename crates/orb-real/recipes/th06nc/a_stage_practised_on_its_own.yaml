@@ -1,0 +1,94 @@
+# **A stage practised on its own — the main menu's item 2 — in the rewindable mode**: a run with chapters
+# and a retry like any other, and one nothing is kept of afterwards, a practice run having no slot to be
+# kept in.
+#
+# **Item 2 is the practice, which a picture settled**: a launch pressed it and held the screen after it for
+# a minute, and that screen is 9, the difficulty select, with `PRACTICE` across the bottom of it. The byte
+# a run carries it by is `0x1404f27b4`, which the run's own start writes from the item's `+0x168d1` — see
+# `game/th06nc/asm.md`'s *The main menu's ten items*, and `Th06nc::read_state`, which answers `practice`
+# off it.
+#
+# **The walk is `a_run_left_in_its_second_chapter`'s with the item aimed at 2**, and the screens are this
+# game's own: 2 the title, 3 the menu, 8 on its own, 9 the difficulty, 11 the character, 13 the shot, and
+# then the ones that each take a press. **Six frames a press**, these menus repeating a held key.
+#
+# **And this walk has a screen no other case of this game reaches**: the launch read
+# `14, 22, 24, 25` where every plain run reads `14, 24, 25`, which is the screen a stage practised on its
+# own is chosen at — the run that came out of it was stage 1 with the cursor still on item 0. The last
+# press step is therefore aimed at a chapter rather than at a screen, which is what carries it through 22
+# whatever that screen offers.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+# The item by its own cursor number and not by taps, the Extra being skipped while it is locked.
+- press: [down]
+  frames: 6
+  until: { screen: 3, cursor: 2 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+# **And orb's own question over it, answered with the pointdevice mode** — item 0. The question stands over
+# this item because a practice run is a run: `Th06nc::menu_pointed_at` answers `Menu::Run` for items 0, 1
+# and 2, and without item 2 among them a practice run would start in whatever mode the launch came up in.
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# **Normal at the difficulty — item 1** — and the first character's first shot, as every case of this game
+# takes them.
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 9, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+# **And pressed through the rest to the stage**, which for a practice run is a stage select among them: the
+# decide is pressed at until a chapter of a run is up rather than aimed screen by screen, a select of this
+# game going by on its own — see the three recipes written around that.
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 7200
+# **And no `take_hits` step, which was tried and does not buy what it looks like it would.** The ask below
+# can land on the same frame as a death, and the clock then reads the chapter's start on both sides of it —
+# so `checks::a_stage_practised_on_its_own` holds the clock to not going *past* where the question stood
+# rather than to going back across it. Forbidding the rules the hit does not stop that: a chance of nought
+# is a chance of being hit *deliberately*, and the laid-out game's chapter 3 is one the rules cannot dodge
+# — a launch with the step in still read `deaths=9`, all of them before the step, and then `died in
+# chapter 3` on the frame after the ask. See that check, whose comment carries the measurement.
+- play_until: { frames: 600 }
+  give_up_after: 6000
+# **The chapter asked for again**, which is the other half of a practice run being a run: orb rewinds it
+# the way it rewinds any other.
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 600 }
+  give_up_after: 6000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

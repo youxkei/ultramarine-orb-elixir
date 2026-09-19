@@ -157,6 +157,77 @@ pub struct Options {
     #[arg(long, require_equals = true, value_name = "N", help_heading = FAULT)]
     stress: Option<u32>,
 
+    /// put back only the first N regions of every snapshot, which is `--no-memory`'s bisect made finer
+    ///
+    /// **For a fault the *contents* of one region are suspected of** rather than the writing of them.
+    /// `--no-memory` narrows a snapshot to `.data` before it is taken; this leaves the snapshot whole and
+    /// holds the restore to the first N of what it saved, so the regions are bisected one launch at a
+    /// time with everything else about the run unchanged. th06nc is what it was added for: it dies on the
+    /// first update *after* a restore whose every region was written — the log reaches
+    /// `restore: putting back 8 of 8` and the lines past it — so what is left to find is which region's
+    /// bytes the update could not survive.
+    ///
+    /// **A launch under it is a game deliberately half put back**, and nothing a run anybody plays wants.
+    #[arg(long, require_equals = true, value_name = "N", help_heading = FAULT)]
+    put_back_only: Option<u32>,
+
+    /// leave the first N regions of every snapshot alone and put back the rest, which is the other half of
+    /// `--put-back-only`
+    ///
+    /// **Both halves exist because the regions are not independent**: `.data` is the first of them and
+    /// holds pointers into the heap blocks after it, so `--put-back-only=1` is a game whose chain names
+    /// blocks that have moved and dies of the flag rather than of the fault. `--put-back-skipping=1` is
+    /// the informative turn — the heap put back and `.data` left as the run had it — and which of the two
+    /// a fault is in is what the pair answers between them.
+    #[arg(long, require_equals = true, value_name = "N", help_heading = FAULT)]
+    put_back_skipping: Option<u32>,
+
+    /// have a restore write back even the ranges it would hold back, which is the third of the bisects
+    ///
+    /// **What it asks is what the mixture costs.** A restore leaves most of a region as the snapshot had
+    /// it and the ranges of `Game::live_handles` and the audio's as the run has them — eleven of them and
+    /// 195,276 bytes over th06nc — and that game dies of `.data` coming back while living when `.data` is
+    /// left alone entirely, so whether the *mixture* is what its next update cannot survive is the one
+    /// question between those two answers. **A restore under it puts back a handle the game has since
+    /// replaced**, which is what the holes exist to stop.
+    #[arg(long, help_heading = FAULT)]
+    hold_back_nothing: bool,
+
+    /// hold back OFFSET+LEN of the game's memory as well, in hex, given once per span; SOURCE: in front
+    /// names which of the things the game took — data, heap1.3, reserve2 — and data is the default
+    ///
+    /// **Which is how a bisection inside the game's memory is written.** The exe is built with ASLR — a
+    /// static written down as `0x140aa1e90` lives wherever the loader put the image — so what names a span
+    /// across launches is an offset and not an address. th06nc's `.data` begins at `0x140323000`, so its
+    /// enemy manager is `--hold-back-at=77ee90+10c100`.
+    ///
+    /// **And the source goes in front where the span is not `.data`'s**: `--hold-back-at=heap1.3:0+7800`
+    /// is the first `0x7800` bytes of the third region of the first heap the game allocated from, which is
+    /// at a different address every launch where the region is the same segment. The names are
+    /// `orb_api::mem::Source`'s, and the log line `memory: saving` puts one in front of every region a
+    /// snapshot holds.
+    ///
+    /// **A source and not a place in the region list**, which this named first: the committed runs of one
+    /// heap region are as many entries in that list as it has holes, and one launch of th06nc listed the
+    /// game's heap as 8 entries in one chapter and 9 in another — so `2:0+7800` named different pages
+    /// within the one run it was meant to bisect.
+    ///
+    /// **And a heap region and not a heap**, since an offset into a heap names nothing twice either: the
+    /// distances between a heap's segments are the OS's, and one launch of th06nc put the segment another
+    /// had `0x1a670000` above the first `0x180000` below it.
+    ///
+    /// **What it is for is what `--put-back-only` and `--put-back-skipping` leave**: those name a count of
+    /// regions and this names a span inside one source. th06nc's chapter retries died of one byte of
+    /// `.data`, found by halving with this flag; what they die of in stage 2 is somewhere in the game's
+    /// heap, which is where the source earns its place.
+    #[arg(
+        long,
+        require_equals = true,
+        value_name = "[SOURCE:]OFFSET+LEN",
+        help_heading = FAULT
+    )]
+    hold_back_at: Vec<String>,
+
     /// leave orb loaded with none of its own work happening
     #[arg(long, help_heading = FAULT)]
     no_chapters: bool,
@@ -329,6 +400,51 @@ impl Config {
         if let Some(frames) = options.stress {
             self.stress_restore_frames = frames;
         }
+        if let Some(regions) = options.put_back_only {
+            self.put_back_only = regions;
+        }
+        if let Some(regions) = options.put_back_skipping {
+            self.put_back_skipping = regions;
+        }
+        if options.hold_back_nothing {
+            self.hold_back_nothing = true;
+        }
+        // **A span that will not parse is said and dropped rather than refused**: what asks for these is a
+        // launch bisecting a fault, and a launch that came up with one span of three is a launch whose log
+        // says which.
+        for span in &options.hold_back_at {
+            // **The source is optional and `data` where it is left out**, so that every span written
+            // before it existed still means what it meant: those named `.data`, which was the first
+            // region then and is the first source now.
+            //
+            // **And taken as written rather than held against a list of names**, which is where the
+            // answer is: whether a snapshot saved anything of `heap3` is the snapshot's to say, and it
+            // says so in the log — `restore: this snapshot saved nothing of heap3`. A list here would be
+            // the same names written twice, and the copy that is not `orb_api::mem::Source` is the one
+            // that goes stale.
+            let (source, rest) = match span.split_once(':') {
+                Some(("", _)) => {
+                    eprintln!("orb: {span} names no source before its colon; it is dropped");
+                    continue;
+                }
+                Some((which, rest)) => (which, rest),
+                None => ("data", span.as_str()),
+            };
+            match rest.split_once('+') {
+                Some((at, len)) => {
+                    match (
+                        usize::from_str_radix(at.trim_start_matches("0x"), 16),
+                        usize::from_str_radix(len.trim_start_matches("0x"), 16),
+                    ) {
+                        (Ok(at), Ok(len)) => {
+                            self.hold_back_at.push((source.to_owned(), at, len));
+                        }
+                        _ => eprintln!("orb: {span} is not OFFSET+LEN in hex; it is dropped"),
+                    }
+                }
+                None => eprintln!("orb: {span} has no + in it; it is dropped"),
+            }
+        }
         if options.no_chapters {
             self.chapters = false;
         }
@@ -468,6 +584,67 @@ mod tests {
     fn a_speed_given_by_hand_wins() {
         assert_eq!(with("--collect --speed=8").speed, 8);
         assert_eq!(with("--speed=8 --collect").speed, 8);
+    }
+
+    /// **The finer of the two bisects a restore has**, and nought where nobody asked for it: a launch
+    /// whose restore puts back part of what it saved is a game deliberately left half restored, so it is
+    /// the flag that says so and never a default.
+    #[test]
+    fn a_restore_puts_back_every_region_unless_a_launch_says_otherwise() {
+        assert_eq!(with("").put_back_only, 0);
+        assert_eq!(with("--put-back-only=1").put_back_only, 1);
+        assert_eq!(with("--put-back-only=4").put_back_only, 4);
+        // And it is the snapshot's own regions it counts, not the heap's being hooked at all — which is
+        // `--no-memory`, the coarse half, and the two are independent.
+        let both = with("--put-back-only=1 --no-memory");
+        assert!(both.put_back_only == 1 && !both.track_memory);
+        // **And the same bisect from the other end**, which is the half that says anything where `.data`
+        // is the region being left out: a prefix holding it without the heap it names is inconsistent by
+        // construction.
+        assert_eq!(with("").put_back_skipping, 0);
+        assert_eq!(with("--put-back-skipping=1").put_back_skipping, 1);
+        // **And the third of them**, which is about the ranges inside a region rather than the regions:
+        // a restore holds some back and writing them too is what says whether the mixture is the fault.
+        assert!(!with("").hold_back_nothing);
+        assert!(with("--hold-back-nothing").hold_back_nothing);
+        // **And the spans inside `.data`**, in hex and as offsets, which is what a bisection of nine
+        // megabytes of statics is written in: `0x140aa1e90 - 0x140323000` is th06nc's enemy manager. A
+        // span with no source named is that one's, `.data` being what every span written before the
+        // source existed meant.
+        assert!(with("").hold_back_at.is_empty());
+        assert_eq!(
+            with("--hold-back-at=77ee90+10c100").hold_back_at,
+            [("data".to_owned(), 0x77_ee90, 0x10_c100)],
+        );
+        assert_eq!(
+            with("--hold-back-at=0x10+0x20 --hold-back-at=30+40").hold_back_at,
+            [
+                ("data".to_owned(), 0x10, 0x20),
+                ("data".to_owned(), 0x30, 0x40)
+            ],
+        );
+        // **And a source in front of the offset**, which is what a span outside `.data` has to be named
+        // by: a region of the game's heap is at a different address every launch, where the segment the
+        // walk hands over third is the same segment. The dot is nothing to this parse, which takes the
+        // name as written — `orb_api::mem::Source` is where it is spelled.
+        assert_eq!(
+            with("--hold-back-at=heap1.3:0+7800").hold_back_at,
+            [("heap1.3".to_owned(), 0x0, 0x7800)],
+        );
+        // **A name no source has is carried as written**, and which sources a snapshot saved is answered
+        // where that is known, by the restore's own log line. Here it would be a second list of the same
+        // names, and the copy that is not `orb_api::mem::Source` is the one that goes stale.
+        assert_eq!(
+            with("--hold-back-at=heap9.1:0+10").hold_back_at,
+            [("heap9.1".to_owned(), 0x0, 0x10)],
+        );
+        // A span that will not parse is dropped and said, a launch bisecting a fault being better served
+        // by the two spans it did get than by no launch at all. A colon with nothing in front of it is one
+        // of those, naming no source at all.
+        assert!(with("--hold-back-at=nonsense").hold_back_at.is_empty());
+        assert!(with("--hold-back-at=zz+1").hold_back_at.is_empty());
+        assert!(with("--hold-back-at=:10+20").hold_back_at.is_empty());
+        assert!(with("--hold-back-at=data:zz+1").hold_back_at.is_empty());
     }
 
     /// A clear is one word for the same reason a pass is, and the speed that comes with it is a

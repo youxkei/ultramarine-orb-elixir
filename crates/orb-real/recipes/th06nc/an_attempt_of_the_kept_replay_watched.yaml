@@ -1,0 +1,40 @@
+# The replay `the_run_started_over_and_its_replay_kept` kept, found through the **main menu's** fifth item —
+# the replays — where orb's own list stands in the game's screen's place for the rewindable mode, and one
+# attempt of it watched: the list is answered down through the replay, the stage and the chapter to the
+# attempt, and the attempt plays out until the list is back.
+#
+# **The item is this menu's 4 and not a title's 3**, which is where this differs from th06c's own recipe:
+# this game's title is a state of its own that a decide opens the menu from, so the walk is screen 2, a
+# decide, screen 3, and the cursor aimed at item 4 by its own number — the Extra being stepped over while
+# it is locked, which is why a count of taps would land somewhere else. Item 4's own case fills the
+# screen's table and reaches state 16, the game's own list; the press that would open it is held back for
+# orb's question, so a run of the rewindable mode never sees that screen.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 3, cursor: 4 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- wait_until: { question: choose_replay }
+  give_up_after: 3600
+- quit: true

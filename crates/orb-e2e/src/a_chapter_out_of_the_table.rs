@@ -31,6 +31,7 @@ fn the_run() -> RunStart {
         shot_type: 0,
         practice: false,
         stage: 0,
+        mode: 0,
     }
 }
 
@@ -46,6 +47,7 @@ fn the_extra() -> RunStart {
         shot_type: 0,
         practice: false,
         stage: STAGES,
+        mode: 0,
     }
 }
 

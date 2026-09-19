@@ -16,3 +16,4 @@ Ultramarine Orb Elixir（orb）は、東方紺珠伝の完全無欠モードを�
 | 東方紅魔郷 1.02h | 対応 |
 | 東方妖々夢 | 対応 |
 | 東方紅魔郷: Classic | 未対応 |
+| 東方紅魔郷: New Classic | 未対応 |

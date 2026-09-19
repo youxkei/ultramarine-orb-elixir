@@ -134,6 +134,7 @@ pub struct Answers {
     /// `None` for the machine's own, which is what the row offers first.
     pub language: Option<Language>,
     pub thcrap: bool,
+    pub without_steam: bool,
     pub always_draw: bool,
     pub boundary_flash: bool,
     pub skip_ending: bool,
@@ -152,6 +153,9 @@ impl Answers {
         // one again. Which is the row above's difference too — a language row offers the machine's own as
         // an item, and a box has no room for a third state.
         config.thcrap = Some(self.thcrap);
+        // The same, for the same reason: `without_steam` left to say nothing is whatever the launch turns
+        // out to be, and a box somebody has just answered is not that.
+        config.without_steam = Some(self.without_steam);
         config.always_draw = self.always_draw;
         config.boundary_flash = self.boundary_flash;
         config.skip_ending = self.skip_ending;
@@ -256,7 +260,7 @@ struct Switch {
 }
 
 /// The switches, in the order they are stacked. Each is one key of `orb.yaml`.
-const SWITCHES: [Switch; 8] = [
+const SWITCHES: [Switch; 9] = [
     Switch {
         text: |language| match language {
             Language::Japanese => "インストールされている翻訳パッチを使う",
@@ -264,6 +268,19 @@ const SWITCHES: [Switch; 8] = [
         },
         shown: |config, language| config.thcrap_wanted(language),
         answered: |answers, on| answers.thcrap = on,
+    },
+    // What it buys is somebody's account: a game sold through Steam puts the launch's playtime on it,
+    // unlocks whatever a stage reached unlocks and hands Steam a save to sync, and none of that belongs
+    // to a run that was rewound. It is also what lets such a game start with no client running at all.
+    // Shown off on a game that is not sold through Steam, where the launch reaches it anyway by having
+    // nothing to reach.
+    Switch {
+        text: |language| match language {
+            Language::Japanese => "Steamを使わずに起動する",
+            Language::English => "Start the game without reaching Steam",
+        },
+        shown: |config, _| config.without_steam_wanted(),
+        answered: |answers, on| answers.without_steam = on,
     },
     Switch {
         text: |language| match language {
@@ -813,6 +830,7 @@ unsafe fn take_answers(dialog: HWND) {
             .unwrap_or(Screen::Fullscreen),
         // Read back off its switch like every other, which is what the pair in `Switch` is for.
         thcrap: false,
+        without_steam: false,
         // A selection this row does not hold is the machine's own, which is the item nobody has to
         // choose and the one a file that says nothing means.
         language: LANGUAGES
@@ -1105,6 +1123,7 @@ mod tests {
             screen: config.screen,
             language: config.language,
             thcrap: false,
+            without_steam: false,
             always_draw: false,
             boundary_flash: false,
             skip_ending: false,
@@ -1199,6 +1218,7 @@ mod tests {
                 screen: config.screen,
                 language: item,
                 thcrap: true,
+                without_steam: true,
                 always_draw: true,
                 boundary_flash: true,
                 skip_ending: true,

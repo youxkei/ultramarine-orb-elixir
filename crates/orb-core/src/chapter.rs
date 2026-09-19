@@ -1428,6 +1428,10 @@ impl Chapters {
             snapshot.regions(),
             snapshot.bytes(),
         );
+        // **And which regions those are**, at the level a launch being read into is given: the line above
+        // says how many and how large, and two launches that differ only in this shape cannot be told
+        // apart by a count — see `Snapshot::covers` for the pair that made this worth writing.
+        detail!("snapshot: covering {}", snapshot.covers());
         self.snapshots.push(Checkpoint {
             snapshot,
             mark: self.mark,

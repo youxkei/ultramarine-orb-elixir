@@ -23,7 +23,7 @@ use crate::game::{Beam, Frame, Hazard, Kind, Pickup, Worth};
 use super::{
     BOMBS, BULLET_MANAGER, ENEMY_MANAGER, INPUT_THE_RUN_ACTS_ON, ITEM_MANAGER, LASERS, LIVES,
     PLAYER, PLAYER_AREA, POWER, POWER_FULL, at, bullet_manager, enemy, enemy_manager, in_a_stage,
-    item, laser, player,
+    item, laser, player, the_line_of_dialogue,
 };
 
 /// **One frame of a run, out of the game's own arrays**, and `false` off a stage.
@@ -45,10 +45,14 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     into.border = false;
     into.full_power = unsafe { mem::read::<u16>(at(POWER)) } >= POWER_FULL;
     into.bombs = unsafe { mem::read::<i8>(at(BOMBS)) };
-    // **Unread.** Where this game keeps the line of dialogue that is up is one of the readings
-    // `th06nc/asm.md` still lists as not established; a line is pressed past by the shot the rules
-    // hold anyway.
-    into.dialogue = false;
+    // **And the line of a conversation, which this stood at `false` while where the game kept it was
+    // unread.** It is read now — see [`the_line_of_dialogue`] — and what stood on the reading is the
+    // shot's own cadence: `orb_bot::steer` lets the shot go every
+    // `SHOT_LET_GO_EVERY_IN_A_CONVERSATION` frames while a line is up and every `SHOT_LET_GO_EVERY`
+    // otherwise, and the game wants one edge of `0x301` a line. **Not the skip key, which this game
+    // gives orb none of**: its own skip is `0x8` of the word, built out of a binding filled per
+    // keyboard layout, so `Keys::skip` is nought here and the shot is the whole of it.
+    into.dialogue = unsafe { the_line_of_dialogue() } >= 0;
     into.boss = unsafe { the_boss_the_fights_own_slot() }
         .map(|body| unsafe { position(body + enemy::POSITION) });
     into.hazards.clear();

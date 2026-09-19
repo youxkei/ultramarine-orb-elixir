@@ -1,0 +1,49 @@
+# The run a_chapter_of_the_stage_after_the_first left in its second stage, offered as a run starts and
+# taken up there — a stage the run walked into rather than started at, which is the pick-up that puts a
+# stage's numbers back in — and then played on.
+#
+# **The walk to the run is `a_death_answered_by_the_chapter_again`'s as far as the mode question**, which
+# is where the reading of this game's screens is written down: 2 the title, 3 the main menu, then 9 the
+# difficulty, 11 the character, 13 the shot, and 14, 24 and 25 each taking a press before the stage.
+# **The resume question comes up at 25**, the last screen a run's three numbers are all decided by, which
+# is where `Th06nc::run_pointed_at` answers a run.
+#
+# **And the selects are pressed through in one step rather than one step apiece**: a select of this game
+# goes by on its own after a while, so a step that waits for screen 11 can be a step the game has already
+# walked past, and a step that gives up costs its whole bound. A launch of the step-apiece shape reached
+# the shot select with the recipe three steps behind it, and the decide it was still holding answered the
+# resume question itself — `resume: from the beginning, answered on the pad`, which is the one answer this
+# case must not give.
+#
+# **And what says the run played on is the stage's own clock**, not a chapter after the one it came back
+# in: the second stage's chapter 1 is the only chapter this game has there until
+# `game/th06nc/chapters.rs` is filled.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- press: [decide]
+  frames: 6
+  until: { question: resume }
+  give_up_after: 3600
+- answer: { question: resume, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 900 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

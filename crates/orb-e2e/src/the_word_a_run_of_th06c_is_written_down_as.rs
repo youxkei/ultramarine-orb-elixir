@@ -101,19 +101,26 @@ fn a_run_of_th06c_that_was_paused_is_put_back_at_its_chapter() {
 
         // Then the chapter on the other side of it, whose record is the frames of the run and not the frames
         // the menu stood for.
-        game.frames_until("the chapter past the pause", FRAMES, || {
-            log.said("stage 1 chapter 2")
+        //
+        // **Waited for by the line the *write* leaves and not by the chapter's own**, because the write is a
+        // thread of orb's: the frame the chapter begins on is not the frame its file holds, and a machine
+        // busy with the rest of the suite is one that writes it later still. Read off the chapter's line,
+        // this found no record and said the chapter past the pause was never written down — it passed alone
+        // and failed beside the whole-game chains.
+        let written_down = |log: &orb_sim::Log| {
+            log.lines()
+                .into_iter()
+                .find(|line| line.contains("chapter 2") && line.contains("frame(s) of buttons"))
+        };
+        game.frames_until("the chapter past the pause written down", FRAMES, || {
+            written_down(log).is_some()
         });
-        let written = log
-            .lines()
-            .into_iter()
-            .find(|line| line.contains("chapter 2") && line.contains("frame(s) of buttons"))
-            .unwrap_or_else(|| {
-                panic!(
-                    "the chapter past the pause was not written down:\n  {}",
-                    log.lines().join("\n  ")
-                )
-            });
+        let written = written_down(log).unwrap_or_else(|| {
+            panic!(
+                "the chapter past the pause was not written down:\n  {}",
+                log.lines().join("\n  ")
+            )
+        });
         // The frames of buttons the file holds, against the stage's own clock at that chapter: the two are the
         // same count, which is what says the pause put none in.
         let buttons: u32 = written

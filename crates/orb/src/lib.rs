@@ -50,13 +50,27 @@ pub(crate) use orb_core::{game, log, runtime, trace};
 // What a hook *does* is `orb-core`'s, and so are the statics the install lists below fill: this crate
 // installs them and calls none of them itself.
 use orb_core::runtime::{
-    CARD_RECORDS_READ, CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT,
-    INIT_D3D_DEVICE, PAD_BUTTONS, PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN,
-    RUN_CALC_CHAIN_TARGET, RUN_DRAW_CHAIN, RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, STAGE_BEGUN,
-    STAGE_BUILDING, STOP_RECORDING, UNLOCKS_READ, attached, card_records_read, create_game_window,
-    get_controller_input, get_controller_input_in_ecx, get_input, init_d3d_device, pacing,
-    pad_buttons, ranking_read, ranking_read_in_ecx, render, run_calc_chain, run_draw_chain,
+    CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT, INIT_D3D_DEVICE,
+    PAD_BUTTONS, PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN, RUN_CALC_CHAIN_TARGET,
+    RUN_DRAW_CHAIN, RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, STAGE_BEGUN, STAGE_BUILDING,
+    STOP_RECORDING, UNLOCKS_READ, attached, create_game_window, get_controller_input, get_input,
+    init_d3d_device, pacing, pad_buttons, ranking_read, render, run_calc_chain, run_draw_chain,
     save_replay, stage_begun, stage_begun_in_ecx, stage_building, stop_recording, unlocks_read,
+};
+// **The four entry points only a 32-bit game reaches**, which are that architecture's in `orb-core` too:
+// three of them stand in front of a callback the game's own chain calls with its argument in `ecx`, which
+// is a convention x86 has and nothing else does, and the fourth is a `__thiscall`. No 64-bit game orb
+// knows declares any of the four — see `orb_core::game::Hooks`, whose `joystick`, `unlocks_read`,
+// `ranking_read` and `card_records_read` th06c and th06nc all answer `None` — so what the sites below do
+// without them is say so rather than install one.
+//
+// **Unconditional, they are what kept `orb` from building for `x86_64-pc-windows-gnu` at all**, which is
+// the target the 64-bit games' DLL is: `cargo xtask check` builds this crate for `TARGET` alone and its
+// `ALSO` pass covers `orb-core` and `orb-e2e`, so nothing named the one build that was broken. See this
+// change's own `TODO:` for the check that would have.
+#[cfg(target_arch = "x86")]
+use orb_core::runtime::{
+    CARD_RECORDS_READ, card_records_read, get_controller_input_in_ecx, ranking_read_in_ecx,
     unlocks_read_in_ecx,
 };
 // The music's own two, which are the 32-bit games' — a `__thiscall` is an x86 calling convention and
@@ -401,6 +415,17 @@ fn attach() {
             .moves_its_window
             .filter(|_| plays_itself)
             .map(|looked_up| looked_up.name),
+        // And the two that put it on the screen, which go with the corner for the same reason: a window
+        // kept hidden until its corner has held is a window whose put-backs nobody sees, and a launch
+        // somebody plays has no such window to hide. See `orb_core::window::show_window`.
+        window_shown: patches
+            .shows_its_window
+            .filter(|_| plays_itself)
+            .map(|looked_up| looked_up.name),
+        window_placed: patches
+            .places_its_window
+            .filter(|_| plays_itself)
+            .map(|looked_up| looked_up.name),
         // **And the clocks, for a game orb paces no frame of.** `--pace` shortens the wait between one
         // frame and the next from inside the frame, and a game orb is not inside waits on its own — so
         // what that number does here is scale the clock the game does the waiting by. Named without
@@ -423,6 +448,8 @@ fn attach() {
         looked_up.pad,
         looked_up.window_made,
         looked_up.window_moved,
+        looked_up.window_shown,
+        looked_up.window_placed,
         looked_up.millis,
         looked_up.ticks,
         looked_up.counter,
@@ -513,18 +540,32 @@ fn attach() {
         // Which of the two entry points goes over it is the convention the game's own read has, and
         // nothing else about the two differs — see `orb_core::game::Entered`.
         let entry = match read {
-            game::Entered::OnTheStack(_) => hook::address(get_controller_input as _),
-            game::Entered::InEcx(_) => hook::address(get_controller_input_in_ecx as _),
+            game::Entered::OnTheStack(_) => Some(hook::address(get_controller_input as _)),
+            #[cfg(target_arch = "x86")]
+            game::Entered::InEcx(_) => Some(hook::address(get_controller_input_in_ecx as _)),
+            // **No entry point of that convention on this architecture**, which is what the import's own
+            // comment says: the read is left the game's own and every pad the machine has reaches it the
+            // game's way rather than orb's.
+            #[cfg(not(target_arch = "x86"))]
+            game::Entered::InEcx(_) => {
+                log!(
+                    "joystick: this game's read takes its argument in a register and no entry point \
+                     here does; the read is left as the game has it"
+                );
+                None
+            }
         };
-        hooks.push((
-            "joystick",
-            game::Patch {
-                target: read.patch().target,
-                prologue: read.patch().prologue,
-            },
-            entry,
-            &GET_CONTROLLER_INPUT,
-        ));
+        if let Some(entry) = entry {
+            hooks.push((
+                "joystick",
+                game::Patch {
+                    target: read.patch().target,
+                    prologue: read.patch().prologue,
+                },
+                entry,
+                &GET_CONTROLLER_INPUT,
+            ));
+        }
     }
     match patches.save_replay {
         Some(patch) if config.block_replay_save => {
@@ -619,19 +660,34 @@ fn attach() {
         // Entered the way the game's own callback is, which differs between the two — see
         // `orb_core::game::Entered`.
         Some(entered) if config.chapters => {
-            let hook = match entered {
-                game::Entered::OnTheStack(_) => hook::address(unlocks_read as _),
-                game::Entered::InEcx(_) => hook::address(unlocks_read_in_ecx as _),
+            let bracket = match entered {
+                game::Entered::OnTheStack(_) => Some(hook::address(unlocks_read as _)),
+                #[cfg(target_arch = "x86")]
+                game::Entered::InEcx(_) => Some(hook::address(unlocks_read_in_ecx as _)),
+                // **No entry point of that convention on this architecture** — see the import's own
+                // comment. A 64-bit game whose unlocks come out of such a callback is one whose front
+                // end offers what the mode's own file says rather than what the game's does; th06c and
+                // th06nc reach the read another way, `Game::reads_its_file_once_at_startup`.
+                #[cfg(not(target_arch = "x86"))]
+                game::Entered::InEcx(_) => {
+                    log!(
+                        "score: this game's unlocks read takes its argument in a register and no \
+                         entry point here does; the read is left unbracketed"
+                    );
+                    None
+                }
             };
-            hooks.push((
-                "unlocks read",
-                game::Patch {
-                    target: entered.patch().target,
-                    prologue: entered.patch().prologue,
-                },
-                hook,
-                &UNLOCKS_READ,
-            ));
+            if let Some(bracket) = bracket {
+                hooks.push((
+                    "unlocks read",
+                    game::Patch {
+                        target: entered.patch().target,
+                        prologue: entered.patch().prologue,
+                    },
+                    bracket,
+                    &UNLOCKS_READ,
+                ));
+            }
         }
         _ => {}
     }
@@ -642,24 +698,40 @@ fn attach() {
     // Entered the way the game's own callback is, which differs between the two — see
     // `orb_core::game::Entered`.
     if let Some(entered) = patches.ranking_read {
-        let hook = match entered {
-            game::Entered::OnTheStack(_) => hook::address(ranking_read as _),
-            game::Entered::InEcx(_) => hook::address(ranking_read_in_ecx as _),
+        let bracket = match entered {
+            game::Entered::OnTheStack(_) => Some(hook::address(ranking_read as _)),
+            #[cfg(target_arch = "x86")]
+            game::Entered::InEcx(_) => Some(hook::address(ranking_read_in_ecx as _)),
+            // **No entry point of that convention on this architecture** — see the import's own comment.
+            #[cfg(not(target_arch = "x86"))]
+            game::Entered::InEcx(_) => {
+                log!(
+                    "score: this game's ranking read takes its argument in a register and no entry \
+                     point here does; the read is left unbracketed"
+                );
+                None
+            }
         };
-        hooks.push((
-            "ranking read",
-            game::Patch {
-                target: entered.patch().target,
-                prologue: entered.patch().prologue,
-            },
-            hook,
-            &RANKING_READ,
-        ));
+        if let Some(bracket) = bracket {
+            hooks.push((
+                "ranking read",
+                game::Patch {
+                    target: entered.patch().target,
+                    prologue: entered.patch().prologue,
+                },
+                bracket,
+                &RANKING_READ,
+            ));
+        }
     }
     // Always where the game has such a seam, and called through: what the file held stands, and what orb
     // adds is the counts of the run that has just ended — see `orb_core::runtime::card_records_read`. Not
     // conditional on the mode, a legacy run's counts belonging in the game's own file as much as a rewound
     // run's belong in orb's.
+    // **32-bit alone**, the hook being a `__thiscall` — see the import's own comment, and
+    // `orb_core::runtime::card_records_read`, which is that architecture's for the same reason. A 64-bit
+    // game that declared this seam would be one to give the entry point an ABI of its own.
+    #[cfg(target_arch = "x86")]
     if let Some(patch) = patches.card_records_read {
         hooks.push((
             "card records read",
@@ -667,6 +739,13 @@ fn attach() {
             hook::address(card_records_read as _),
             &CARD_RECORDS_READ,
         ));
+    }
+    #[cfg(not(target_arch = "x86"))]
+    if patches.card_records_read.is_some() {
+        log!(
+            "score: this game's records read is a __thiscall and no entry point here is; the read is \
+             left as the game has it"
+        );
     }
     if let Some(patch) = patches.create_window {
         FORCE_WINDOWED.store(true, Ordering::Relaxed);

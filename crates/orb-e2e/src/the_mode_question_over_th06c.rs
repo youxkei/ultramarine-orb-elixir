@@ -133,11 +133,21 @@ fn the_mode_question_of_th06c_is_drawn_through_the_games_own_direct3d_11() {
 }
 
 /// **And the drawing is the canvas's own**, which is the half no log line says: the quads went through
-/// textures the canvas handed out, and the viewport each was drawn under is the overlay's own 640x480.
+/// textures the canvas handed out, and the viewport each was drawn under is **the back buffer's own
+/// size**.
 ///
-/// That viewport is what a canvas turning pixels into clip space against anything else would show as — the
-/// lines landing somewhere the Direct3D 8 overlay does not put them — and the swapchain's own buffer
-/// measuring something else does not come into it: the viewport is what maps the one onto the other.
+/// **Which is the opposite of what this test asked for until a launch was looked at.** It asked for the
+/// overlay's own 640x480 and argued that the viewport is what maps the coordinates onto the buffer — but
+/// that is what the *shader* does, dividing a vertex's pixels by `overlay::SCREEN_WIDTH` and
+/// `SCREEN_HEIGHT` to reach clip space; the viewport then maps clip space onto a rectangle of the
+/// target's own pixels, so one of 640x480 puts the whole overlay in the top-left corner of a larger
+/// window. A launch at `1280x720` showed exactly that — orb's own menus drawn at a quarter of the
+/// window, unscaled — which is where this reading came from.
+///
+/// So `Canvas` keeps two sizes now: the coordinate space it turns pixels into clip space against, and the
+/// viewport it sets, which is what the swapchain says its buffer measures — `super::fake::BACK_BUFFER`
+/// here, and `dxgi::the_size_of` on the real thing, asked every frame because a resized window gives the
+/// swapchain new buffers.
 #[test]
 fn every_quad_of_th06cs_question_goes_through_the_canvas_over_its_swapchain() {
     in_its_own_process(|| {
@@ -152,12 +162,13 @@ fn every_quad_of_th06cs_question_goes_through_the_canvas_over_its_swapchain() {
         );
         let drawn = game.drawn();
         assert!(!drawn.quads.is_empty(), "the question drew no quads at all");
+        let (width, height) = crate::fake::BACK_BUFFER;
         assert!(
             drawn
                 .viewports
                 .iter()
-                .all(|viewport| (viewport.width, viewport.height) == (640, 480)),
-            "a quad was drawn under a viewport that is not the overlay's own output: {:?}",
+                .all(|viewport| (viewport.width, viewport.height) == (width, height)),
+            "a quad was drawn under a viewport that is not the back buffer's own size: {:?}",
             drawn.viewports,
         );
         // **One viewport per quad**, which is what the canvas setting its own state on every draw means: a

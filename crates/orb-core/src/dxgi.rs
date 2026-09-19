@@ -433,6 +433,47 @@ pub unsafe fn the_window() -> orb_api::Hwnd {
     orb_api::Hwnd(usize::from_le_bytes(handle))
 }
 
+/// **How big a swapchain's back buffer is**, asked of the swapchain itself: the first two dwords of
+/// `DXGI_SWAP_CHAIN_DESC` are `DXGI_MODE_DESC`'s width and height — see [`OUTPUT_WINDOW`], whose offset
+/// is counted from the same two.
+///
+/// **What it is for is the size orb's own drawing is stretched onto.** Everything orb draws is placed in
+/// `overlay`'s own 640x480 and the canvas maps those coordinates onto the viewport it sets; a viewport of
+/// 640x480 pixels puts the whole overlay in the top-left corner of a larger window, which is what a
+/// launch at `1280x720` showed. So the canvas asks this every frame and sets the viewport to it.
+///
+/// **Asked every frame rather than kept**, for the reason [`the_window`] is: a window that is resized
+/// gives the swapchain new buffers, and what a stale size would cost is the overlay drawn at the size the
+/// window used to be.
+///
+/// `None` where no swapchain was taken, where the slot is empty, or where the ask fails.
+///
+/// # Safety
+/// Must run on the game's own thread, with the swapchain live.
+pub unsafe fn the_size_of(swapchain: usize) -> Option<(u32, u32)> {
+    if swapchain == 0 {
+        return None;
+    }
+    let vtable = mem::read_committed::<usize>(swapchain).filter(|vtable| *vtable != 0)?;
+    let describes = mem::read_committed::<usize>(vtable + GET_DESC * size_of::<usize>())
+        .filter(|describes| *describes != 0)?;
+    let describes: unsafe extern "system" fn(usize, *mut u8) -> i32 =
+        unsafe { std::mem::transmute(describes) };
+    let mut description = [0u8; A_DESCRIPTION];
+    if unsafe { describes(swapchain, description.as_mut_ptr()) } < 0 {
+        return None;
+    }
+    let dword = |at: usize| {
+        let mut bytes = [0u8; size_of::<u32>()];
+        bytes.copy_from_slice(&description[at..at + size_of::<u32>()]);
+        u32::from_le_bytes(bytes)
+    };
+    match (dword(0), dword(size_of::<u32>())) {
+        (0, _) | (_, 0) => None,
+        size => Some(size),
+    }
+}
+
 pub fn hands_over_without_waiting(without: bool) {
     HANDS_OVER_WITHOUT_WAITING.store(without, Ordering::Relaxed);
 }

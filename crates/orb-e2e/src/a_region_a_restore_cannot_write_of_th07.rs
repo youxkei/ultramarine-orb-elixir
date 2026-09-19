@@ -48,7 +48,7 @@ fn a_region_of_th07_that_cannot_be_committed_is_named_and_the_chapter_still_come
         // Which region it is is the game's to say: what the claim is about is that *a* region refusing is
         // survivable, and the list comes out of the same walk the snapshot's does.
         let regions = game.sim().space().game_regions(&game.image().data());
-        let (base, len) = *regions
+        let (base, len, _) = *regions
             .last()
             .expect("a game laid out in more than one region");
         assert_ne!(

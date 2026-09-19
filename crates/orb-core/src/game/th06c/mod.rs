@@ -301,6 +301,15 @@ mod pad {
 /// neither moves anything.
 const WINDOW_MOVED: &str = "MoveWindow";
 
+/// **And the two it puts that window on the screen with**, named for the reason th06nc's are — see
+/// `game::th06nc`, whose launch log has both looked up before the window is made. This exe's own reading
+/// is the same shape: `SetWindowPos` is in its `USER32` import table, and a window orb made in the
+/// corner was measured in the middle of the primary monitor with both of the `SetWindowPos` calls orb
+/// could see carrying `SWP_NOMOVE` — so the call that moves it is one of these, reached by a lookup
+/// rather than through the table.
+const WINDOW_SHOWN: &str = "ShowWindow";
+const WINDOW_PLACED: &str = "SetWindowPos";
+
 /// **The startup dialog's own controls**, read off the dialog while it was up: `1` is 「ゲーム起動」,
 /// `200` the ボーダーレスウィンドウ it comes up on, `201`–`205` the フルスクリーン sizes, `206`–`210`
 /// the ウィンドウ ones — largest first, so `210` is the 640x480 at the bottom of the list — and `400`
@@ -1032,7 +1041,19 @@ mod supervisor {
     /// How many lives and bombs a run starts with, out of `th06.cfg`'s `+0x10` and `+0x11`: the run's
     /// start at `0x14002cb1b` copies them over the lives and the bombs, and writes two and three over
     /// both where the difficulty is the Extra.
+    ///
+    /// **Allowed rather than `cfg`ed**, the same answer `super::STATE_THE_RUNS_OWN_END` got: a `cfg`
+    /// takes the constant out of the build this module's doc links are resolved in, and what is wrong is
+    /// the lint's reading of the crate rather than the constant — the item does have a reader.
+    #[allow(
+        dead_code,
+        reason = "read by `image`, which is behind `feature = \"sim\"`"
+    )]
     pub const CONFIG_LIVES: usize = 0x344;
+    #[allow(
+        dead_code,
+        reason = "read by `image`, which is behind `feature = \"sim\"`"
+    )]
     pub const CONFIG_BOMBS: usize = 0x345;
 }
 
@@ -1853,6 +1874,10 @@ impl Game for Th06c {
             }),
             makes_its_window: Some(Lookup { name: WINDOW_MADE }),
             moves_its_window: Some(Lookup { name: WINDOW_MOVED }),
+            shows_its_window: Some(Lookup { name: WINDOW_SHOWN }),
+            places_its_window: Some(Lookup {
+                name: WINDOW_PLACED,
+            }),
             reads_a_pad: Some(Lookup { name: PAD_READ }),
             makes_its_renderer: Some(Lookup {
                 name: RENDERER_MADE,
@@ -2951,6 +2976,9 @@ impl Game for Th06c {
                 .is_some_and(|practice| practice != 0),
             // Counted from one while a stage runs — see [`STAGE`] — and orb counts from nought.
             stage: mem::read_committed::<i32>(at(STAGE)).unwrap_or(0) - 1,
+            // **This build has one mode**, where th06nc — the other 紅魔郷 in the library — has two.
+            // See `RunStart::mode`.
+            mode: 0,
         }
     }
 
@@ -2973,6 +3001,7 @@ impl Game for Th06c {
             // A full run's chapter can be in any of them, and which one is what the mark says rather
             // than part of naming it.
             stage: 0,
+            mode: 0,
         })
     }
 

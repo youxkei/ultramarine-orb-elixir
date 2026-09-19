@@ -85,6 +85,41 @@ pub fn add_ex_style(window: Hwnd, ex_style: u32) -> bool {
     host::add_ex_style(window, ex_style)
 }
 
+/// **A window's extended style**, which is what says whether the frame orb put round it is still there —
+/// see `orb_core::window::keeps_its_frame`, which puts it back where a game has written its own over it.
+/// Nought where the host will not say, that being a style with none of the bits orb looks for.
+pub fn ex_style(window: Hwnd) -> u32 {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.ex_style(window);
+    }
+    host::ex_style(window)
+}
+
+/// **Shows a window that was made hidden**, which is how a launch orb lays out keeps its window off the
+/// screen until the corner is settled — see `orb_core::window::create_window_ex_w`, which strips
+/// `WS_VISIBLE`, and `keeps_its_corner`, which shows it. False where the host refused.
+pub fn show(window: Hwnd) -> bool {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.show(window);
+    }
+    host::show(window)
+}
+
+/// **Whether a window is on the screen** — `IsWindowVisible`, which is the style bit and not whether
+/// anything of it can be seen: a window behind another is visible, and one of a hidden parent is not.
+///
+/// Asked so that a launch can say when something *else* showed the window orb made hidden — see
+/// `orb_core::window::keeps_its_corner`, which says so in the log.
+pub fn is_visible(window: Hwnd) -> bool {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.is_visible(window);
+    }
+    host::is_visible(window)
+}
+
 /// What the game draws into, which is what the letterbox and the bar beside it are worked out from.
 pub fn client_rect(window: Hwnd) -> Option<Rect> {
     #[cfg(feature = "sim")]
@@ -157,6 +192,15 @@ mod host {
     }
     pub fn add_ex_style(_window: Hwnd, _ex_style: u32) -> bool {
         no_windows("window::add_ex_style")
+    }
+    pub fn show(_window: Hwnd) -> bool {
+        no_windows("window::show")
+    }
+    pub fn is_visible(_window: Hwnd) -> bool {
+        no_windows("window::is_visible")
+    }
+    pub fn ex_style(_window: Hwnd) -> u32 {
+        no_windows("window::ex_style")
     }
     pub fn measure_lines(_lines: &[String], _em: i32) -> (i32, i32) {
         no_windows("window::measure_lines")

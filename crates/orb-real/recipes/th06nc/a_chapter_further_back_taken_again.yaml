@@ -1,0 +1,57 @@
+# A run of th06nc played into the third chapter of its first stage, asked to start over, answered
+# 更に前からやり直す, and given a chapter behind the one it was in — then played back up to where it was.
+#
+# **The walk to the run is `a_death_answered_by_the_chapter_again`'s as far as the mode question**, and
+# past it the selects are pressed through in one step: a select of this game goes by on its own, so a step
+# apiece races it.
+#
+# **The chapters behind come from the fight and not from the midstage table**, which is what this case is
+# written around: `game/th06nc/chapters.rs` holds seven empty rows, so a stage of this game is one chapter
+# until its fight starts and the fight's own boundaries chapter it after that. A probe read the boss bit
+# at stage frame 1,925, `a_run_left_in_its_second_chapter` was left in
+# `stage 1 chapter 2 (MIDBOSS NONSPELL 1) at frame 1883`, and a launch that played on reached
+# `retry chapter 6`. So the wait is on the boss first and then on chapter 3, which is two behind it.
+#
+# **And 更に前からやり直す is item 1 with a chapter behind the one lost**, which there is here: `retry_ui`
+# leaves that way out of the list only where there is none, so the three-way menu
+# `the_stage_taken_again_from_its_start` counts against does not apply — this is the four-way one and its
+# second item is the list of chapters behind. That list is answered item 0, the nearest of them, and the
+# chapter it gives is confirmed はい.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 3600
+- play_until: { boss: true }
+  give_up_after: 18000
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- start_over: true
+- answer: { question: retry, item: 1 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

@@ -1,0 +1,81 @@
+# A run of th06nc played a moment into its stage, the retry question raised by the recipe and answered
+# with タイトルへ, and the question that asks whether the run is really to be given up answered はい.
+#
+# **The walk to the run is `a_death_answered_by_the_chapter_again`'s**, which is where the reading of this
+# game's screens is written down: 2 the title, 3 the main menu, then 9, 11, 13, 14, 24 and 25.
+#
+# **タイトルへ is item 2 here and item 3 of th06c's**, because 更に前からやり直す is left out of the ways
+# on where there is no chapter behind the one that was lost — see `retry_ui`. A launch that answered 3 got
+# `retry: item 3 is past the 3 way(s) on`.
+#
+# **And the question is raised sixty frames in so that both games agree about that** — see
+# `the_stage_taken_again_from_its_start`, whose header has the two midbosses.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 9, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- play_until: { frames: 60 }
+  give_up_after: 7200
+- start_over: true
+- answer: { question: retry, item: 2 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

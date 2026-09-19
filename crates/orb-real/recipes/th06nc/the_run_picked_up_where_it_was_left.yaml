@@ -1,0 +1,38 @@
+# The run a_run_left_in_its_second_chapter left, offered as a run starts and taken up where it stopped,
+# and then played on into the chapter after.
+#
+# **The walk is that case's**, and the resume question comes up at screen 25 — the last screen a run's
+# three numbers are all decided by, which is where `Th06nc::run_pointed_at` answers a run.
+#
+# **And the chapter after the one picked up is the fight's own**, as it was there: the run lands inside
+# the fight, so the boundary it plays on to is one the fight makes rather than one the midstage table
+# would have. No wait on the boss is needed for that — the run is already past it when it lands.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- press: [decide]
+  frames: 6
+  until: { question: resume }
+  give_up_after: 3600
+- answer: { question: resume, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

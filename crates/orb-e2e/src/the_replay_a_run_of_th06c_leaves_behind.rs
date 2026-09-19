@@ -112,6 +112,15 @@ fn attempts_in_the_file(game: &Fake) -> u32 {
 fn a_run_of_th06c_writes_down_the_attempt_it_was_rewound_from_as_well_as_the_one_it_went_on_with() {
     in_its_own_process(|| {
         let game = a_run_rewound_once("th06c-the-replay-two-attempts");
+        // **Waited for rather than read once**, because the write is a thread of orb's own: the frame the
+        // rewind happened on is not the frame the file holding it is written on, and a machine busy with
+        // the rest of the suite is a machine that writes it later still. Read once, this asked for two
+        // attempts on the frame the rewind was noticed and got the count the write before it had left —
+        // it passed alone and failed beside the whole-game chains.
+        let log = game.log();
+        game.frames_until("two attempts in the file", FRAMES, || {
+            log.said(" attempt(s) written to ") && attempts_in_the_file(&game) >= 2
+        });
         let rewound = attempts_in_the_file(&game);
         assert!(
             rewound >= 2,

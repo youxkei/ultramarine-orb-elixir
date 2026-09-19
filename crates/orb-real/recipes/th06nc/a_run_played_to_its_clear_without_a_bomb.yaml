@@ -20,8 +20,18 @@
   until: { screen: 3, cursor: 0 }
   give_up_after: 900
 - wait_until: { frames: 30 }
+# **And orb's own question over that item, answered with the normal mode** — item 1. Without this step the
+# menu stands frozen behind a question nobody answers and screen 9 never comes: a launch of the recipe that
+# had only a bare `press: [decide]` here read `mode: pointdevice to start with; the menu asks which` and
+# then gave up every wait after it. The mode is the other one because **this is the clear the Extra is
+# unlocked by**: a pointdevice run's records go to the mode's own file and the front end lights its items
+# out of the game's, so a clear the game itself writes down is a run of the mode it keeps records for.
 - press: [decide]
   frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
 # **The difficulty, aimed at Normal — item 1.**
 - wait_until: { screen: 9 }
   give_up_after: 1800
@@ -81,9 +91,14 @@
 # where a `decide` writes the one it is on. Nothing is pressed while this waits.
 - name: ORB
   give_up_after: 1800
-# **And pressed through to the title**, which is what makes the game write its own records: the entry, left on
-# the item that ends it, and the ranking. A clear the game never wrote down is a clear the Extra is not
-# unlocked by.
+# **And pressed through the screen a run ends at**, which is what makes the game write its own records: the
+# entry, left on the item that ends it, and the ranking. A clear the game never wrote down is a clear the
+# Extra is not unlocked by.
+#
+# **And the title is where a run that finished comes back**, which is what makes this step's own wait the
+# right one: the front end rebuilt out of the screen a run ends at comes up on **2** — measured by
+# `the-offer-written-away.yaml`, `result: the screen a run ends at is down` and then `front end: screen 2`
+# a quarter of a second later — where a run **given up** comes back on 16 and the attract cycle instead.
 - press: [decide]
   frames: 6
   until: { screen: 2 }

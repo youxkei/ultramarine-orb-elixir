@@ -8,7 +8,8 @@
 //! **The rules are Normal's**, and dodging comes before all of them:
 //!
 //! - the shot held, let go for one frame in every [`SHOT_LET_GO_EVERY`] so that a screen waiting for a press
-//!   gets one, and the skip key while a dialogue is up
+//!   gets one — and in every [`SHOT_LET_GO_EVERY_IN_A_CONVERSATION`] while a line is up, for the game whose
+//!   skip key orb has no binding for — and the skip key while a dialogue is up
 //! - the bomb the frame the player is hit and on no other frame at all, which is a deathbomb —
 //!   [`Frame::hit`] stands for the window the game counts down, and a bomb inside it is a death taken back.
 //!   A bomb spent before a hit buys nothing that one does and takes the stock the window needs, which is
@@ -573,6 +574,23 @@ impl Keys {
 /// others, so what was setting it was [`Keys::focus`] under a fight and never the holding.
 const SHOT_LET_GO_EVERY: u32 = 60;
 
+/// How often it is let go while a line of a conversation is up, for a game whose skip key orb has no
+/// binding for — see [`Keys::skip`], which is nought where [`Game::button_bit`] finds no `"skip"`.
+///
+/// **Ten, because the line itself asks for eight.** th06nc advances a line on an edge of `0x301` — the
+/// shot's own `0x1` among them — and only once `[dialogue + 0x3420]`, the characters of the line that are
+/// out, has reached eight; a cadence under that would spend its edges on a line too young to take them.
+/// Ten leaves the release, the press after it and the eight.
+///
+/// **And what it buys is half the conversation, measured either side of this line.** Two launches of
+/// th06nc drove the same recipe into the same conversation — stage 1's, the one its script clock stops at
+/// 5,093 for — and the line stood from stage frame 5,091 to 5,477 at sixty against 5,092 to 5,283 at ten:
+/// **386 frames against 191**. The nineteen releases of the second are counted, ten frames apart in the
+/// per-frame `resume:` words; the first's six are 386 frames at one in sixty and not a count, that launch
+/// having been given `--no-resume` and so writing no word a frame. Half and not a sixth, because a line's
+/// own typing is a character a frame up to its length and no cadence shortens that.
+const SHOT_LET_GO_EVERY_IN_A_CONVERSATION: u32 = 10;
+
 /// The frames these rules have been asked for, which is what [`SHOT_LET_GO_EVERY`] is counted in.
 ///
 /// A clock of its own rather than the stage's, because the stage's stops: it does not move under the pause menu
@@ -972,7 +990,12 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // between stage 1's last chapter and stage 2's first. A shot in sixty is what that costs, th07's own shot firing
     // off the player's timer rather than off a press.
     let count = FRAMES.fetch_add(1, Ordering::Relaxed);
-    let mut word = if count.is_multiple_of(SHOT_LET_GO_EVERY) {
+    let let_go_every = if frame.dialogue {
+        SHOT_LET_GO_EVERY_IN_A_CONVERSATION
+    } else {
+        SHOT_LET_GO_EVERY
+    };
+    let mut word = if count.is_multiple_of(let_go_every) {
         0
     } else {
         keys.shot
@@ -989,6 +1012,11 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
         word |= keys.bomb;
     }
     // A dialogue read at the game's own pace is the afternoon this was written to save.
+    //
+    // **And the skip is not every game's to press**, which is why the release above is the other half of
+    // this: [`Keys::skip`] is nought where the game has no `"skip"` among its buttons — th06nc's has
+    // none, its own skip bit being one no key orb presses makes — so what carries such a game's
+    // conversation is the shot going down at [`SHOT_LET_GO_EVERY_IN_A_CONVERSATION`].
     if frame.dialogue {
         word |= keys.skip;
     }

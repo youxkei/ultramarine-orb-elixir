@@ -198,9 +198,13 @@ fn the_chain_passes(head: &str) {
         let mut held = 0;
         let mut parted: Vec<String> = Vec::new();
         let mut left: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        // **Whether the records the next launch starts from hold a clear**, folded over the chain the way
+        // `xtask real` folds it — see `orb_real::Case::leaves_a_clear`.
+        let mut a_clear = false;
         let chain = the_chain_from(head);
         let names: Vec<&str> = chain.iter().map(|case| case.name).collect();
         for case in chain {
+            a_clear = a_clear && case.continues;
             let name = format!("th06c-real-{}", case.name);
             let game = Fake::attach_configured(
                 Display::agreed(120),
@@ -209,7 +213,7 @@ fn the_chain_passes(head: &str) {
                 settings(&case),
             );
             game.stages_last(A_STAGE);
-            if !case.after_a_clear() {
+            if !a_clear {
                 game.its_records_hold_no_clear();
             }
             let dir = game.launch().dir().to_path_buf();
@@ -218,6 +222,7 @@ fn the_chain_passes(head: &str) {
                     game.sim().files().put(dir.join(inside), bytes);
                 }
             }
+            a_clear |= case.leaves_a_clear();
             match played_out(&game, &dir, &case, &against) {
                 Held::NotCompared => {}
                 Held::Same => held += 1,

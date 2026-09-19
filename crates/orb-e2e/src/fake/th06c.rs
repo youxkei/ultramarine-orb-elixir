@@ -1671,7 +1671,12 @@ unsafe extern "system" fn swapchain_release(_object: usize) -> u32 {
 /// and count make 44, and the `HWND` after them is eight-aligned. The rest is left at nought, orb reading
 /// none of it.
 unsafe extern "system" fn swapchain_describes_itself(_swapchain: usize, into: *mut u8) -> i32 {
-    let description = [0u8; 72];
+    // The first two dwords are the buffer's own width and height — see `super::BACK_BUFFER`, which
+    // `orb_core::dxgi::the_size_of` reads and the canvas sets its viewport to — and the window is at 48.
+    let mut description = [0u8; 72];
+    description[..size_of::<u32>()].copy_from_slice(&super::BACK_BUFFER.0.to_le_bytes());
+    description[size_of::<u32>()..2 * size_of::<u32>()]
+        .copy_from_slice(&super::BACK_BUFFER.1.to_le_bytes());
     unsafe { std::ptr::copy_nonoverlapping(description.as_ptr(), into, description.len()) };
     unsafe {
         std::ptr::copy_nonoverlapping(

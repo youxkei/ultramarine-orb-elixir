@@ -60,9 +60,15 @@ fn played_out(game: &Fake) {
 /// `resume: frame N played with` lines a verbose launch writes — `marker` choosing those or the
 /// `played back with` ones a playback writes.
 ///
-/// The count of updates the frame took is cut off the end: a playback runs a stage's frames as fast as the
-/// chain will walk and a run plays one a frame, so that field says how each pass got there and never what
-/// it reached.
+/// **The line is cut at `hooked=`, which takes the last two fields off it**, and both for the same reason:
+/// they say how each pass got to the frame and never what it reached.
+///
+/// `updates=` is the count of updates the frame took, and a playback runs a stage's frames as fast as the
+/// chain will walk where a run plays one a frame. `hooked=` is the generator as the *input hook* saw it,
+/// and this test is what measured that it does not reproduce: with every other field of frame 2 equal —
+/// `rng=0x4f4c` after the update included — the run's hook had `0xef16` and the playback's `0x5873`. Which
+/// is worth knowing beyond this line, because `resume::Record` writes down and compares the generator at
+/// exactly that moment: see this change's description.
 fn the_world_each_frame_was_played_with(lines: &[String], marker: &str) -> Vec<(u32, String)> {
     lines
         .iter()
@@ -72,10 +78,34 @@ fn the_world_each_frame_was_played_with(lines: &[String], marker: &str) -> Vec<(
             let (frame, rest) = rest.split_once(marker)?;
             Some((
                 frame.trim().parse().ok()?,
-                rest.split(" updates=").next()?.to_owned(),
+                rest.split(" hooked=").next()?.to_owned(),
             ))
         })
         .collect()
+}
+
+/// **The stage's own first frame**, which is the frame its build happens in — and the one frame of a run
+/// being picked up that goes through its own path rather than through the playback's feed.
+const THE_STAGES_FIRST_FRAME: u32 = 1;
+
+/// The last world a launch wrote down for `frame`, out of what [`the_world_each_frame_was_played_with`]
+/// collected: the last, a stage retried writing its frames over again and the attempt that reached the
+/// chapter being the one the file holds.
+fn the_world_of(frames: &[(u32, String)], frame: u32) -> Option<&str> {
+    frames
+        .iter()
+        .rev()
+        .find(|(at, _)| *at == frame)
+        .map(|(_, world)| world.as_str())
+}
+
+/// And the word orb chose on that frame, out of the same world — `chose=` as the line spells it.
+fn the_word_of(frames: &[(u32, String)], frame: u32) -> Option<&str> {
+    the_world_of(frames, frame)?
+        .split(" chose=")
+        .nth(1)?
+        .split(' ')
+        .next()
 }
 
 /// What a launch left under orb's directory, re-rooted for the next.
@@ -394,6 +424,27 @@ fn the_run_of_th06c_left_in_a_chapter_is_offered_and_picked_up() {
             parted.is_empty(),
             "the playback parted from the run it was put back from:\n  {}",
             parted.join("\n  ")
+        );
+        // **And the frame the stage is built in is played with nothing over this game**, which is what
+        // the run's own file holds for it: `resume::the_word_the_file_holds_for` is keyed by the stage's
+        // own clock as the *read* sees it, and on this game that read has no clock to be recorded under
+        // yet — so the recording's `chose=0x1000` for that frame reached the log and not the file, and
+        // nought is what a pick-up has to be fed.
+        //
+        // **The reading this used to carry is withdrawn all the same.** It said the run's player was not
+        // built when it played that frame, so no word reproduced it and nought was the only one that moved
+        // nothing. A pair of real launches of th06nc says the player *is* built and steered there, firing
+        // five shots out of that word, and that game's file does hold it —
+        // `a_pointdevice_run_of_th06nc`'s own test holds the pick-up's frame to the recording's. See
+        // `runtime::the_frames_word`, whose comment carries both measurements.
+        let the_pick_ups_own = the_world_each_frame_was_played_with(&log.lines(), " played with ");
+        assert_eq!(
+            the_word_of(&the_pick_ups_own, THE_STAGES_FIRST_FRAME),
+            Some("0x0000"),
+            "the frame the stage was built in was played with a word the file does not hold:\n    \
+             {:?}\n    {:?}",
+            the_world_of(&the_pick_ups_own, THE_STAGES_FIRST_FRAME),
+            the_world_of(&played, THE_STAGES_FIRST_FRAME),
         );
         assert!(
             log.said(

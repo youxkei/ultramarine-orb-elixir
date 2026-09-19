@@ -13,8 +13,17 @@
 //! it is a rule about real pages, a heap region and a reservation being able to name the same ones. A
 //! laid-out game's regions are the objects an e2e test put there, and two of those merged because they
 //! happen to abut is one range that nothing in that space can read.
+//!
+//! **And each region arrives with the source that handed it out**, `orb_api::mem::Source` — the game's
+//! `n`th heap, its `n`th reservation, or `.data` — because a place in this list is not a name: a heap's
+//! committed runs are as many regions as its manager currently holds them in, and one launch of th06nc
+//! listed the game's heap as 8 in one chapter and 9 in another. What that costs where it is missing is a
+//! bisect: `--hold-back-at` can only be pointed at a span of the game's heap by something that means the
+//! same pages twice.
 
 use std::ops::Range;
+
+use orb_api::mem::Source;
 
 use crate::{crash, detail, profile};
 
@@ -30,6 +39,19 @@ impl Region {
     }
 }
 
+/// One region of the set, and which of the things the game took handed it out.
+///
+/// **The source is here and not in [`Region`]**, which is the type every other list of ranges in
+/// `snapshot` is made of — the sound's, the live handles', the holes a restore leaves. Those are spans
+/// orb named itself and have no source to answer with, and a field they would all have to fill with
+/// something is a field that says nothing wherever it is read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Owned {
+    pub region: Region,
+    /// What a launch bisecting a restore names this region by — see [`orb_api::mem::Source`].
+    pub from: Source,
+}
+
 /// Everything worth saving, as committed readable ranges, with the data range first.
 ///
 /// Walking the heaps takes the heap lock, so this must be called before any thread is suspended, and its
@@ -43,24 +65,34 @@ impl Region {
 ///
 /// # Safety
 /// `data` must be the exe's `.data` range.
-pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
+pub unsafe fn regions(data: Range<usize>) -> Vec<Owned> {
     let started = profile::now();
     // The walk takes the heaps' own locks and reads their structures, so a fault inside it is a heap that
     // has been written over rather than anything of orb's — see `crash::Doing`.
     crash::doing(crash::Doing::WalkingTheHeaps, 0, 0);
-    let regions: Vec<Region> = orb_api::mem::game_regions(&data)
+    let regions: Vec<Owned> = orb_api::mem::game_regions(&data)
         .into_iter()
-        .map(|(base, len)| Region { base, len })
+        .map(|(base, len, from)| Owned {
+            region: Region { base, len },
+            from,
+        })
         .collect();
     crash::doing(crash::Doing::Nothing, 0, 0);
     unsafe { profile::record(profile::Phase::Regions, started) };
     // Which pages a chapter is a copy of, said in full: what a restore writes over is exactly this, so a
     // range in it that turns out not to be the game's is read off here and nowhere else.
+    //
+    // **With the source in front of each**, which is what makes the line worth reading twice in one
+    // launch: the same heap walks to a different number of regions as its manager grows and joins them, so
+    // a list of nine bare ranges and a list of eight say nothing about which of them are the same pages.
     detail!(
         "memory: saving {}",
         regions
             .iter()
-            .map(|region| format!("{:#010x}+{:#x}", region.base, region.len))
+            .map(|owned| format!(
+                "{} {:#010x}+{:#x}",
+                owned.from, owned.region.base, owned.region.len
+            ))
             .collect::<Vec<_>>()
             .join(" "),
     );

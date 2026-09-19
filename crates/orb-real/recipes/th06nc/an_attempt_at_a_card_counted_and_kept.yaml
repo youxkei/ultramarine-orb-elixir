@@ -1,0 +1,126 @@
+# Two runs of th06nc in one launch: the first hit inside a spell card, so that the retry counts an attempt
+# at that card, and the second started from the beginning, so that the count is put back over the read its
+# own build makes.
+#
+# **The two runs are what this case is for.** `Th06nc::count_card_attempt` adds one to the record of the
+# card that is up where a chapter is taken again — the game counts an attempt where a card *starts* and a
+# chapter beginning inside one never starts it — and `Th06nc::put_back_the_cards_a_run_left` is what keeps
+# that count: the build of a run's *first* stage reads the score file over all 134 records,
+# `0x14006cc40(the parsed file, manager + 0x968)` at `0x14003ad68`, so a count is lost at the start of the
+# run after the one that made it and nowhere else. A launch that quits at the retry says nothing about that
+# half, which is what the probe beside the copy did.
+#
+# **The card is reached through the fight and not through the midstage table**, `game/th06nc/chapters.rs`
+# holding seven empty rows: a probe read the boss bit at stage frame 1,925 and `State::spellcard` at 6,245,
+# so the wait is on the boss and then on the card.
+#
+# **Nothing is taken at all, the chapter being asked for again rather than lost**: orb counts an attempt
+# for any chapter taken again with a card up, and a hit is drawn for once as a chapter starts — so rules
+# told to take one while the card's own chapter is already running take it in the chapter after, by which
+# time the card is over. Which is what a launch of this recipe's first shape read back: `the death the
+# retry stood over was not inside a card`.
+#
+# The walk to each run is `a_death_answered_by_the_chapter_again`'s, with the selects pressed through in one
+# step: a select of this game goes by on its own, so a step apiece races it.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 3600
+- play_until: { boss: true }
+  give_up_after: 18000
+- play_until: { card: true }
+  give_up_after: 18000
+# **And two seconds of the card played before it is asked about.** The wait above ends on the frame the card
+# starts, which is the frame the chapter begins on — so the ask that follows it lands two frames into a
+# chapter, and a trace of that launch carries the card on no frame the check can read: one launch of it read
+# back `7015 record(s), 6619 of them inside a run, and the cards any record carried at all up to None`,
+# the card having been up for three frames of nearly seven thousand.
+- play_until: { frames: 120 }
+  give_up_after: 1800
+# **The chapter asked for again rather than lost**, which is what puts the retry inside the card: a hit is
+# drawn for once as a chapter starts, so rules told to take one while the card's own chapter is already
+# running take it in the chapter after — and the card is over by then. The ask needs no death, orb counting
+# an attempt for any chapter taken again with a card up.
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 900 }
+  give_up_after: 18000
+# The run left for the title, which is where orb notes what it counted — and where the chapter it was in is
+# written down, so the run after it is asked about.
+- leave: true
+- wait_until: { screen: 2 }
+  give_up_after: 1800
+- wait_until: { frames: 60 }
+# **And the second run from the beginning**, which is the answer that starts a run rather than picking one
+# up: either takes the build's run-start branch and so either reads the file, and a fresh run is the one
+# whose records hold nothing of its own to confuse the count with.
+#
+# **The mode question is answered again before the one about picking a run up**, which is what the first
+# shape of this walk left out: orb's question stands over the menu's own item, and a walk that waits for
+# `question: resume` with the mode question already up presses at a menu whose every press orb is holding
+# back.
+#
+# **And what those presses reached instead was a replay**: the decide tapped at screen 18 — the replay
+# list — started one of the game's own, `front end: screen 20`, then `26`, then the front end out of the
+# chain and a playback of stage 1 and stage 2 for three minutes that orb kept nothing of,
+# `resume: stage N of a run orb is not keeping`. **Not an attract demo**, which the launch that pressed
+# nothing settled: a minute on 18 with no press brought neither. `leave: true` gives that playback up the
+# way it gives a run up, and the cycle starts again at 16.
+# **And the way back to the menu is the cancel and not the decide.** What a run given up leaves is the
+# front end's own attract cycle — `front end: screen 16, 17, 18` — and **18 is the replay list**:
+# `0x140048b45` waits forty frames, moves a cursor on `0x40` and `0x80` through the entries at
+# `+0x34 + n*0x200` that state 16 formats `replay/th6_%.2d.rpy` into, and its decide calls `0x14006af60`
+# and then `0x14004d680`, the replay's own start. A launch that pressed the decide there sat on 18 for its
+# whole bound while the game went on to `screen 20`, `26` and a playback of its own. So this presses the
+# cancel until the main menu is up, and then aims the cursor at item 0 — a cancel at the *menu* puts the
+# cursor on the item that ends the game, which is why the walk below re-aims it rather than pressing on.
+- press: [bomb]
+  frames: 6
+  until: { screen: 3 }
+  give_up_after: 3600
+- wait_until: { frames: 30 }
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- press: [decide]
+  frames: 6
+  until: { question: resume }
+  give_up_after: 3600
+- answer: { question: resume, item: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 3600
+- play_until: { frames: 300 }
+  give_up_after: 1800
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

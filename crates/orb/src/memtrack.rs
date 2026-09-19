@@ -18,19 +18,25 @@
 //! **A game linked against the universal CRT has no heap of its own to notice**, and gets one made for it
 //! instead — see [`install_ucrt`]. Its `malloc` is `ucrtbase.dll`'s, which allocates from the *process*
 //! heap: the one every module in the process shares, so a copy of it is a copy of D3D11's, DXGI's and
-//! Steam's own bookkeeping and a restore of it rewinds theirs along with the game's. The two imports the
-//! exe reaches that allocator through are `malloc` and `free`, and every `new` in the exe goes through
-//! the exe's own `operator new` to `malloc` — so standing in front of those two and answering out of a
-//! heap `HeapCreate` made for the game alone puts the game's memory where th06's own CRT put it: in a
-//! heap nothing else allocates from, whose regions the walk finds and whose bookkeeping a restore puts
-//! back whole. Which of the two a game is, is `Hooks::takes_its_memory`.
+//! Steam's own bookkeeping and a restore of it rewinds theirs along with the game's. The imports the
+//! exe reaches that allocator through are `malloc`, `free` and — where it has one — `realloc`, and every
+//! `new` in the exe goes through the exe's own `operator new` to `malloc` — so standing in front of those
+//! and answering out of a heap `HeapCreate` made for the game alone puts the game's memory where th06's
+//! own CRT put it: in a heap nothing else allocates from, whose regions the walk finds and whose
+//! bookkeeping a restore puts back whole. Which of the two a game is, is `Hooks::takes_its_memory`.
+//!
+//! **And every one of those imports has to be stood in front of**, which is what [`realloc`] is for: a
+//! block `malloc` answered out of the game's own heap and `realloc` then handed to `ucrtbase`'s is a
+//! block reallocated through a heap that never handed it out, and Windows ends the process for it
+//! without the unhandled filter ever running. th06nc imports the three where th06c imports two, and
+//! that third one had nothing in front of it.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::{BOOL, HANDLE};
 use windows_sys::Win32::System::Memory::{
-    HEAP_FLAGS, HeapAlloc, HeapCreate, HeapFree, HeapValidate, MEM_RELEASE,
+    HEAP_FLAGS, HeapAlloc, HeapCreate, HeapFree, HeapReAlloc, HeapValidate, MEM_RELEASE,
     VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE,
 };
 
@@ -43,12 +49,13 @@ static HEAP_FREE: AtomicUsize = AtomicUsize::new(0);
 static VIRTUAL_ALLOC: AtomicUsize = AtomicUsize::new(0);
 static VIRTUAL_FREE: AtomicUsize = AtomicUsize::new(0);
 
-/// The heap made for a game whose own CRT has none — see [`install_ucrt`] — and the CRT's own `free`,
-/// for a block that heap never handed out.
+/// The heap made for a game whose own CRT has none — see [`install_ucrt`] — and the CRT's own `free` and
+/// `realloc`, for a block that heap never handed out.
 static THE_GAMES_HEAP: AtomicUsize = AtomicUsize::new(0);
 static FREE: AtomicUsize = AtomicUsize::new(0);
+static REALLOC: AtomicUsize = AtomicUsize::new(0);
 
-/// The UCRT's DLL the two imports are of. `api-ms-win-crt-heap-l1-1-0.dll` is an API set name and not a
+/// The UCRT's DLL the imports are of. `api-ms-win-crt-heap-l1-1-0.dll` is an API set name and not a
 /// file: the loader resolves it to `ucrtbase.dll`, and the import descriptor in the exe carries this name.
 const UCRT_HEAP: &str = "api-ms-win-crt-heap-l1-1-0.dll";
 
@@ -79,11 +86,20 @@ pub unsafe fn install_ucrt(module: usize) -> Result<(), hook::Error> {
         hook::install_import(module, UCRT_HEAP, "malloc", hook::address(malloc as _))?;
         let previous = hook::install_import(module, UCRT_HEAP, "free", hook::address(free as _))?;
         FREE.store(previous, Ordering::Relaxed);
+        // **And `realloc` where the exe has one** — see [`realloc`], and the three launches that say why.
+        // An exe without one needs nothing standing in front of it, so a missing import is not an error
+        // here: th06nc imports all three and th06c only the two.
+        match hook::install_import(module, UCRT_HEAP, "realloc", hook::address(realloc as _)) {
+            Ok(previous) => REALLOC.store(previous, Ordering::Relaxed),
+            Err(hook::Error::ImportNotFound { .. }) => {}
+            Err(why) => return Err(why),
+        }
     }
     Ok(())
 }
 
 type Free = unsafe extern "C" fn(*mut c_void);
+type Realloc = unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void;
 
 /// The exe's `malloc`, answered out of the game's own heap.
 ///
@@ -120,6 +136,52 @@ unsafe extern "C" fn free(block: *mut c_void) {
     let original: Free = unsafe { std::mem::transmute(FREE.load(Ordering::Relaxed)) };
     unsafe { original(block) };
     orb_core::profile::record_heap(started);
+}
+
+/// And its `realloc`, for the blocks that heap made — and the CRT's own for any other.
+///
+/// **Which is a hook th06nc needs and th06c does not**: `objdump -p` puts `realloc` in th06nc's imports
+/// beside `malloc` and `free` where th06c imports only the two, and both of its call sites are one array
+/// being grown — `0x140056e8b` mallocs the buffer where the object holds none and reallocs it where it
+/// holds one, and `0x1400571b5` does the same over an array of `0x10`-byte items. So the pointer handed
+/// here came out of [`malloc`] above, which is *this* heap and not the process heap `ucrtbase`'s own
+/// `realloc` would look it up in. A block reallocated through a heap that never handed it out is the
+/// corruption Windows ends a process for on the spot, and it ends it without the unhandled filter
+/// [`crate::crash`] installs ever running — which is exactly how this was found and why it took a
+/// comparison of two games to see.
+///
+/// **Read off the exe and not off a launch.** What is measured is the import and the two call sites; no
+/// launch has been seen going through either — a session driven with this hook in wrote
+/// `memory: kept` not once — so what this closes is a hazard the exe carries and not a fault anybody has
+/// watched. **It is not what killed the th06nc launches it was written for**: the same case died the same
+/// way with it in place, which is that change's own TODO.
+///
+/// The block is held against the heap first, for the reason [`free`] gives; `realloc(null, n)` is
+/// `malloc(n)` and `realloc(p, 0)` frees and answers null, which is what the UCRT's own does.
+unsafe extern "C" fn realloc(block: *mut c_void, bytes: usize) -> *mut c_void {
+    if block.is_null() {
+        return unsafe { malloc(bytes) };
+    }
+    if bytes == 0 {
+        unsafe { free(block) };
+        return std::ptr::null_mut();
+    }
+    let started = orb_core::profile::now();
+    let heap = THE_GAMES_HEAP.load(Ordering::Relaxed) as HANDLE;
+    if unsafe { HeapValidate(heap, 0, block) } != 0 {
+        let moved = unsafe { HeapReAlloc(heap, 0, block, bytes) };
+        // **The space the block left, where it moved**, which is the same note [`free`] makes: a
+        // reallocation that moves frees the old one, and a chapter of this stage would put it back.
+        if !moved.is_null() && moved != block {
+            keep_the_space(block as usize);
+        }
+        orb_core::profile::record_heap(started);
+        return moved;
+    }
+    let original: Realloc = unsafe { std::mem::transmute(REALLOC.load(Ordering::Relaxed)) };
+    let answer = unsafe { original(block, bytes) };
+    orb_core::profile::record_heap(started);
+    answer
 }
 
 /// # Safety

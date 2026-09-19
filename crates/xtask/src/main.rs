@@ -177,7 +177,9 @@ fn usage() -> ExitCode {
         "usage: cargo xtask <task> [<args>]\n\
          \n\
          clippy    every target of every package, for {TARGET} and then for\n\
-         \x20         {also}, warnings denied on both\n\
+         \x20         {also}, and each of the two again as it ships — without the\n\
+         \x20         tests, which is the configuration a dead item shows up in;\n\
+         \x20         warnings denied on all four\n\
          test      the suite, {TARGET}, and {also} first, which is where the game\n\
          \x20         built for it has its own tests; one test at a time while Steam\n\
          \x20         is up and half the machine's threads while it is not, which\n\
@@ -236,6 +238,17 @@ fn plain<const B: usize, const A: usize>(
 /// `game::th06` or `game::th07` outright, which a 64-bit build has neither of, so the run did not compile
 /// at all; each is gated to `target_arch = "x86"` with a line pointing here.
 const ALSO: (&str, &[&str]) = ("x86_64-pc-windows-gnu", &["orb-core", "orb-e2e"]);
+
+/// **The DLL itself, linted for [`ALSO`]'s target beside those two** — see [`clippy`], which is the one
+/// thing that adds it.
+///
+/// **Not in [`ALSO`], which is a `cargo test`.** This crate's own tests are over an import table
+/// written out by hand for a 32-bit game, and what its 64-bit build has to answer is that it builds at
+/// all. Nothing asked that until now: `orb/src/lib.rs` imported four `x86`-only entry points
+/// unconditionally, so the crate did not build for `x86_64-pc-windows-gnu` — the DLL th06c and th06nc are
+/// injected as — for as long as those games had been in the tree, and `cargo xtask check` passed
+/// throughout. What found it was an injection that ended at `LoadLibraryW returned NULL`.
+const AND_THE_DLL: &str = "orb";
 
 fn test(args: Vec<String>) -> bool {
     let mut also = cargo_command();
@@ -405,7 +418,16 @@ fn seam(args: Vec<String>) -> bool {
 /// annotations and `manual_bits` in `orb-e2e`'s fake of it, and four more — none of which the 32-bit lint
 /// could see, `game::th06c` being gated away from it.
 ///
-/// The packages for the second run are [`ALSO`]'s, which are the ones that have anything there.
+/// The packages for the second run are [`ALSO`]'s, which are the ones that have anything there, and
+/// [`AND_THE_DLL`] — the crate whose 64-bit build nothing else asks for.
+///
+/// **And each target is linted twice, once with the tests and once as it ships.** `--all-targets`
+/// compiles the test configuration, where every `#[cfg(any(test, feature = "sim"))]` module is in the
+/// crate — so an item only that module reads has a reader and `dead_code` says nothing. The build that
+/// ships has neither, and that is where two constants of `game::th06c` sat warning:
+/// `constant `CONFIG_LIVES` is never used`, in every release build of the tree and in nothing this task
+/// ran. A second invocation without `--all-targets` is the whole of the answer, and it costs one more
+/// compile of the libs rather than the `RUSTFLAGS` that would rebuild the world.
 fn clippy(args: Vec<String>) -> bool {
     if !plain(
         ["clippy", "--all-targets"],
@@ -415,13 +437,25 @@ fn clippy(args: Vec<String>) -> bool {
     ) {
         return false;
     }
-    let mut also = cargo_command();
-    also.args(["clippy", "--all-targets", "--target", ALSO.0]);
-    for package in ALSO.1 {
-        also.args(["-p", package]);
+    if !plain(["clippy"], TARGET, ["-D", "warnings"], args.clone()) {
+        return false;
     }
-    also.args(&args).args(["--", "-D", "warnings"]);
-    status(also, "clippy")
+    for with_tests in [true, false] {
+        let mut also = cargo_command();
+        also.args(["clippy"]);
+        if with_tests {
+            also.arg("--all-targets");
+        }
+        also.args(["--target", ALSO.0]);
+        for package in ALSO.1.iter().chain(std::iter::once(&AND_THE_DLL)) {
+            also.args(["-p", package]);
+        }
+        also.args(&args).args(["--", "-D", "warnings"]);
+        if !status(also, "clippy") {
+            return false;
+        }
+    }
+    true
 }
 
 /// **How many tests the gate runs at once, named here rather than left to [`how_many_at_once`].**

@@ -42,61 +42,125 @@ pub(crate) mod fake;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_table_collected_for_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_table_collected_for_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_clear_on_demand_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_clear_on_demand_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_confirmation_declined_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_confirmation_declined_of_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_conversation_of_th06nc_pressed_past;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_pointdevice_run_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_pointdevice_run_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_region_a_restore_of_th06c_cannot_write;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_region_a_restore_of_th06nc_cannot_write;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_run_of_th06c_played_twice;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_run_of_th06nc_played_twice;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_span_of_th06nc_held_back_by_its_source;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_stage_transition_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_stage_transition_of_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod stepping_inside_a_stage_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod stepping_inside_a_stage_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_cards_a_run_of_th06c_counted;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_cards_a_run_of_th06nc_counted;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_cases_of_th06c_the_real_game_is_tested_with;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_cases_of_th06nc_the_real_game_is_tested_with;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_end_of_a_playback_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_end_of_a_playback_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_frame_a_run_of_th06c_acts_on;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_frame_a_run_of_th06nc_acts_on;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_frame_a_scene_of_th06c_is_built_on;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_frame_a_scene_of_th06nc_is_built_on;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_front_end_of_th06c_walked;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_front_end_of_th06nc_walked;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_main_menu_of_th06nc_walked;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_mode_question_over_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_mode_question_over_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_numbers_a_run_of_th06c_was_made_with;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_numbers_a_run_of_th06nc_was_made_with;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_pacing_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_pacing_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_player_a_stage_of_th06c_starts;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_player_a_stage_of_th06nc_starts;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_replay_a_run_of_th06c_leaves_behind;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_replay_a_run_of_th06nc_leaves_behind;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_replay_offered_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_replay_offered_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_run_of_th06c_left_behind;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_run_of_th06c_written_down_off_the_frame;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_run_of_th06nc_left_behind;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_run_of_th06nc_written_down_off_the_frame;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_screen_a_finished_run_of_th06c_ends_at;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_screen_a_finished_run_of_th06nc_ends_at;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_screens_of_th06c_in_english;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_screens_of_th06nc_in_english;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_title_menu_of_th06c_walked;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_updates_a_resume_of_th06c_takes;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_updates_a_resume_of_th06nc_takes;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_window_a_bot_plays_in_of_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_word_a_run_of_th06c_is_written_down_as;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_word_a_run_of_th06nc_is_written_down_as;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod watching_a_pointdevice_replay_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod watching_a_pointdevice_replay_of_th06nc;
 
 #[cfg(all(test, target_arch = "x86"))]
 mod a_chapter_further_back;

@@ -1,0 +1,115 @@
+# **A Normal run of th06nc in 完全無欠モード, played out by the rules with a chance of dying in each
+# chapter — the mode's whole content over a whole game.**
+#
+# **Why this is its own case beside `a_run_played_to_its_clear_without_a_bomb.yaml`**: that one is the
+# **レガシーモード** clear, answering orb's question with item 1, and it is the clear the Extra is unlocked
+# by — a 完全無欠モード run's records go to the mode's own file, so a clear the *game* writes down has to be
+# a run of the mode the game keeps records for. This one is the other half: the mode orb exists for, played
+# from the first stage to the ending, with the chapter put back every time a death lands.
+#
+# **And the chance is what makes it a test of the mode at all.** `take_hits` is the one thing rules that
+# dodge everything cannot show — see `orb_config::recipe::Step::TakeHits`: Pointdevice mode is what happens
+# *after* a death, and a run never hit reaches none of it. Every other case of this game that retries a
+# chapter does so once, in one chapter, with `chance: 1.0`; this is the whole game at a chance per chapter.
+#
+# **`chance: 0.35` with `times_each_retry: 0.4`**, which is a run that dies a few times a stage and gets
+# past each chapter it dies in rather than spending the afternoon there: at 0.35 the first attempt at a
+# chapter dies about one time in three, the second about one in seven, the third about one in eighteen. And
+# **`gives_up: 0.0`**, because a run given up is a different case — `the_run_given_up_at_the_retry` — and
+# this one is measured by reaching the ending.
+#
+# **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the
+# game manager's state: 1 the logo, 2 the title, 3 the main menu — item 0 starts a run — 8 goes by on its
+# own, 9 the difficulty, 11 the character, 13 the shot, and 14, 24 and 25 each take a press before the
+# stage. `orb-core`'s `game/th06nc/asm.md` has where each was read.
+#
+# **Six frames a press, because these menus repeat a held key** rather than taking one edge from it, the
+# way th06c's do.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+# **And orb's own question over that item, answered with 完全無欠モード** — item 0. Without this step the
+# menu stands frozen behind a question nobody answers and screen 9 never comes.
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# **The difficulty, aimed at Normal — item 1.**
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 9, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# **The first character's first shot**: what it fires follows what it is fired at, so what the rules have
+# to get right is the dodging and not the aim.
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# **And three screens that each take a press of their own**: a launch that pressed nothing at 14 sat on it
+# for 1,800 frames, and one that pressed nothing at 24 the same.
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# **The chance of dying in a chapter, from the run's first onwards.**
+- take_hits: { chance: 0.35, times_each_retry: 0.4, gives_up: 0.0 }
+# **The whole run in one step, ending at the entry the game asks a name into.** The entry comes up after
+# the ending, while the rules are still asked for a word. Sixty minutes of frames is the bound, a Normal
+# run of this game by the rules being twenty-eight minutes of them and the retries this case is for adding
+# to that.
+- play_until: { name: true }
+  give_up_after: 216000
+# **The name written into that entry rather than pressed for**, its cursor walking a grid of 96 characters
+# where a `decide` writes the one it is on.
+- name: ORB
+  give_up_after: 1800
+# **And pressed through the screen a run ends at**, which is where a run that finished comes back to the
+# title from — measured by `the-offer-written-away.yaml`: `result: the screen a run ends at is down` and
+# then `front end: screen 2` a quarter of a second later.
+- press: [decide]
+  frames: 6
+  until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 300 }
+- quit: true

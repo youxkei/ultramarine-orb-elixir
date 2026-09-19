@@ -27,6 +27,53 @@ pub enum Phase {
     Input,
     /// The joystick part of that, which is inside `Input` and not additional to it.
     Joystick,
+    /// **The part of [`Phase::Update`] that falls before the game's update**, which is inside `Update`
+    /// and not additional to it: orb's frame beginning to the moment the game's own update is called.
+    ///
+    /// **Its own phase because `Update` is two spans and the log gave one number for both.** `update`
+    /// reports `calls=1200` over 600 frames — the span before the game's update and the span after it —
+    /// so fifteen milliseconds a frame said nothing about which of the two holds them. This one is the
+    /// first, and `update` minus it is the second.
+    Ahead,
+    /// **What the chaptering does on a frame that reaches no boundary**, which is
+    /// [`Chapters::observe`] and nothing else — the walk that decides whether this frame is a chapter's
+    /// and keeps what a retry would need.
+    ///
+    /// **Its own phase because [`Phase::Update`] hid it.** A run of th06nc in Pointdevice mode plays at
+    /// about half the frame rate a legacy-mode one does — 31.9 against 58.9 frames a second, measured off
+    /// two green launches of the real game — and `update`, which is orb's own per-frame work, is
+    /// 16,231–23,168us of it against 1,800–6,820us for the same case driven `--no-chapters`. Neither
+    /// [`Phase::Snapshot`] nor [`Phase::Regions`] covers any of that: both are recorded at a boundary,
+    /// where the cost is flat across every frame. So the difference is here, and this is what says how
+    /// much of it.
+    Chaptering,
+    /// **Keeping the chapter a frame belongs to** — `tune`, `boundary_reached` and `keep_chapter`
+    /// together, which `runtime` runs on every frame of a run the chaptering is tracking.
+    ///
+    /// **The other half of [`Phase::Chaptering`], and separate because that one came back at 1us a
+    /// frame** while taking the chaptering out entirely took fifteen milliseconds off — so the cost is
+    /// here, in a boundary being looked for and the chapter behind it being held, rather than in the
+    /// walk that decides whether to look.
+    Keeping,
+    /// **The line every frame of a run writes about how it reproduces** — `Game::reproduction`,
+    /// `Game::the_worlds_fingerprint` and the `resume: frame … played with …` the two go into.
+    ///
+    /// **Its own phase because the fingerprint is a read per bullet slot.** `Th06nc`'s walks
+    /// `bullet_manager::SLOTS` of them with `mem::read_committed`, which is one `VirtualQuery` apiece,
+    /// and four more for every slot in use — on a frame of a run that is the largest count of reads orb
+    /// makes anywhere. It is what is left of [`Phase::Update`] once [`Phase::Ahead`] came back at nought
+    /// and [`Phase::State`] at three milliseconds of the twenty-one.
+    Reproduction,
+    /// **Reading the run's own numbers out of the game**, `Game::read_state`, which orb does once for
+    /// every update the game makes and once more for a frame with no frame before it.
+    ///
+    /// **Its own phase because it is the largest unnamed thing inside [`Phase::Update`].** On th06nc in
+    /// Pointdevice mode `update` is fifteen milliseconds a frame where the same case driven
+    /// `--no-chapters` pays 1,800–6,820us, the chaptering's own work is measured and small
+    /// ([`Phase::Chaptering`] and [`Phase::Keeping`], 1–20us), and the bot's steering is ruled out by a
+    /// control that took no hits and paid the same. `Th06nc::read_state` is seven instruments and a walk
+    /// of the fight's own slots, every read of it going through `mem::read_committed`.
+    State,
     /// Taking a chapter snapshot.
     Snapshot,
     /// Finding the regions to save, which walks the game's heaps.
@@ -35,12 +82,17 @@ pub enum Phase {
     Threads,
 }
 
-const PHASES: [(Phase, &str); 8] = [
+const PHASES: [(Phase, &str); 13] = [
     (Phase::Update, "update"),
     (Phase::Draw, "draw"),
     (Phase::Present, "present"),
     (Phase::Input, "input"),
     (Phase::Joystick, "joystick"),
+    (Phase::Ahead, "ahead"),
+    (Phase::Reproduction, "reproduction"),
+    (Phase::Chaptering, "chaptering"),
+    (Phase::Keeping, "keeping"),
+    (Phase::State, "state"),
     (Phase::Snapshot, "snapshot"),
     (Phase::Regions, "regions"),
     (Phase::Threads, "threads"),

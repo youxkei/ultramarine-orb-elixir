@@ -17,6 +17,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use orb_api::Kind;
+use orb_api::mem::Source;
 
 /// How a region answers a read, short of holding bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -203,15 +204,24 @@ impl Space {
     /// every other region the game allocated. A region of the game's code is left out — a chapter
     /// is a copy of its state, not of itself — and so is anything overlapping the data range, which
     /// a snapshot saving the same bytes twice would be.
-    pub fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize)> {
+    /// Each of them named by what handed it out, which for this space is the allocation number it was
+    /// laid out as — [`Source::LaidOut`], and not the heap or the reservation a real host answers with:
+    /// a space holds the objects a test put in it and divides them into neither.
+    pub fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize, Source)> {
         let regions = self.regions.lock().unwrap();
-        std::iter::once((data.start, data.len()))
+        std::iter::once((data.start, data.len(), Source::Data))
             .chain(
                 regions
                     .iter()
                     .filter(|region| region.access == Access::Open && region.kind == Kind::Private)
                     .filter(|region| data.start >= region.end() || region.base >= data.end)
-                    .map(|region| (region.base, region.bytes.len())),
+                    .map(|region| {
+                        (
+                            region.base,
+                            region.bytes.len(),
+                            Source::LaidOut(region.allocation),
+                        )
+                    }),
             )
             .collect()
     }

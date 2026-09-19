@@ -281,9 +281,14 @@ fn the_chain_of_th06_passes(head: &str) {
         let mut held = 0;
         let mut parted: Vec<String> = Vec::new();
         let mut left: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        // **Whether the records the next launch starts from hold a clear**, folded over the chain the way
+        // `xtask real` folds it: cleared before every case that does not continue the one before it, and set
+        // by a case whose own run leaves one — see `orb_real::Case::leaves_a_clear`.
+        let mut a_clear = false;
         let chain = the_chain_from(Game::Th06, head);
         let names: Vec<&str> = chain.iter().map(|case| case.name).collect();
         for case in chain {
+            a_clear = a_clear && case.continues;
             let name = format!("th06-real-{}", case.name);
             let game = Fake::attach(&name, the_run(), settings(&case));
             // A stage that shoots, which the real one does and the laid-out one does only where asked: a
@@ -295,8 +300,8 @@ fn the_chain_of_th06_passes(head: &str) {
             game.walks_the_screens_between_its_title_and_a_run();
             // And the records this launch starts from holding no clear unless the case before it left one,
             // which is what `Records` leaves the real copy with — a title offering an Extra the real one does
-            // not is a title walked somewhere else. See `Case::after_a_clear`.
-            if !case.after_a_clear() {
+            // not is a title walked somewhere else. See `Case::leaves_a_clear`.
+            if !a_clear {
                 game.its_records_hold_no_clear();
             }
             // And a stage that ends, which is what a case playing into the stage after it needs.
@@ -311,6 +316,7 @@ fn the_chain_of_th06_passes(head: &str) {
                     game.sim().files().put(dir.join(inside), bytes);
                 }
             }
+            a_clear |= case.leaves_a_clear();
             match played_out(&*game, &dir, &case, &against) {
                 Held::NotCompared => {}
                 Held::Same => held += 1,
@@ -355,9 +361,12 @@ fn the_chain_of_th07_passes(head: &str) {
         let mut held = 0;
         let mut parted: Vec<String> = Vec::new();
         let mut left: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        // The same fold as th06's above, and for the same reason.
+        let mut a_clear = false;
         let chain = the_chain_from(Game::Th07, head);
         let names: Vec<&str> = chain.iter().map(|case| case.name).collect();
         for case in chain {
+            a_clear = a_clear && case.continues;
             let name = format!("th07-real-{}", case.name);
             let game = Fake::attach_configured(
                 Display::agreed(120),
@@ -374,7 +383,7 @@ fn the_chain_of_th07_passes(head: &str) {
             game.stages_last(A_STAGE);
             // And the records this launch starts from holding no clear unless the case before it left one —
             // the same reading as th06's above, and the same reason.
-            if !case.after_a_clear() {
+            if !a_clear {
                 game.its_records_hold_no_clear();
             }
             let dir = game.launch().dir().to_path_buf();
@@ -383,6 +392,7 @@ fn the_chain_of_th07_passes(head: &str) {
                     game.sim().files().put(dir.join(inside), bytes);
                 }
             }
+            a_clear |= case.leaves_a_clear();
             match played_out(&*game, &dir, &case, &against) {
                 Held::NotCompared => {}
                 Held::Same => held += 1,

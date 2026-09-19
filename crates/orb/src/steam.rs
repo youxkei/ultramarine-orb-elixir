@@ -22,14 +22,15 @@
 //! `0x1400487f0` and `SteamInput006` at `0x140048820`. There is no `ISteamRemoteStorage` among them, so
 //! the save file is not this API's business either way.
 //!
-//! **And seven slots of those four are called**, which is what says a vtable of noughts is an answer and
-//! not a hope. Each name was read off the DLL that ships beside the exe — see `th06c/asm.md`, which has
-//! the two commands it takes:
+//! **And eight methods over seven slots of those four are called**, which is what says a vtable of
+//! noughts is an answer and not a hope. Each name was read off the DLL that ships beside the exe — see
+//! `th06c/asm.md`, which has the two commands it takes:
 //!
 //! | interface | slot | method | what the game does with the answer |
 //! | --- | --- | --- | --- |
 //! | Utils | `+0x110` | `IsSteamRunningOnSteamDeck` | nought is a desktop, which is what this is |
-//! | UserStats | `+0x48` | `StoreStats` | nought is "not stored", and there is nothing to store to; the site is in the frame loop behind a flag the answer would clear, so it is asked again every frame and costs a call into this module |
+//! | UserStats | `+0x30` | `SetAchievement` | nought is "not set", and there is no account to set it on. Read off th06nc, whose `0x140067cb0` is the one function both of its achievements go through — `Achievement01` as a run starts and `Achievement21` as the name entry ends, see `th06nc/asm.md`'s *Steam* — and it is the reason a driven run wants this module and not only a client that is closed |
+//! | UserStats | `+0x48` | `StoreStats` | nought is "not stored", and there is nothing to store to; the site is in the frame loop behind a flag the answer would clear, so it is asked again every frame and costs a call into this module. `0x140067cb0` tail-calls it after the set above |
 //! | Apps | `+0x20` | `GetCurrentGameLanguage` | a string the game compares, which is why [`LANGUAGE`] is the one slot that answers something |
 //! | Input | `+0x00` | `Init` | nought, and the game ignores it |
 //! | Input | `+0x08` | `Shutdown` | the same |
@@ -37,6 +38,23 @@
 //! | Input | `+0x128` | `GetInputTypeForHandle` | out of reach behind the line above, no handle having been answered |
 //!
 //! Everything these decide is a constant, so there is nothing above the seam for them to decide with.
+//!
+//! **And th06nc is the same DLL asked the same four questions**, which is why this module names no game:
+//! every write here is over an *import by name* and not over an address, so what makes it a game's is
+//! only that the game imports `steam_api64.dll`. The interface versions are the reading that would have
+//! moved a slot, and they do not —
+//!
+//! ```sh
+//! strings -a th06nc.exe | grep -E 'SteamUtils[0-9]+|STEAMUSERSTATS_INTERFACE_VERSION[0-9]+|STEAMAPPS_INTERFACE_VERSION[0-9]+|SteamInput[0-9]+' | sort -u
+//! ```
+//!
+//! — answers `SteamUtils010`, `STEAMUSERSTATS_INTERFACE_VERSION013`, `STEAMAPPS_INTERFACE_VERSION009`
+//! and `SteamInput006`, the four th06c asks for, so the seven slots above are that build's too.
+//!
+//! **Driven on it, with no client running at all**: five launches of `cargo xtask real` over th06nc each
+//! said `steam: this launch reaches Steam not at all` and played their case out — the game's own startup
+//! dialog and then a run — where the same exe with Steam closed and this not installed exits at
+//! `SteamAPI_Init() failed.`
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -236,7 +254,8 @@ mod tests {
     use super::{LANGUAGE, SLOTS, context_init};
 
     /// **The slots this game is measured to call, as indices** — the table in this module's own doc, by
-    /// the offsets it names: `0x110`, `0x48`, `0x20`, `0x00`, `0x08`, `0x30` and `0x128`.
+    /// the offsets it names: `0x110`, `0x48`, `0x20`, `0x00`, `0x08`, `0x30` and `0x128`. Seven rather
+    /// than the table's eight rows, `0x30` being two methods of two interfaces at the one slot.
     ///
     /// Here rather than beside [`SLOTS`] because nothing but a test reads it: what the interface answers
     /// a slot with does not depend on which slot it is — every one but the language's is nought — so the

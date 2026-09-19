@@ -150,6 +150,9 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
             // `Game::run_slot` — so every file is a full run's.
             practice: false,
             stage: written.run.stage,
+            // Not in the file either, and for a plainer reason: this build has one mode — see
+            // `RunStart::mode`.
+            mode: 0,
         },
         state: encode_state(&Numbers {
             score: written.start.score,
@@ -308,6 +311,7 @@ mod tests {
                 shot_type: 0,
                 practice: false,
                 stage: 3,
+                mode: 0,
             },
             state: encode_state(&Numbers {
                 score: 12_345_670,

@@ -16,10 +16,12 @@
 //!   and all, and what comes back to the game is the client inside it. So the frame is subtracted on
 //!   the way in and added on the way out, which is what makes "the size in `orb.yaml` is the size of
 //!   the game" a claim with something to fail.
-//! - **Nothing moves a window after it is made.** What the real host does to one afterwards — a
-//!   borderless or aspect-ratio tool resizing a client seconds later, which is a thing that happens —
-//!   is not here. orb cannot stop it either, such a tool acting on the window after every moment orb
-//!   has, so what it gets is the client logged next to the size asked for and a run that says so.
+//! - **A window is where it was last put, and a test is what puts it anywhere but where it was made.**
+//!   What the real host does to one afterwards — the swapchain a game builds for the window it has just
+//!   made, which moves that window to the middle of the primary monitor — is nothing this can predict,
+//!   so [`Windows::move_window`] is how an e2e test says it happened and orb's answer to it is what such
+//!   a test asks about: `orb_core::window::keeps_its_corner` puts the window back once a frame, and the
+//!   window is made hidden until that corner has held.
 
 use std::sync::Mutex;
 
@@ -108,8 +110,15 @@ pub struct Made {
     pub client: Rect,
     /// Whether the style it was made with is one that has a frame.
     pub framed: bool,
-    /// And the extended style it was made with, whole and unread: what a window is *asked* for is the
-    /// question an e2e test has, and which bits of it mean what is Windows' business and the test's.
+    /// And that style whole and unread, the same as [`ex_style`](Self::ex_style) and for its reason: what
+    /// a window is asked for is the question, and `WS_VISIBLE` is a bit of it a test asks about.
+    pub style: u32,
+    /// And the extended style it has, whole and unread: what a window is *asked* for is the question an
+    /// e2e test has, and which bits of it mean what is Windows' business and the test's.
+    ///
+    /// The style it was made with, plus what [`Windows::add_ex_style`] has added to it and instead of it
+    /// whatever [`Windows::set_ex_style`] has written over it — which is how a game that makes its own
+    /// window over is said, that being a call orb does not stand in front of.
     pub ex_style: u32,
 }
 
@@ -135,6 +144,9 @@ pub struct Windows {
     /// scales it to and orb says so in the log.
     refuse_dpi: Mutex<bool>,
     made: Mutex<Vec<Made>>,
+    /// Every window this host has been asked to show, in the order it was asked — see
+    /// [`show`](Windows::show).
+    shown: Mutex<Vec<Hwnd>>,
     /// The handle the next window gets. Any number that is not zero; what it is for is that orb hands
     /// back what it was given.
     next: Mutex<usize>,
@@ -169,6 +181,7 @@ impl Windows {
             dpi_aware: Mutex::new(false),
             refuse_dpi: Mutex::new(false),
             made: Mutex::new(Vec::new()),
+            shown: Mutex::new(Vec::new()),
             next: Mutex::new(0x1_0000),
             reads: Mutex::new(Vec::new()),
             written: Mutex::new(Vec::new()),
@@ -273,9 +286,98 @@ impl Windows {
             asked,
             client: Rect::sized(asked.width() - frame.width, asked.height() - frame.height),
             framed,
+            style,
             ex_style,
         });
         handle
+    }
+
+    /// **Moves a window that was made, whole frame and all**, and whether there was one to move.
+    ///
+    /// The client goes with it, a frame's worth smaller as it was when the window was made: what a real
+    /// `MoveWindow` is given is the whole window, the same as `CreateWindowExA`, so a mover that asked
+    /// for a client's size moves a client a frame too small — which is the defect this can catch on this
+    /// side of the seam as well as at the creation.
+    pub fn move_window(&self, window: Hwnd, to: Rect) -> bool {
+        // The frame first and the window after it, which is the order [`create_window`](Self::create_window)
+        // takes the two locks in: the other order is a second order, and two of them is what a deadlock is
+        // made of.
+        let charged = *self.frame.lock().unwrap();
+        let mut made = self.made.lock().unwrap();
+        let Some(made) = made.iter_mut().find(|made| made.handle == window) else {
+            return false;
+        };
+        let frame = if made.framed { charged } else { Frame::NONE };
+        made.asked = to;
+        made.client = Rect::sized(to.width() - frame.width, to.height() - frame.height);
+        true
+    }
+
+    /// A window shown, written down as asked and always taken.
+    ///
+    /// Nothing here draws, so showing a window is the record of it and no more — which is the whole of
+    /// what an e2e test asks: that the window orb made hidden was shown, once, and not before its corner
+    /// held.
+    ///
+    /// `pub` rather than this crate's own, because the laid-out game's host calls it too: a game that
+    /// shows its own window reaches `ShowWindow` through orb, whose answer calls the host's — see
+    /// `orb-e2e`'s `fake::th06nc`.
+    pub fn show(&self, window: Hwnd) -> bool {
+        self.shown.lock().unwrap().push(window);
+        true
+    }
+
+    /// Every window this host was asked to show, in the order it was asked.
+    pub fn shown(&self) -> Vec<Hwnd> {
+        self.shown.lock().unwrap().clone()
+    }
+
+    /// **Bits added to a window's extended style**, and whether there was a window to add them to —
+    /// `SetWindowLongPtrW` with what was there, which is what orb's own facade does.
+    pub fn add_ex_style(&self, window: Hwnd, ex_style: u32) -> bool {
+        let mut made = self.made.lock().unwrap();
+        let Some(made) = made.iter_mut().find(|made| made.handle == window) else {
+            return false;
+        };
+        made.ex_style |= ex_style;
+        true
+    }
+
+    /// **And a whole extended style written over whatever was there**, which is the game doing to its own
+    /// window what orb cannot answer: th06c's window was measured with `0x100` where orb had made it with
+    /// `WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW`, so the game had written its own over orb's. An e2e test
+    /// says that happened with this.
+    pub fn set_ex_style(&self, window: Hwnd, ex_style: u32) -> bool {
+        let mut made = self.made.lock().unwrap();
+        let Some(made) = made.iter_mut().find(|made| made.handle == window) else {
+            return false;
+        };
+        made.ex_style = ex_style;
+        true
+    }
+
+    /// The extended style a window has now, and nought for a window this host never made.
+    pub fn ex_style(&self, window: Hwnd) -> u32 {
+        self.made
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|made| made.handle == window)
+            .map_or(0, |made| made.ex_style)
+    }
+
+    /// **Whether a window is on the screen**: made with `WS_VISIBLE`, or shown since — and false for a
+    /// window this host never made.
+    ///
+    /// `WS_VISIBLE` written out here as [`WS_POPUP`] is, and for its reason: what crosses the seam is the
+    /// style the game's own call was given, and this side reads the same bit out of it that Windows does.
+    pub fn is_visible(&self, window: Hwnd) -> bool {
+        const WS_VISIBLE: u32 = 0x1000_0000;
+        let made = self.made.lock().unwrap();
+        let Some(made) = made.iter().find(|made| made.handle == window) else {
+            return false;
+        };
+        made.style & WS_VISIBLE != 0 || self.shown.lock().unwrap().contains(&window)
     }
 
     pub fn client(&self, window: Hwnd) -> Option<Rect> {

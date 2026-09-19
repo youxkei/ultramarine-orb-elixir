@@ -849,6 +849,14 @@ pub static DECIDE_PRESSED: AtomicBool = AtomicBool::new(false);
 /// Whether the screen under a question orb has to ask was taking a press on the frame before, so that the
 /// line saying it is not is written as that turns rather than once a frame — see where it is written.
 static THE_SCREEN_TOOK_A_PRESS: AtomicBool = AtomicBool::new(true);
+/// **The three [`HOLD_DECIDE`] is decided from, as they stood on the frame before** — whether there is
+/// something to ask, whether the screen takes a press, and what the two of them and the overlay came to
+/// — so that the line saying all three is written as any of them turns rather than once a frame. Its
+/// three bits are in that order, and `0xff` is no frame yet, which no triple of booleans is.
+static HELD_FROM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0xff);
+/// Whether the decide was down on the read before, of the reads the hold was on for — see where it is
+/// written, which is the one branch of [`held_back`] that records a press.
+static THE_DECIDE_WAS_DOWN_UNDER_THE_HOLD: AtomicBool = AtomicBool::new(false);
 /// Whether it was down on the read before. What is held back is the press and not the holding, and
 /// the game's own `g_LastFrameInput` cannot tell orb which this is: the bits were taken out of the
 /// word it is assigned from.
@@ -1305,6 +1313,39 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     // And the replay of the whole run beside it, which is the same answer and one thing more: a launch that
     // refuses to write a replay refuses this one — see [`Runtime::keeping_the_replay`], where the reason is.
     replay::keep(keeping && !config.block_replay_save);
+    // **And how many of a snapshot's regions a restore of this launch writes back**, which is all of them
+    // for every launch but one bisecting a fault — see `snapshot::put_back_only`.
+    if config.put_back_only > 0 {
+        log!(
+            "snapshot: a restore of this launch puts back only the first {} region(s) it saved",
+            config.put_back_only,
+        );
+    }
+    if config.put_back_skipping > 0 {
+        log!(
+            "snapshot: a restore of this launch leaves the first {} region(s) it saved alone",
+            config.put_back_skipping,
+        );
+    }
+    if config.hold_back_nothing {
+        log!("snapshot: a restore of this launch holds back none of the ranges it would");
+    }
+    crate::snapshot::put_back_only(config.put_back_only as usize);
+    crate::snapshot::put_back_skipping(config.put_back_skipping as usize);
+    crate::snapshot::hold_back_nothing(config.hold_back_nothing);
+    if !config.hold_back_at.is_empty() {
+        log!(
+            "snapshot: a restore of this launch holds back {} span(s) of the game's memory as well: {}",
+            config.hold_back_at.len(),
+            config
+                .hold_back_at
+                .iter()
+                .map(|(source, offset, len)| format!("{source}:{offset:#x}+{len:#x}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+    }
+    crate::snapshot::hold_back_in_a_source(&config.hold_back_at);
     if config.resume {
         let left = resume::left(&config.base_dir);
         log!(
@@ -1606,6 +1647,12 @@ pub(crate) fn pressing() -> Option<u16> {
 pub(crate) unsafe fn the_frames_word(game: &dyn Game) -> Option<u16> {
     let frame = unsafe { game.stage_frame() };
     updates_of(frame);
+    the_generator_is(unsafe { game.generator() });
+    // **And the game made to forget when it last read**, so that the word this update composes is the word
+    // this update was given: a game that reads at most once a millisecond composes a burst of updates out
+    // of one snapshot, and a playback is exactly such a burst — see `Game::forgets_when_it_read`, whose doc
+    // carries the pair of launches that measured it.
+    unsafe { game.forgets_when_it_read() };
     if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame, game.generator()) }) {
         WORD_THIS_FRAME.store(i32::from(buttons), Ordering::Relaxed);
         return Some(buttons);
@@ -1617,9 +1664,8 @@ pub(crate) unsafe fn the_frames_word(game: &dyn Game) -> Option<u16> {
     // stage — see `resume`'s own *Picking a run up again*. This function is asked before that frame's walk,
     // so `resume::fed` answers `None` for it and the rules would choose its word; the walk then builds the
     // stage, lands, and runs the stage's own job, which moves the player with whatever they chose. The run
-    // that wrote the file had nothing to move on that frame — its player is not built yet, and
-    // `Game::stage_frame` answers `None` there, so the frame is not written down either — where a run being
-    // picked up has the landing's own player standing by the time that job runs.
+    // that wrote the file had nothing to move on that frame — its player is not built yet — where a run
+    // being picked up has the landing's own player standing by the time that job runs.
     //
     // Measured on th06c before this: a chapter of four hundred frames came back with the played-back player
     // `2.83` off on both axes from the frame after the landing and every frame after it — `4/√2`, one
@@ -1633,8 +1679,30 @@ pub(crate) unsafe fn the_frames_word(game: &dyn Game) -> Option<u16> {
     // saved run waiting for its stage, and the press that reaches *its* stage is on this very frame — held,
     // `an_attempt_of_the_kept_replay_watched` never plays back into a stage at all.
     //
-    // **Not noted**, because it is not a frame of the run: the run's own launch writes nothing for it, and a
-    // word written here would be one the next playback is held to that the run never acted on.
+    // **Not noted**, because it is not a frame of the run: a word written here would be one the next playback
+    // is held to that the run never acted on.
+    //
+    // **And the word the run's own file holds for that frame is not the answer either, but not for the
+    // reason that stood here.** What stood here said the run's player was not built when it played that
+    // frame, so no word reproduced it and nought was the only one that moved nothing. **A pair of real
+    // launches of a th06nc chapter refutes that**: the recording's line for the stage's first frame reads
+    // `input=0x8101 player=192.00,384.00 shot=1,0 shots=5 chose=0x0001`, so the player is live there, is
+    // steered by that word, has begun a firing cycle out of it and has five shots in the air by the end of
+    // it.
+    //
+    // **What is true is that the file does not hold that word at all.** [`Record::note`] is keyed by
+    // `Game::stage_frame`, which answers `None` on this read — the player's job is not in the chain until
+    // the build registers it, and this read is before the build, the supervisor's job being the chain's
+    // first and the stage's own its fourth — so nothing is written down for it. Driven with the file asked
+    // for that frame's word, keyed by the read's own frame: the pick-up's build frame was played with
+    // `chose=0x0000` on the real game and on both laid-out games, the entry simply not being there. Keyed
+    // at 1 instead it was played with `chose=0x0011`, which is the **next** frame's word, and its up bit
+    // put the playback's player four pixels past the run's for 2,498 frames — the measurement the old
+    // reading was written from, a frame late.
+    //
+    // So nought stays, and what the run's build frame *started* is put back instead of what it pressed —
+    // see [`Game::starts_the_shot_a_stage_began_with`]. What that does not put back is the five shots the
+    // frame emitted, which is this change's own `TODO` about a resumed stage's shots.
     if unsafe { resume::picking_up() } {
         WORD_THIS_FRAME.store(0, Ordering::Relaxed);
         return Some(0);
@@ -1995,6 +2063,18 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
     let update: OnItsThis = unsafe { std::mem::transmute(update) };
     let draw: OnItsThis = unsafe { std::mem::transmute(draw) };
 
+    // **What moved the generator between two of orb's frames**, which is whatever the game's own loop does
+    // around the jump orb's frame is entered by — see [`THE_GENERATOR_AS_THE_FRAME_ENDED`], and the line
+    // beside the drawing below, which asks the same of the other half.
+    let began_at = unsafe { game.generator() };
+    let ended_at = THE_GENERATOR_AS_THE_FRAME_ENDED.load(Ordering::Relaxed);
+    if ended_at >= 0 && ended_at != i32::from(began_at) {
+        detail!(
+            "resume: something outside this frame drew: {ended_at:#06x} as the frame before ended, \
+             {began_at:#06x} as this one began"
+        );
+    }
+
     // Before the update as the game does it: it leaves the viewport covering the whole
     // output, and the update is what narrows it to the playfield for the drawing that
     // follows. Doing it after the update overwrites that and the bullets end up outside
@@ -2059,7 +2139,24 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
         // drawn by the second, and a frame missing either is a frame that writes a quad through a null
         // pointer or draws one outside the scene it was queued in. See `Game::begin_drawing`.
         game.begin_drawing(device);
+        // **The generator either side of the game's own drawing, said where the two differ**, which is a
+        // question a playback raises: `resume::play_in` runs the update and nothing else, so a number the
+        // drawing half of a frame takes out of the generator is one the run drew and a playback of it
+        // never will. A pair of real launches of one chapter part in the generator with the same word on
+        // every frame and the run five draws ahead where they first differ, and this is what says whether
+        // the drawing is where those five come from — see this change's description, whose `TODO` about a
+        // playback that does not reproduce the run carries the rest of that hunt.
+        let before = game.generator();
         draw(chain);
+        let after = game.generator();
+        if after != before {
+            detail!("resume: the drawing of this frame drew: {before:#06x} to {after:#06x}");
+        }
+        // **And the same question of what a frame does outside orb's own**, which is the other half of it:
+        // the game's loop reads its window and walks its own object before the jump orb's frame is entered
+        // by — `0x140045cf5` onwards for th06nc — and a playback gets none of that either. Kept here, where
+        // the frame's own work is over, and held against the next frame's start.
+        THE_GENERATOR_AS_THE_FRAME_ENDED.store(i32::from(after), Ordering::Relaxed);
         // On the far side of `draw`, which is the hook: orb's own overlay is drawn inside that call, so
         // what a game queues and has drawn here is drawn *over* the overlay. Nothing today — th07 is
         // the game with a queue and it has no font beside its exe to build an overlay from — and the
@@ -2155,6 +2252,7 @@ pub extern "system" fn get_input() -> u16 {
     // Counted here because this is the one place every update of a run passes through, fed or played or typed:
     // what it is for is the frames a stage spends more than one update on — see [`UPDATES_THIS_FRAME`].
     updates_of(frame);
+    the_generator_is(unsafe { game.generator() });
     if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame, game.generator()) }) {
         // **The music held quiet on every frame that is fed**, wherever those frames come from: `play_in` runs
         // its whole loop inside one of the game's frames and every update in it comes through this read, and a
@@ -2335,9 +2433,12 @@ pub unsafe extern "system" fn keyboard_state(state: *mut u8) -> i32 {
     if runtime.config.find {
         unsafe { find::a_frame(&runtime.data, the_way(runtime.game, word)) };
     }
-    // And the corner the window orb plays in is held in, for a game whose own window something else
-    // moves — see [`crate::window::keeps_its_corner`], which does nothing in every other launch.
+    // And the corner the window orb plays in is held in, and the dialog frame round it, for a game whose
+    // own window something else moves and whose own style is written over orb's — see
+    // [`crate::window::keeps_its_corner`] and [`crate::window::keeps_its_frame`], which do nothing in
+    // every other launch.
     unsafe { crate::window::keeps_its_corner() };
+    unsafe { crate::window::keeps_its_frame() };
     answer
 }
 
@@ -2396,6 +2497,70 @@ pub unsafe extern "system" fn xinput_get_state(user: u32, state: *mut u8) -> u32
 /// **The word a read of the game's own — its keyboard, its pad — is filled from**: what [`the_frames_word`]
 /// decided where orb runs the frame, and the bot's own where it does not. `None` for a launch nobody is
 /// playing.
+/// **What the generator read as where a frame's word is decided**, for the `resume:` lines to carry beside
+/// the one they read after the update — [`NO_WORD`] before a frame of a run has been through there.
+///
+/// **What it is for is one discrepancy.** `resume::Record` writes a frame's generator down and compares it
+/// at this moment, and a stage-3 pair had the record holding the run's *post*-update value for the frame
+/// it called a parting on, against a playback holding what the moment below sees. Either the samplings are
+/// not the points their docs name or something between a frame's update and the next frame's word moves the
+/// generator, and `RNG_SEED`'s own doc says every draw in the exe reads and writes it back. A stage-1
+/// recording had the two apart on **106 of 7,577 frames**, so there is something there to tell apart.
+///
+/// **Stored where the word is decided and not where a frame is noted**, which is the correction a pair of
+/// launches made: `runtime::noted` is the run's own path and a playback goes nowhere near it — the record
+/// must not be written with a playback's words — so a field filled there read `hooked=none` on all 1,883
+/// frames of a playback and said nothing about the side it was added for. Both `the_frames_word` and
+/// [`get_input`] fill it, which is where `resume::fed` is handed the generator it judges.
+static THE_GENERATOR_AT_THE_HOOK: AtomicI32 = AtomicI32::new(NO_WORD);
+
+/// **The generator as orb's own frame ended**, held against what it reads as the next one begins so that
+/// a draw made by the game's loop *outside* orb's frame is seen — see `render`, which reads both ends.
+/// [`NO_WORD`] until a frame has ended, there being nothing to hold the first one against.
+///
+/// **What it is for is a playback**, whose updates are a burst inside one frame of the host and so get
+/// none of what a frame does around the update: a number drawn out there is one the run drew and a
+/// playback of it cannot. The drawing is the other half of the same question and it draws nothing —
+/// measured, `0` frames of a 752-frame stage.
+static THE_GENERATOR_AS_THE_FRAME_ENDED: AtomicI32 = AtomicI32::new(NO_WORD);
+
+/// Keeps that generator for the frame's own `resume:` line.
+fn the_generator_is(generator: u16) {
+    THE_GENERATOR_AT_THE_HOOK.store(i32::from(generator), Ordering::Relaxed);
+}
+
+/// That generator as a line carries it, `none` before a frame of a run has reached the word.
+fn the_generator_at_the_hook() -> String {
+    match u16::try_from(THE_GENERATOR_AT_THE_HOOK.load(Ordering::Relaxed)) {
+        Ok(generator) => format!("{generator:#06x}"),
+        Err(_) => "none".to_owned(),
+    }
+}
+
+/// **And `script=` beside it, the stage's own script clock**, which is the field a pair of launches asks
+/// about next: with the game's `input=` set aside — a playback samples that field at another point of the
+/// frame and it reads stale there — every field of a stage-3 pair agreed to frame 217 and parted at 218
+/// with `randoms=10 rng=0x0029` against `randoms=5 rng=0x5c9a`, one group of five draws out of step.
+/// What draws five is the stage's own script, so whether *its* clock is a frame apart there is the
+/// question, and `State::script_frames` is already in hand where both lines are written. See this
+/// change's description.
+///
+/// **The word orb chose for this frame, as the `resume:` lines carry it** — `none` where orb chose none
+/// and the frame is somebody's own.
+///
+/// **Beside the game's own `input=` and not instead of it**, which is the whole point of having both: the
+/// reproduction's field is what the *game* composed out of its keyboard and pad, and this is what orb
+/// *decided* before that read. A pair of launches of th06nc had them disagree — a playback whose first
+/// five frames showed `input=0x8111` where the run they put back showed `0x0000`, the player 4 pixels a
+/// frame further up each time — and which of the two moved is what says whether a record holds a word the
+/// game never acted on or a press reached the field behind the playback. See this change's description.
+fn the_word_orb_chose() -> String {
+    match the_word_the_game_reads() {
+        Some(word) => format!("{word:#06x}"),
+        None => "none".to_owned(),
+    }
+}
+
 fn the_word_the_game_reads() -> Option<u16> {
     if THE_FRAME_IS_THE_SEAM.load(Ordering::Relaxed) {
         u16::try_from(WORD_THIS_FRAME.load(Ordering::Relaxed)).ok()
@@ -2413,6 +2578,8 @@ static LOOKED_UP: Mutex<Lookups> = Mutex::new(Lookups {
     pad: None,
     window_made: None,
     window_moved: None,
+    window_shown: None,
+    window_placed: None,
     millis: None,
     ticks: None,
     counter: None,
@@ -2430,6 +2597,11 @@ pub struct Lookups {
     pub pad: Option<&'static str>,
     pub window_made: Option<&'static str>,
     pub window_moved: Option<&'static str>,
+    /// **The two the window is put on the screen with** — `Hooks::shows_its_window` and
+    /// `Hooks::places_its_window`, answered so that a window orb made hidden stays hidden until its
+    /// corner has held. See [`crate::window::show_window`].
+    pub window_shown: Option<&'static str>,
+    pub window_placed: Option<&'static str>,
     /// **The three clocks a game paces itself by**, answered running faster than the host's where the
     /// launch asked for the game to — see [`crate::faster`], which has why all three go together and
     /// why the frequency beside them does not. Nothing in an ordinary launch: a clock that answers what
@@ -2516,6 +2688,20 @@ pub unsafe extern "system" fn get_proc_address(module: usize, name: *const u8) -
         log!("hook: the game asked for {moved} and got orb's, the host's being at {answer:#x}");
         return crate::window::move_window as *const () as usize;
     }
+    if let Some(shown) = wanted.window_shown
+        && unsafe { asked_for(name, shown) }
+    {
+        unsafe { crate::window::answers_the_window_shown(answer) };
+        log!("hook: the game asked for {shown} and got orb's, the host's being at {answer:#x}");
+        return crate::window::show_window as *const () as usize;
+    }
+    if let Some(placed) = wanted.window_placed
+        && unsafe { asked_for(name, placed) }
+    {
+        unsafe { crate::window::answers_the_window_placed(answer) };
+        log!("hook: the game asked for {placed} and got orb's, the host's being at {answer:#x}");
+        return crate::window::set_window_pos as *const () as usize;
+    }
     // **And the clocks, for a launch asked to run the game faster than it runs itself** — see
     // [`crate::faster`]. Which of the three a game paces by is the game's own business and this says
     // which ones it asked for: th06c holds the strings of all four and orb answers whichever it is asked
@@ -2557,7 +2743,38 @@ pub unsafe extern "system" fn get_proc_address(module: usize, name: *const u8) -
         log!("hook: the game asked for {renderer} and got orb's, the host's being at {answer:#x}");
         return crate::dxgi::creates_a_factory as *const () as usize;
     }
+    // **And every other name, said and left alone**, which is what says what a game reaches the host for
+    // that orb does not stand in front of. A launch of th06nc asked for 344 names and its window turned
+    // up on the screen in the middle of the monitor anyway: what shows or moves a window is one of these
+    // or one of the eleven in its import table, and a log that named neither left nothing to read.
+    //
+    // At the detail level for that count: three hundred lines of a startup is a verbose launch's to
+    // carry and not an ordinary one's.
+    detail!(
+        "hook: the game looked {} up, and got the host's at {answer:#x}",
+        unsafe { readable(name) }
+    );
     answer
+}
+
+/// A name a lookup was given, as much of it as is worth reading: for the log, and for nothing a decision
+/// rests on — [`asked_for`] is what compares one.
+///
+/// # Safety
+/// `name` must be a null-terminated string.
+unsafe fn readable(name: *const u8) -> String {
+    /// What a name is read up to. Longer than any Win32 export and short enough that a pointer which is
+    /// not a string at all costs a line of nonsense rather than a walk of the address space.
+    const AT_MOST: usize = 128;
+    let mut read = String::new();
+    for at in 0..AT_MOST {
+        let byte = unsafe { name.add(at).read() };
+        if byte == 0 {
+            break;
+        }
+        read.push(byte as char);
+    }
+    read
 }
 
 /// Whether a launch is one orb plays the game in, which is what decides whether the window it is about
@@ -2654,6 +2871,20 @@ fn held_back(game: &dyn Game, buttons: u16) -> u16 {
         let was = DECIDE_WAS_DOWN.swap(down, Ordering::Relaxed);
         if down && !was {
             DECIDE_PRESSED.store(true, Ordering::Relaxed);
+        }
+        // **Whether the decide was down on a read the hold was on for, said as that turns.** A question
+        // that never stands over a screen whose hold the log says was on is either a press with no
+        // down-edge under it — a key that was already down when the holding started, which is what this
+        // says — or an input path orb is not standing in front of, which is what its silence says. See
+        // `game::th06nc`'s `Game::menu_takes_a_press`, whose six launches this came out of.
+        if THE_DECIDE_WAS_DOWN_UNDER_THE_HOLD.swap(down, Ordering::Relaxed) != down {
+            detail!(
+                "menu: under the hold the decide is {}",
+                match down {
+                    true => "down",
+                    false => "up",
+                }
+            );
         }
         buttons & !decide
     };
@@ -3063,6 +3294,26 @@ the_games_own_convention! {
 fn the_stage_begun(manager: *mut c_void) -> i32 {
     let original: OnItsThis = unsafe { std::mem::transmute(STAGE_BEGUN.load(Ordering::Relaxed)) };
     let result = original(manager);
+    // **What the run before this one counted, put back over the records the build has just read the file
+    // into** — for a game whose run build is where that read is, which is
+    // `Game::its_run_build_lays_its_file_over_the_cards`. The same put-back
+    // [`card_records_read`] makes inside a save, at the seam such a game leaves for it instead:
+    // th06nc's read is `0x14003ad68`, on the run-start branch of the build this hook stands over.
+    //
+    // **And the note is spent here**, which is what keeps it to the one build that reads: a stage the run
+    // walks into takes the branch that skips the read, and a note put back there would be the run before
+    // last written over what this run has counted since.
+    if let Some(game) =
+        unsafe { chosen() }.filter(|game| game.its_run_build_lays_its_file_over_the_cards())
+    {
+        let counted = COUNTED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(counted) = counted {
+            unsafe { game.put_back_the_cards_a_run_left(&counted) };
+        }
+    }
     if result == 0
         && let Some(game) = unsafe { chosen() }
     {
@@ -3502,9 +3753,17 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     };
 
     let mut result = CHAIN_BREAK;
-    let mut state = runtime
-        .previous
-        .unwrap_or(unsafe { runtime.game.read_state() });
+    // **Timed as [`profile::Phase::State`]** where the frame before's reading does not stand, that phase's
+    // own doc having what the measurement is for.
+    let mut state = match runtime.previous {
+        Some(previous) => previous,
+        None => {
+            let started = profile::now();
+            let read = unsafe { runtime.game.read_state() };
+            unsafe { profile::record(profile::Phase::State, started) };
+            read
+        }
+    };
     // Stepping between chapter boundaries, and the hold that lets the frame one
     // falls on be looked at. Before the frame's own updates, and instead of them.
     if let Step::Held { reached, ran } = unsafe { step(runtime, chain, &state) } {
@@ -3536,12 +3795,25 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // frame for it — see `profile::record_until`, which is why neither of these is a second read.
         let the_games_own = profile::now();
         unsafe { profile::record_until(profile::Phase::Update, started, the_games_own) };
+        // The same span again under a name of its own, [`profile::Phase::Ahead`] having why: `Update` is
+        // this span and the one after the update together, and one number over both says nothing about
+        // which holds the time.
+        unsafe { profile::record_until(profile::Phase::Ahead, started, the_games_own) };
         crate::sampler::the_update_begins(the_games_own);
         result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
         started = profile::now();
         crate::sampler::the_update_ends(started);
         state = unsafe { runtime.game.read_state() };
+        // **Timed as [`profile::Phase::State`]**, and this is the reading every frame of a run pays: the
+        // one above it is only for a frame with no frame before. Its start is the counter read the
+        // update's end was taken from and its end is the chaptering's own start, so the frame is charged
+        // no read it was not already paying — see [`profile::record_until`].
+        let the_state_was_read = profile::now();
+        unsafe { profile::record_until(profile::Phase::State, started, the_state_was_read) };
         if runtime.chaptering() {
+            // **Timed as its own phase**, the boundary's own work being `Phase::Snapshot`'s and this
+            // being what every other frame pays — see [`profile::Phase::Chaptering`], whose doc has the
+            // measurement it was added for.
             unsafe {
                 runtime.chapters.observe(
                     runtime.game,
@@ -3550,6 +3822,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                     runtime.config.self_check,
                 )
             };
+            unsafe { profile::record(profile::Phase::Chaptering, the_state_was_read) };
         }
         unsafe { reproduced(runtime, &state) };
         // **And the generator of every frame somebody plays, where something is being diagnosed.** The same
@@ -3574,16 +3847,29 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // has nothing for two runs to be held against each other by, and the line is then its own frame
         // number of nought and two empty fields: measured, a th06c launch wrote 3,713 of them in four
         // minutes, one per frame, saying `resume: frame 0 played with  updates=0`.
-        let reproduction = unsafe { runtime.game.reproduction() };
-        if log::wanted(log::VERBOSE) && state.in_run && !state.paused && !reproduction.is_empty() {
-            log!(
-                "resume: frame {} played with {}{} updates={}",
-                state.stage_frames,
-                reproduction,
-                the_worlds_fingerprint(runtime.game),
-                updates_taken(),
-            );
+        // **Timed as [`profile::Phase::Reproduction`]**, that phase's doc having what the measurement
+        // is for: the fingerprint below is a read per bullet slot and the line is written every frame.
+        // **And the reproduction worked out inside the test and not before it**, the line's own cost
+        // being what working it out is: a game whose answer walks its bullet, item and laser arrays pays
+        // for all three on a frame nothing is written about, at every level below verbose and in the
+        // front end.
+        let the_line_began = profile::now();
+        if log::wanted(log::VERBOSE) && state.in_run && !state.paused {
+            let reproduction = unsafe { runtime.game.reproduction() };
+            if !reproduction.is_empty() {
+                log!(
+                    "resume: frame {} played with {}{} chose={} script={} hooked={} updates={}",
+                    state.stage_frames,
+                    reproduction,
+                    the_worlds_fingerprint(runtime.game),
+                    the_word_orb_chose(),
+                    state.script_frames,
+                    the_generator_at_the_hook(),
+                    updates_taken(),
+                );
+            }
         }
+        unsafe { profile::record(profile::Phase::Reproduction, the_line_began) };
         if result == CHAIN_EXIT_SUCCESS || result == CHAIN_EXIT_ERROR {
             break;
         }
@@ -3595,6 +3881,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     if let Some(at) = unsafe { resume::landing() }
         && state.playing
     {
+        // **And whatever the stage's own first frame started, started** — see
+        // [`Game::starts_the_shot_a_stage_began_with`], whose doc carries the pair of real launches. Here
+        // and not at the landing itself, which is a seam inside the build: `0x14003b189` calls it and
+        // `0x14003b1b1` constructs and registers the player afterwards, so a pair written there is one
+        // that register clears. By this point the build is over and its own update has run.
+        if let Some(word) = unsafe { resume::the_first_word_a_playback_will_feed() } {
+            unsafe { runtime.game.starts_the_shot_a_stage_began_with(word) };
+        }
         let (reached, ran) = unsafe { play_in(runtime, chain, at) };
         state = reached;
         result = ran;
@@ -3702,9 +3996,15 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // Over a replay as well as over a run someone is playing, because a replay is
     // what plays a whole run for a tuning pass.
     if runtime.chaptering() && runtime.chapters.tracking(&state) {
+        // **Timed as [`profile::Phase::Keeping`]**, the other half of what the chaptering costs a frame
+        // that reaches no boundary: `Phase::Chaptering` is `Chapters::observe` and reads 1us a frame,
+        // where taking the mode out altogether takes fifteen milliseconds off — so the cost is in one of
+        // these three and the phase is what says which. See that phase's own doc.
+        let started = profile::now();
         tune(runtime, &state);
         boundary_reached(runtime, &state);
         unsafe { keep_chapter(runtime, &state) };
+        unsafe { profile::record(profile::Phase::Keeping, started) };
     }
     // **An attempt out of a replay running out, which is where the run orb built to watch it in is left.**
     //
@@ -4099,10 +4399,25 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         .flatten();
     let there_is_something_to_ask = pointing.is_some() || asked_about.is_some();
     let takes_a_press = unsafe { runtime.game.menu_takes_a_press() };
-    HOLD_DECIDE.store(
-        there_is_something_to_ask && runtime.asks_over_the_game() && takes_a_press,
+    let holding = there_is_something_to_ask && runtime.asks_over_the_game() && takes_a_press;
+    // **The three this is decided from, said as any of them turns over.** The line below says only the
+    // one case where two of them disagree, which is a case a launch can miss entirely: a launch of
+    // th06nc whose menu stood for 3.4 seconds with `Game::menu_pointed_at` answering `Some` — its own
+    // line says so — raised no question, held nothing back and wrote neither line, and nothing said
+    // which of the three was the nought. See `game::th06nc`'s `Game::menu_pointed_at`.
+    if HELD_FROM.swap(
+        u8::from(there_is_something_to_ask) | u8::from(takes_a_press) << 1 | u8::from(holding) << 2,
         Ordering::Relaxed,
-    );
+    ) != u8::from(there_is_something_to_ask)
+        | u8::from(takes_a_press) << 1
+        | u8::from(holding) << 2
+    {
+        detail!(
+            "menu: something to ask {there_is_something_to_ask}, the screen takes a press \
+             {takes_a_press}, so the decide is held {holding}",
+        );
+    }
+    HOLD_DECIDE.store(holding, Ordering::Relaxed);
     // **And a line where there is something to ask and the screen will not take the press**, said as that
     // turns from one to the other and not once a frame.
     //
@@ -4367,6 +4682,8 @@ unsafe fn watch_an_attempt(
         shot_type: replay.run.shot_type,
         practice: false,
         stage: stage.stage,
+        // The replay's own, which is the run this playback is of — see `RunStart::mode`.
+        mode: replay.run.mode,
     };
     let saved = resume::Kept {
         run,
@@ -5132,10 +5449,13 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // worth picking up. What this costs is log and nothing else.
         if log::wanted(log::VERBOSE) && reached.stage_frames > was {
             log!(
-                "resume: frame {} played back with {}{} updates={}",
+                "resume: frame {} played back with {}{} chose={} script={} hooked={} updates={}",
                 reached.stage_frames,
                 unsafe { runtime.game.reproduction() },
                 the_worlds_fingerprint(runtime.game),
+                the_word_orb_chose(),
+                reached.script_frames,
+                the_generator_at_the_hook(),
                 updates_taken(),
             );
         }
