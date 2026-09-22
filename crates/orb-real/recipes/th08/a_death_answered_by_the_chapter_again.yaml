@@ -33,10 +33,11 @@
 - press: [decide]
   frames: 12
 - wait_until: { frames: 300 }
-# **Into the stage's second chapter first**, the midstage table's boundary at script 790, so that the chapter
+# **Into the stage's second chapter first**, the midstage table's boundary at script 1352, so that the chapter
 # the first hit falls in is the same one on every game this is played on: sessions 12 and 13 of the real game
-# were first hit in it at frame 1122 with nothing asked of them, where the laid-out stage's first bullet, at
-# 480, is one the rules come near inside the first. **And it is the second chapter's two attempts that
+# were first hit at frame 1122 with nothing asked of them, which was inside the second chapter while the
+# table's row stood at 790, where the laid-out stage's first bullet, at 480, is one the rules come near
+# inside the first. **And it is the second chapter's two attempts that
 # `an_attempt_of_the_kept_replay_watched` chooses the first of**, the one this run was rewound from.
 - play_until: { stage: 1, chapter: 2 }
   give_up_after: 3600

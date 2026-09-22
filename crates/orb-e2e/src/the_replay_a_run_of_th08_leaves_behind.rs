@@ -40,8 +40,8 @@ const SLOT: &str = "normal-0-ply00a";
 /// `orb_sim::clock`.
 const DATED: &str = "20040815-214233";
 
-/// How long a stage of the laid-out game lasts here: past stage 1's midstage table, whose last boundary —
-/// the third chapter's start — is at script 4086.
+/// How long a stage of the laid-out game lasts here: past stage 1's midstage table and on to its boss, who
+/// arrives for the stage's last 900 frames and whose arrival is the third chapter's start.
 const A_STAGE: u32 = 4_500;
 
 /// How many frames a launch is given to run its recipe out and quit in.

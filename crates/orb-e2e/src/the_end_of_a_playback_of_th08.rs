@@ -28,13 +28,13 @@ const SLOT: &str = "normal-0-ply00a";
 /// How many frames a launch is given to run its recipe out and quit in.
 const FRAMES: u32 = 60_000;
 
-/// **How long a stage of this laid-out game lasts here**: past stage 1's second midstage boundary at script
-/// 790, so that the run left in that chapter walks into the second stage without a test sitting through a
-/// whole one.
+/// **How long a stage of this laid-out game lasts here**: past the start of stage 1's second chapter — the
+/// boss's arrival, 900 frames before the stage's end and before the table's row — so that the run left in
+/// that chapter walks into the second stage without a test sitting through a whole one.
 const A_STAGE: u32 = 1_500;
 
 /// How many frames of the stage the run walked into are watched for a frame being fed: past the number the
-/// bound left standing would have covered, which is every frame of it below the chapter's own 790.
+/// bound left standing would have covered, which is every frame of it below that chapter's own start at 600.
 const WATCHED_FOR: u32 = 900;
 
 /// A launch played out, the game asked to close by its last step.

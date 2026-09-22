@@ -305,8 +305,8 @@ pub fn cases_of(game: Game) -> Vec<Case> {
 /// back, and the run given up.
 ///
 /// **The chapters they are over are stage 1's midstage table's and its fight's**, but for the clears':
-/// the table's first boundary is script 790, so a case asking for stage 1's second chapter asks for a
-/// chapter of the midsection, and its third is the midboss's arrival at 2935.
+/// the table's one boundary of stage 1 is script 1352, so a case asking for stage 1's second chapter asks for
+/// a chapter of the midsection, and its third is the midboss's arrival at 2935.
 ///
 /// **Four chains and the rest start from records taken aside** — see [`Case::continues`]: the run that
 /// died and was retried is started over with its replay kept and the attempt it was rewound from watched,
@@ -1931,7 +1931,7 @@ pub mod checks {
     /// orb holds a press back on — `Th08::menu_takes_a_press` answers the title alone — so the resume
     /// question comes as the run is built, and a はじめから answered there keeps the replay of the run it
     /// writes over with no question of its own, which is `it is kept without asking` in the log. Then the
-    /// fresh run plays into its second chapter, stage 1's midstage table beginning one at script 790.
+    /// fresh run plays into its second chapter, stage 1's midstage table beginning one at script 1352.
     pub fn the_run_of_th08_started_over_and_its_replay_kept(trace: &Trace) -> Result<(), String> {
         let answered = the_beginning_answered(trace)?;
         let kept = trace

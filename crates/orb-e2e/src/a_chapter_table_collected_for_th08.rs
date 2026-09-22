@@ -38,9 +38,10 @@ const THE_GAP_LASTS: u32 = 120;
 /// `tuning::ENEMY_GAP_FRAMES` — written out here for the reason every other number an e2e test holds is.
 const A_SECOND_IN: i32 = 60;
 
-/// How long a stage lasts here: past the wave, the gap, the compiled row at script 790 and the fight this
-/// laid-out game scripts, so that the pass reaches a stage's end and writes what it found.
-const STAGE_FRAMES: u32 = 2_000;
+/// How long a stage lasts here: past the wave, the gap, the compiled row of stage 1 and the fight this
+/// laid-out game scripts for the stage's last 900 frames, so that the pass reaches a stage's end and writes
+/// what it found.
+const STAGE_FRAMES: u32 = 2_600;
 
 /// How many frames a walk here is given before it says the pass went nowhere.
 const FRAMES: u32 = STAGE_FRAMES * 2;

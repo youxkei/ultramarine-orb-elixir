@@ -43,8 +43,10 @@
   give_up_after: 600
 - answer: { question: retry, item: 0 }
   give_up_after: 600
-# **And the run playing on from the stage's own start**, which is what says the snapshot landed.
-- play_until: { frames: 900 }
+# **And the run playing on from the stage's own start into its second chapter**, which is what says the
+# snapshot landed and what the check holds it to — waited for by the chapter and not by a count of frames,
+# which is a number that stops being enough whenever the table's first row of stage 1 moves.
+- play_until: { stage: 1, chapter: 2 }
   give_up_after: 18000
 - leave: true
 - wait_until: { frames: 300 }

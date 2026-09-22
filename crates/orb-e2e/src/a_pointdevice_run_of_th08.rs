@@ -28,6 +28,7 @@ use crate::fake::{
 };
 use orb_config::LogLevel;
 use orb_core::game::Menu;
+use orb_core::game::th08::chapters::MIDSTAGE;
 use orb_core::game::th08::image::{Scene, Screen};
 use orb_core::mode::{Mode, title};
 use orb_sim::keys;
@@ -465,7 +466,8 @@ const STANDING_FROM: usize = 400;
 /// every stage's own boss going down does not; and a stage whose boss does not come back is the same.
 ///
 /// **What the real game did**: session 13's no-bomb clear fought 4B's boss through chapters 10 to 13, her
-/// going leaving card 82's chapter open for the 440-odd frames to the table's boundary at `5404`.
+/// going leaving card 82's chapter open for the 440-odd frames to what was then the table's boundary at
+/// `5404`.
 ///
 /// **A run placed and its stage's clock stepped by hand**, the boss put up and taken down between: what this
 /// is about is the chapters, and a stage firing at a player nobody moves is a death and a retry offered.
@@ -575,6 +577,66 @@ fn a_death_in_the_nonspell_after_a_card_of_th08_goes_back_to_that_nonspell() {
         );
     });
 }
+
+/// **A chapter of th08 taken again puts back the human–youkai gauge and the time orbs picked up** as the
+/// chapter began with them — the two numbers this game keeps that neither th06 nor th07 has and that a stage
+/// is played for: the gauge decides which enemies are worth a time orb, and the orbs whether the boss puts up
+/// her Last Spell. Both are words of the run's numbers, an allocation of the game's own heap — see `Th08`'s
+/// `G_RUN_NUMBERS` — and what brings them back is the snapshot, which covers the heaps as well as `.data`.
+#[test]
+fn a_chapter_of_th08_taken_again_puts_back_the_gauge_and_the_time_orbs_it_began_with() {
+    in_its_own_process(|| {
+        let game = in_the_stage("th08-the-gauge-and-the-orbs-put-back", THE_FIFTH);
+        let log = game.log();
+
+        // The orbs first: the gauge's own write reseals the run, and both are numbers the seal is over.
+        game.image().the_stage_has_its_time_orbs(SOME_ORBS, A_NORM);
+        game.image().the_gauge_is_at(A_GAUGE, THE_GAUGES_HUMAN_END);
+        the_stage_goes_on_for(&game, A_HALF);
+        game.image().a_boss_is_fighting(0, (192.0, 96.0), 1000);
+        game.image().the_stream_reads_the_track(THE_FIGHTS_TRACK);
+        the_boss_attacks_for(&game, A_HALF);
+        assert!(
+            log.said("stage 6 chapter 2 (BOSS NONSPELL 1)"),
+            "the boss's arrival took no chapter:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        game.image()
+            .the_stage_has_its_time_orbs(SOME_ORBS + MORE_ORBS, A_NORM);
+        game.image()
+            .the_gauge_is_at(A_GAUGE_MOVED_SINCE, THE_GAUGES_HUMAN_END);
+        // Her attack going on rather than beginning again, which would be a chapter of its own.
+        for frame in A_HALF..A_HALF * 2 {
+            game.image().the_boss_has_attacked_for(0, frame as i32);
+            a_frame_of_the_stage(&game);
+        }
+        game.image().has_died(1.0);
+        game.image().the_player_has_been_hit();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 2"));
+        game.press_until(keys::Z, "the retry answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        assert_eq!(
+            (
+                game.image().where_the_gauge_is(),
+                game.image().the_time_orbs_picked_up()
+            ),
+            (A_GAUGE, SOME_ORBS),
+            "the chapter came back with the gauge and the time orbs the run had reached since it began",
+        );
+    });
+}
+
+/// The gauge and the orbs that chapter begins with, and where the run has them when it dies — any numbers,
+/// what the test asks of them being that they differ.
+const A_GAUGE: i16 = -3_000;
+const A_GAUGE_MOVED_SINCE: i16 = 4_000;
+const THE_GAUGES_HUMAN_END: i16 = -8_000;
+const SOME_ORBS: u32 = 40;
+const MORE_ORBS: u32 = 25;
+const A_NORM: u32 = 200;
 
 /// The card the boss puts up there, by the record it has of its own: any card, what the test asks of it being
 /// that it is one.
@@ -894,21 +956,23 @@ fn a_run_of_th08_picked_up_whose_build_goes_on_after_its_jobs_are_up_lands_where
 const A_BUILD_GOES_ON_FOR: u32 = 3;
 
 /// How long a stage of the laid-out game lasts for that pair, which is what the chains of the cases give one:
-/// past stage 1's own midstage table, whose last boundary is at script 4086.
+/// past stage 1's own midstage table.
 const A_SHORT_STAGE: u32 = 4_500;
 /// Where in stage 1 the power goes up, and to what: the real run's stage 2 began at `72` where the build that
 /// picked it up had `0`, and a build here has `96` — what has to hold is that the two differ.
 const A_POWER_ITEM_AT: u32 = 1_000;
 const THE_POWER_ITS_ITEMS_TOOK: f32 = 72.0;
 
-/// **Where the laid-out stage's clock jumps**: the first boundary of the stage's table, script 790, which the
-/// stage's own clock is on too until the jump puts it past — see `chapters::MIDSTAGE`.
-const THE_SECOND_CHAPTER_AT: u32 = 790;
+/// **Where the laid-out stage's clock jumps**: the first boundary of the stage's table, which the stage's own
+/// clock is on too until the jump puts it past.
+const THE_SECOND_CHAPTER_AT: u32 = MIDSTAGE[0][0].frame as u32;
 /// And by how much, which is the real game's own `0x708`.
 const THE_CLOCK_JUMPS_BY: u32 = 1800;
 
 /// A launch of this game played by a recipe, over a stage of its own — see
-/// `the_cases_of_th08_the_real_game_is_tested_with`, whose launches these are.
+/// `the_cases_of_th08_the_real_game_is_tested_with`, whose launches these are, and whose stages are as
+/// short: a recipe that plays on into stage 1's third chapter reaches it on the laid-out game at the boss's
+/// arrival, there being no midboss and one row of the table before her.
 fn launched(name: &str, recipe: &str) -> Box<Fake> {
     let game = Fake::attach_configured(
         Display::agreed(120),
@@ -920,7 +984,7 @@ fn launched(name: &str, recipe: &str) -> Box<Fake> {
         },
     );
     game.plays_its_own_stage();
-    game.stages_last(A_STAGE);
+    game.stages_last(A_SHORT_STAGE);
     game
 }
 

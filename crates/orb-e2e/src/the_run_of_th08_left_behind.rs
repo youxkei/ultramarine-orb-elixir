@@ -31,9 +31,10 @@ const WORK_US: i64 = 700;
 /// How many frames a recipe is given to run out.
 const FRAMES: u32 = 30_000;
 
-/// How long the laid-out stage lasts, which is past the table's row at script 790 and into the boss's fight:
-/// long enough for the stage's second chapter, which is what these leave a run in.
-const A_STAGE: u32 = 2_000;
+/// How long the laid-out stage lasts, which is past the table's row of stage 1 and into the boss's fight,
+/// she arriving for its last 900 frames: long enough for the stage's second chapter, which is what these
+/// leave a run in.
+const A_STAGE: u32 = 2_600;
 
 /// Where orb keeps the runs left unfinished, and what it calls one.
 ///

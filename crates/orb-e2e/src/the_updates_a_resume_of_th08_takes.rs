@@ -27,9 +27,9 @@ const WORK_US: i64 = 700;
 /// How many frames a recipe is given to run out.
 const FRAMES: u32 = 40_000;
 
-/// How long the laid-out stage lasts: past the table's row at script 790 and into the boss's fight, which is
-/// the stage's second and third chapters.
-const A_STAGE: u32 = 2_000;
+/// How long the laid-out stage lasts: past the table's row of stage 1 and into the boss's fight, which is
+/// the stage's second and third chapters, she arriving for the last 900 frames.
+const A_STAGE: u32 = 2_600;
 
 /// Where orb keeps the runs left unfinished, and what it calls one.
 const KEPT_IN: &str = "pointdevice_resume";
@@ -252,6 +252,50 @@ fn a_second_playback_of_th08_in_one_session_is_watched_from_its_own_first_frame(
             !log.said("resume: the playback was fed frame"),
             "a playback was held against the frames of the one before it:\n  {}",
             log.lines().join("\n  ")
+        );
+    });
+}
+
+/// **A run left in its boss's card and picked up again in the same session lands in that card**, the second
+/// playback building the stage over a game whose card the first run left up. **The real game's build puts the
+/// card down**: 0x43b4c8, inside the build at 0x43aaf4, registers the spell card through 0x417f60, whose
+/// 0x414590 zeroes the whole of it — `0x991` dwords from `0x4ea670` at 0x4145b1, and again at 0x4147ae on the
+/// other branch — so the boss arriving on the playback is her nonspell and the card begins its own chapter
+/// where the run it was written from began one.
+#[test]
+fn a_run_of_th08_left_in_its_bosss_card_and_picked_up_again_lands_in_that_card() {
+    in_its_own_process(|| {
+        let files = a_run_left_behind("th08-picked-up-in-a-card-left");
+        let recipe = format!(
+            "{picks}\
+- play_until: {{ stage: 1, chapter: 4 }}
+  give_up_after: 18000
+- leave: true
+- wait_until: {{ frames: 300 }}
+{picks}\
+- wait_until: {{ frames: 300 }}
+- quit: true
+",
+            picks = picks_it_up()
+        );
+        let game = finding("th08-picked-up-in-a-card", &files, recipe);
+        played_out(&game);
+        let log = game.log();
+
+        assert_eq!(
+            landings(&game),
+            2,
+            "one launch did not put the run back twice:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            log.said("in chapter 4 (BOSS SPELL 1), written down as chapter 4 (BOSS SPELL 1)"),
+            "the run picked up in its boss's card did not land in that card's chapter:\n  {}",
+            log.lines()
+                .into_iter()
+                .filter(|line| line.contains("resume: ") && !line.contains(A_FRAMES_LINE))
+                .collect::<Vec<_>>()
+                .join("\n  ")
         );
     });
 }

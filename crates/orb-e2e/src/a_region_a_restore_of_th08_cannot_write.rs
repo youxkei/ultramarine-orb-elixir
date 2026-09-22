@@ -19,7 +19,8 @@ const WORK_US: i64 = 700;
 /// How many frames a recipe is given to run out, and how long a wait inside one is given.
 const FRAMES: u32 = 30_000;
 
-/// How long a stage of the laid-out game lasts here: past stage 1's second midstage boundary, at script 790.
+/// How long a stage of the laid-out game lasts here: past stage 1's midstage table and into the boss's fight,
+/// she arriving for its last 900 frames.
 const A_STAGE: u32 = 4_500;
 
 fn launched(name: &str, recipe: String) -> Box<Fake> {

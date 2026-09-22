@@ -20,8 +20,8 @@ const WORK_US: i64 = 700;
 /// How many frames a recipe is given to run out.
 const FRAMES: u32 = 30_000;
 
-/// How long a stage of the laid-out game lasts here: past stage 1's midstage table, whose last boundary —
-/// the third chapter's start — is at script 4086.
+/// How long a stage of the laid-out game lasts here: past stage 1's midstage table and on to its boss, who
+/// arrives for the stage's last 900 frames and whose arrival is the third chapter's start.
 const A_STAGE: u32 = 4_500;
 
 /// The recipe both launches play: the walk to a run, the run played into its third chapter, and out.

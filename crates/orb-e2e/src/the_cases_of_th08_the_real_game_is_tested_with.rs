@@ -46,9 +46,9 @@ const FRAMES: u32 = 100_000;
 /// rather than sitting in the first — and short, because six of them stand between this laid-out run and
 /// the last stage its recipe waits for, where the real game takes some thirty minutes over the same six.
 ///
-/// **And past stage 1's own midstage table**, whose last boundary is at script 4086: a case that plays on
-/// into the chapter after the one it was asked in reaches that chapter on the laid-out game only where the
-/// stage lasts that long.
+/// **And past stage 1's own midstage table and on to its boss**, who arrives for the stage's last 900
+/// frames: a case that plays on into the chapter after the one it was asked in reaches that chapter on the
+/// laid-out game only where the stage lasts that long, the laid-out stage having no midboss for it to be.
 const A_STAGE: u32 = 4_500;
 
 /// **The case each chain gated here starts at** — see `Case::continues`, and [`the_chain_from`].

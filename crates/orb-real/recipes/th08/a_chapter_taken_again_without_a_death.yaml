@@ -44,11 +44,10 @@
 - answer: { question: retry, item: 0 }
   give_up_after: 600
 # **And the run playing on from that chapter into the next**, which is what says the retry landed rather than
-# merely being answered — and what the check holds it to. The ask comes in stage 1's first chapter or its
-# second, the midstage table's first boundary at script 790 falling near where the six hundred frames above
-# end, and stage 1's third chapter is past the next of them whichever it is: the midboss's arrival at 2935
-# on the real game, the table's 4086 on the laid-out one. Nine hundred frames of play, which this step was,
-# reached neither.
+# merely being answered — and what the check holds it to. The ask comes in stage 1's first chapter, the
+# midstage table's first boundary at script 1352 falling past where the six hundred frames above end, and
+# stage 1's third chapter is two boundaries on: the midboss's arrival at 2935 on the real game, the boss's on
+# the laid-out one, which has no midboss. Nine hundred frames of play, which this step was, reached neither.
 - play_until: { stage: 1, chapter: 3 }
   give_up_after: 18000
 # The run left where it stands, the way every case of this shape ends: the run given up for the title and

@@ -545,10 +545,10 @@ const G_PAUSED: usize = 0x0164d0ba;
 /// **The stage words whose own boss fights in two halves**, 3 and 4 — the uncanny and the powerful fourth
 /// stage — with a stretch of the stage's waves between them. Session 13's no-bomb clear read it off 4B: the
 /// boss up through chapters 10 to 13 with the script clock standing at `4963`, then `boss=false` and the clock
-/// running again, the table's boundary at `5404` taken at script `5407`, and the boss back at `6923` for
-/// chapters 15 on. **4A is here by its table and not by a run**, no clear of orb's having gone its way: the
-/// row the pass over its replay proposed has the same shape, `4612` and a boundary at `5412` inside the
-/// same stretch.
+/// running again, what was then the table's boundary at `5404` taken at script `5407`, and the boss back at
+/// `6923` for chapters 15 on. **4A is here by a pass over its replay and not by a run**, no clear of orb's
+/// having gone its way: the boundaries that pass proposed have the same shape, `4612` before the clock stood
+/// at `4963` and `5412` inside the stretch after it.
 const STAGES_WHOSE_BOSS_COMES_BACK: [i32; 2] = [3, 4];
 
 /// **And 9 is the ending**, registered by `0x4296a0` out of scenes 1 and 2, which allocates `0x2ab8`
@@ -1517,10 +1517,9 @@ const DIALOGUE_NO_LINE: i32 = -1;
 ///
 /// **What that costs is [`Th08::midstage_table`]**: a boundary inside a stage is a number on this clock,
 /// and on this game the number for anything past the first stage is *the whole run so far plus the way
-/// in*, which is a different number every run. So the rows of `chapters::MIDSTAGE` cannot be per-stage
-/// frame counts the way th06's and th07's are, and what a row would have to be — an offset from the
-/// stage's own first frame, which nothing here records — is the reading that table waits on. See this
-/// change's own TODO for it.
+/// in*, which is a different number every run. So the rows of `chapters::MIDSTAGE` cannot be numbers on
+/// this clock, and are on the stage script's instead — see `State::script_frames`, which starts again with
+/// each stage.
 ///
 /// **Two other fields look like this one and are not it.** `[gm+0x3daa8]` is written at 0x43a1a1, in the
 /// block that also puts the play area back and plays the `Pause` sound — once a pause. `[gm+0x3de08]`,

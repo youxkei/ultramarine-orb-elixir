@@ -23,9 +23,10 @@ use crate::fake::{Display, Launched, READS_KEYS_AFTER, Work, in_its_own_process}
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// **How long a stage lasts here**: past the table's row at script 790 and into the boss's fight, so that the
-/// chapter the run is lost in has two behind it and all four ways on are offered.
-const STAGE_FRAMES: u32 = 2_000;
+/// **How long a stage lasts here**: past the table's row of stage 1 and into the boss's fight, which arrives
+/// for the stage's last 900 frames, so that the chapter the run is lost in has two behind it and all four
+/// ways on are offered.
+const STAGE_FRAMES: u32 = 2_600;
 
 /// How many frames the walk to that chapter is given.
 const FRAMES: u32 = STAGE_FRAMES * 2;

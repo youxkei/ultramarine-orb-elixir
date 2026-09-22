@@ -5,14 +5,15 @@
 //! of where the game is — so a press moves rather than staying put, and a frame or two past a boundary steps
 //! back onto it.
 //!
-//! **The boundaries are the stage's table and its fight**: the stage's own start, the midstage table's first
-//! row at script 790, the stage's own boss arriving, and the card she puts up and the nonspell after it — see
+//! **The boundaries are the stage's table and its fight**: the stage's own start, the midstage table's one
+//! row of stage 1, the stage's own boss arriving, and the card she puts up and the nonspell after it — see
 //! `fake::th08`'s `THE_BOSS_FIGHTS_FOR` and `HER_CARD`. **And the
 //! wall at the far end is her going down**, which this game's stage does some frames before its next stage is
 //! built — the scene staying the run's across the build, the way th07's does — so what a step forward comes
 //! to rest on is the stage won.
 
 use orb_config::LogLevel;
+use orb_core::game::th08::chapters::MIDSTAGE;
 
 use crate::fake::th08::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};
@@ -27,15 +28,31 @@ const BACK: u8 = orb_config::keys::LEFT.0;
 /// And the one held with a step to leave the stage altogether.
 const ACROSS: u8 = orb_config::keys::SHIFT.0;
 
-/// **How long a stage lasts here**: past the table's row at script 790 and a fight after it — the laid-out
+/// **How long a stage lasts here**: past the table's row of stage 1 and a fight after it — the laid-out
 /// stage's boss arrives for its last 900 frames and goes 120 before its end.
-const STAGE_FRAMES: u32 = 2_000;
+const STAGE_FRAMES: u32 = 2_600;
+/// And where in it she arrives, which the row has to come before for the row to be a chapter.
+const THE_BOSS_ARRIVES_AT: i32 = STAGE_FRAMES as i32 - 900;
 
 /// How many frames a wait here is given.
 const FRAMES: u32 = STAGE_FRAMES * 3;
 
-/// The script frame the table's first row of stage 1 is at.
-const THE_TABLES_FIRST_ROW: i32 = 790;
+/// The script frame the table's one row of stage 1 is at.
+fn the_tables_row() -> i32 {
+    // What makes the stage's boundaries three before her fight: a second row before she arrives would be a
+    // chapter between the row and her, and every count of presses below would be one out.
+    let rows: Vec<i32> = MIDSTAGE[0]
+        .iter()
+        .map(|boundary| boundary.frame)
+        .filter(|&frame| frame < THE_BOSS_ARRIVES_AT)
+        .collect();
+    assert_eq!(
+        rows.len(),
+        1,
+        "stage one's row of the table has {rows:?} before a boss arriving at {THE_BOSS_ARRIVES_AT}",
+    );
+    rows[0]
+}
 
 /// One press of a stepping key with nothing else held, and the frame it left the game on.
 ///
@@ -87,7 +104,7 @@ fn the_boundaries(game: &Fake) -> (u32, u32, u32) {
     game.frames_until("the boss's chapter", FRAMES, || log.said("chapter 3"));
     let the_boss = game.state().stage_frames;
     assert!(
-        game.state().script_frames >= THE_TABLES_FIRST_ROW && game.state().boss_present,
+        game.state().script_frames >= the_tables_row() && game.state().boss_present,
         "the chapters did not fall where the table and the fight put them: {the_row}, {the_boss}",
     );
     (the_stages_own_start, the_row, the_boss)

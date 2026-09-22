@@ -873,6 +873,17 @@ impl Image {
         space.write::<u32>(RUN_NUMBERS.start + super::TIME_ORBS_WANTED, norm);
     }
 
+    /// And the time orbs picked up, as the run's numbers hold them.
+    pub fn the_time_orbs_picked_up(&self) -> u32 {
+        self.space()
+            .read::<u32>(RUN_NUMBERS.start + super::TIME_ORBS)
+    }
+
+    /// And where the gauge is, as the run's numbers hold it.
+    pub fn where_the_gauge_is(&self) -> i16 {
+        self.space().read::<i16>(RUN_NUMBERS.start + super::GAUGE)
+    }
+
     /// **Where the human–youkai gauge is, and the line its human end is at** — see `Th08`'s `GAUGE` and
     /// `GAUGE_HUMAN_END`, the gauge a word of the run's numbers and the line one of the game manager's.
     /// Resealed, the gauge being among the numbers the seal is over.

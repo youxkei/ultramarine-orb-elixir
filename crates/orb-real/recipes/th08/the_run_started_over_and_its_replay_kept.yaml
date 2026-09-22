@@ -42,7 +42,7 @@
 # はじめから was answered, where the games whose shot select orb asks over put a question of its own up.
 - wait_until: { frames: 300 }
 # **And the fresh run played into its second chapter**, which is what says it is a run and not a playback:
-# the chapter it reaches is stage 1's midstage table's first boundary, at script 790.
+# the chapter it reaches is stage 1's midstage table's one boundary, at script 1352.
 - play_until: { stage: 1, chapter: 2 }
   give_up_after: 18000
 - leave: true

@@ -1120,6 +1120,10 @@ impl Fake {
         self.image.no_dialogue_is_up();
         self.image.no_boss_is_fighting();
         self.the_boss_is_up.set(false);
+        // **And no card up**, which the build leaves too: 0x43b4c8 registers the spell card through 0x417f60,
+        // whose 0x414590 zeroes the whole object — `0x991` dwords from `0x4ea670`, at 0x4145b1 and at 0x4147ae
+        // on its other branch. A card the run before left up was a boss arriving as her card on the next build.
+        self.image.no_card_is_up();
         // And the pause down, which the build clears (0x43b1cf).
         self.image.the_run_is_paused(false);
         self.the_pause_closing.set(None);

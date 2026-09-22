@@ -4,7 +4,7 @@
 #
 # **Asked in the stage's third chapter, so that two are behind it.** `RetryMenu::new` leaves
 # 更に前からやり直す out of the ways where those are none, so this recipe plays into stage 1's third
-# chapter — past the midstage table's boundary at script 790 and on to the next — and the ways are then
+# chapter — past the midstage table's boundary at script 1352 and on to the next — and the ways are then
 # the chapter, a chapter further back, the stage and the run given up, with the second of them **item 1**.
 #
 # **Three answers and not two**: the item names the screen, the screen names the chapter, and the naming
@@ -37,9 +37,9 @@
 - press: [decide]
   frames: 12
 - wait_until: { frames: 300 }
-# **Played into the third chapter of the stage**, which is past the midstage table's first boundary at
-# script 790: five minutes of frames is the bound, the chapter after that being the midboss's arrival at
-# 2935 on the real game and the table's 4086 on the laid-out one.
+# **Played into the third chapter of the stage**, which is past the midstage table's boundary at script
+# 1352: five minutes of frames is the bound, the chapter after that being the midboss's arrival at 2935 on
+# the real game and the boss's on the laid-out one, which has no midboss.
 - play_until: { stage: 1, chapter: 3 }
   give_up_after: 18000
 # **The ask, the screen of chapters named, the earliest of them taken, and the yes behind it.**
@@ -52,7 +52,8 @@
   give_up_after: 600
 # **And the run playing on from there back up to the chapter it was asked in**, which is what says the
 # snapshot that chapter is landed — and what the check holds it to. Nine hundred frames, which this step
-# was, took the laid-out run from script 790 to some 1,690, short of the chapter the ask came from.
+# was, took the laid-out run from script 790 to some 1,690 while the table's row stood there, short of the
+# chapter the ask came from.
 - play_until: { stage: 1, chapter: 3 }
   give_up_after: 18000
 - leave: true

@@ -41,7 +41,7 @@
 - press: [decide]
   frames: 12
 - wait_until: { frames: 300 }
-# **Played into the stage's second chapter**, the midstage table's first boundary at script 790, and the chapter
+# **Played into the stage's second chapter**, the midstage table's one boundary at script 1352, and the chapter
 # asked to be taken again there.
 - play_until: { stage: 1, chapter: 2 }
   give_up_after: 18000
