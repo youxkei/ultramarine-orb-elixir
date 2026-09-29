@@ -213,7 +213,8 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
 /// `orb_real::chains_of`, which is what makes one, and [`every_chain_has_a_test_of_its_own`], which holds
 /// this list against it so a case added there reaches a test here.
 ///
-/// **The same eleven for both games**, these two and th06c sharing `the_cases_of_a_game_orb_rewinds`.
+/// **The same thirteen for both games**, these two and th06c sharing `the_cases_of_a_game_orb_rewinds` —
+/// and th07's one more after them, [`THE_CHAINS_ONLY_TH07_HAS`].
 ///
 /// **A test per chain and not one test per game**, which is the whole reason this list exists: the sixteen
 /// cases were one test apiece and a chain has to be played in its own order — a case that continues is
@@ -236,6 +237,10 @@ const CHAINS: [&str; 13] = [
     "a_run_played_to_its_clear",
     "a_normal_mode_run_played_to_its_clear",
 ];
+
+/// **And th07's own, after the shared ones**: an attempt at a card counted and kept across two runs of one
+/// launch, which only th07 of these two loses at a read orb brackets — th06 carries its captures in memory.
+const THE_CHAINS_ONLY_TH07_HAS: [&str; 1] = ["an_attempt_at_a_card_counted_and_kept"];
 
 /// The cases of `game`'s chain that starts at `head`.
 ///
@@ -262,14 +267,17 @@ macro_rules! a_test_per_chain {
 
 #[test]
 fn every_chain_has_a_test_of_its_own() {
-    for game in [Game::Th06, Game::Th07] {
+    for (game, its_own) in [
+        (Game::Th06, &[][..]),
+        (Game::Th07, &THE_CHAINS_ONLY_TH07_HAS[..]),
+    ] {
         let heads: Vec<&str> = orb_real::chains_of(game)
             .iter()
             .map(|chain| chain[0].name)
             .collect();
         assert_eq!(
             heads,
-            CHAINS,
+            [&CHAINS[..], its_own].concat(),
             "the chains this file plays are not the chains {}'s cases make",
             game.name(),
         );
@@ -434,4 +442,5 @@ a_test_per_chain!(
     a_normal_mode_run_of_th07_nothing_is_kept_of => "a_normal_mode_run_nothing_is_kept_of",
     a_run_of_th07_played_to_its_clear => "a_run_played_to_its_clear",
     a_normal_mode_run_of_th07_played_to_its_clear_and_the_extra_it_unlocked => "a_normal_mode_run_played_to_its_clear",
+    an_attempt_at_a_card_of_th07_counted_and_kept => "an_attempt_at_a_card_counted_and_kept",
 );

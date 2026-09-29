@@ -388,6 +388,11 @@ impl Image {
             super::G_RUN_SCREEN + super::RUN_SCREEN_INNER,
             RUN_SCREEN_INNER.start,
         );
+        // **And no conversation on it**, which is what the real game reads outside a run: a trace of
+        // `a_run_left_in_its_second_chapter` held `in_dialogue` false on all 577 of its frames before the
+        // run and after it. Left at nought, the inner laid out from the first frame read as the first line
+        // of a conversation up over the title.
+        space.write::<i32>(RUN_SCREEN_INNER.start + super::DIALOGUE_LINE, -1);
         space.write::<usize>(super::G_TEAM_SPEC, TEAM_SPEC.start);
         // **The frame's own step, which is one where nothing is slowing the world down** — 0x425369
         // writes the 1.0, and a laid-out game with nothing there would say every laser grows by nothing.
@@ -492,6 +497,12 @@ impl Image {
     /// it: `Th08::force_windowed` is what an e2e test then reads the change of.
     pub fn asks_for_full_screen(&self) {
         self.space().write::<u8>(super::CFG_WINDOWED, 0);
+    }
+
+    /// And the setting already a window, which is a `th08.cfg` somebody saved with the game's own option
+    /// set: what an e2e test then reads is orb leaving it as it found it.
+    pub fn asks_for_a_window(&self) {
+        self.space().write::<u8>(super::CFG_WINDOWED, 1);
     }
 
     /// **The four floats the rest of the game clips against**, which `sight` reads the field out of: see

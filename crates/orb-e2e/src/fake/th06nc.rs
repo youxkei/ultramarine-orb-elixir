@@ -214,7 +214,7 @@ const A_BEATEN_BOSSES_LIFE: i32 = 5;
 ///
 /// A card of its own rather than the one that file's tests name, so that a test setting a card by hand is
 /// not a test this schedule answers.
-const THE_CARD_THE_STAGE_CASTS: usize = 0;
+pub const THE_CARD_THE_STAGE_CASTS: usize = 0;
 const ITS_NAME: &str = "「ムーンライトレイ」";
 
 /// The field a run is played in, and where a stage starts the player — the game's own 384 by 448, and the
@@ -237,7 +237,7 @@ const BULLET_SLOTS_USED: usize = 16;
 
 /// How long a hit may still be bombed out of, and how long a bomb goes off for.
 const A_BOMB_IS_TAKEN_FOR: i32 = 8;
-const A_BOMB_LASTS: u32 = 60;
+pub const A_BOMB_LASTS: u32 = 60;
 
 /// **How long the walk-in takes and what it hands the count over to**, which is the 270 frames of a
 /// stage nothing reaches the player in — `0x14006a4b7`'s `cmp ecx,0x1e` and the `0xf0` at `0x14006a6cf`.
@@ -365,11 +365,11 @@ pub struct Fake {
     extra: Cell<bool>,
     /// How long a stage lasts before the next is built. `None` is a stage that never ends.
     stage_frames: Cell<Option<u32>>,
-    /// The stage frame the script last acted on, the bullets the stage has out, the frames a hit has left,
-    /// the frames a respawn has left and the frames a bomb has left to go off for.
+    /// The stage frame the script last acted on, the bullets the stage has out, the frames a respawn has left
+    /// and the frames a bomb has left to go off for. **Not the frames a hit has left**, which are the game's
+    /// own field — `Image::a_bomb_still_takes_the_hit_back_for` — and what orb reads a deathbomb off.
     last_stage_frame: Cell<u32>,
     bullets: RefCell<Vec<Bullet>>,
-    hit_window: Cell<i32>,
     respawn_left: Cell<u32>,
     bomb_left: Cell<u32>,
     /// Whether the stage fires at the player — see [`Fake::fires_at_the_player`].
@@ -616,7 +616,6 @@ impl Fake {
             stage_frames: Cell::new(None),
             last_stage_frame: Cell::new(0),
             bullets: RefCell::new(Vec::new()),
-            hit_window: Cell::new(0),
             respawn_left: Cell::new(0),
             bomb_left: Cell::new(0),
             fires: Cell::new(true),
@@ -1556,7 +1555,6 @@ impl Fake {
             // A stage put back is a stage whose bullets are gone: what a restore could not put back is
             // dropped to agree with the memory it did.
             self.bullets.borrow_mut().clear();
-            self.hit_window.set(0);
             self.respawn_left.set(0);
             self.bomb_left.set(0);
             self.image.a_bomb_is_going_off(false);
@@ -1639,21 +1637,23 @@ impl Fake {
                 }
                 if hit.is_some() || self.hit.take() {
                     self.image.the_player_has_been_hit();
-                    self.hit_window.set(A_BOMB_IS_TAKEN_FOR);
+                    self.image
+                        .a_bomb_still_takes_the_hit_back_for(A_BOMB_IS_TAKEN_FOR);
                 }
             }
             // Hit, inside the window: a bomb pressed takes the hit back, and the window running out is the
             // death.
             2 => {
                 let (_, bombs) = self.image.lives_and_bombs();
-                if word & BOMB != 0 && bombs > 0 && self.hit_window.get() > 0 {
+                let window = self.image.the_frames_a_bomb_still_takes_the_hit_back_in();
+                if word & BOMB != 0 && bombs > 0 && window > 0 {
                     self.a_bomb_goes_off();
                     self.image.the_player_is_playing();
-                    self.hit_window.set(0);
-                } else if self.hit_window.get() <= 0 {
+                    self.image.a_bomb_still_takes_the_hit_back_for(0);
+                } else if window <= 0 {
                     self.dies();
                 } else {
-                    self.hit_window.set(self.hit_window.get() - 1);
+                    self.image.a_bomb_still_takes_the_hit_back_for(window - 1);
                 }
             }
             // Coming back, which is what a stage's own register and a death both leave: the walk-in's
@@ -2585,7 +2585,7 @@ extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     fake.bullets.borrow_mut().clear();
     fake.writes_the_bullets_down();
     fake.last_stage_frame.set(0);
-    fake.hit_window.set(0);
+    image.a_bomb_still_takes_the_hit_back_for(0);
     fake.bomb_left.set(0);
     image.a_bomb_is_going_off(false);
     orb_core::runtime::stage_building(stage);

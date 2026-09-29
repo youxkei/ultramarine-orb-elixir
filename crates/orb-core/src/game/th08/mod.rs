@@ -2554,14 +2554,15 @@ impl Game for Th08 {
     /// **The seams this game's own frame is reached through, and no more.**
     ///
     /// The two chain runners put orb inside every frame; the read of the keyboard is what a recipe
-    /// presses through; the window and the device are where a launch's screen setting is obeyed. Every
-    /// other field is `None`, and each of those is a reading not yet made rather than a decision — see
-    /// the list in `asm.md`.
+    /// presses through; the window and the device are where a launch's screen setting is obeyed; the
+    /// frame itself is orb's loop; and the stage's build is where a stage's seed goes in. Every other
+    /// field is `None`, and each of those is a reading not yet made rather than a decision — see the list
+    /// in `asm.md`.
     ///
-    /// **`render` is `None` on purpose.** Taking the frame over means calling this game's own drawing in
-    /// this game's own order, and the queue it empties and draws between `BeginScene` and `EndScene` has
-    /// not been read. th07's first loop over its frame used addresses that were all correct and took the
-    /// game down on its first frame; what a frame is is its order and not a list of numbers.
+    /// **`render` is taken**, now that the frame it replaces has been read in its own order — see
+    /// [`RENDER`], which lists what 0x441e70 does between the time and the present. The order was the
+    /// reason it waited: th07's first loop over its frame used addresses that were all correct and took
+    /// the game down on its first frame, what a frame is being its order and not a list of numbers.
     fn hooks(&self) -> Hooks {
         Hooks {
             update: Some(Patch {
@@ -2584,8 +2585,9 @@ impl Game for Th08 {
                 target: RENDER,
                 prologue: RENDER_PROLOGUE,
             }),
-            // Nothing of this game's replay write or its recorder has been read; a run here is not
-            // rewound, so neither is suppressed.
+            // Nothing of this game's replay write or its recorder has been read, so neither is suppressed:
+            // what keeps a rewound run's replay of the game's own from being offered is the screen it is
+            // offered on, which `Th08::skip_replay_prompt` takes off.
             save_replay: None,
             stop_recording: None,
             // **Nothing, and that is a reading**: this game builds a stage on a thread of the supervisor's
@@ -2664,8 +2666,11 @@ impl Game for Th08 {
         }
     }
 
-    /// **Nothing of a run of this game has been put back on the real game yet, so there is nothing to
-    /// rewind to.**
+    /// **A run of this game is rewound**, on a snapshot the real game has had put back: a launch took a
+    /// chapter of stage 1, died in it on purpose and came back — `restore: skipping 21 range(s), 21728
+    /// bytes` over the three of the sound and the eighteen of the `.anm` slots, six regions put back, and
+    /// the run playing on for two thousand frames after it with no fault — see `orb_real`'s
+    /// `a_death_answered_by_the_chapter_again`, which is that launch made a case.
     ///
     /// A chapter is a snapshot of a run plus the numbers to put back at it. All four things that wants
     /// are read now: the numbers themselves — see [`LIVES`] and its neighbours — the clock a midstage
@@ -2698,16 +2703,9 @@ impl Game for Th08 {
     /// `Snapshot::music_still_playing` answers true for a snapshot that holds no stream, so a restore
     /// calls neither and leaves the music playing over memory [`Th08::audio_state`] held back.
     ///
-    /// **And what is left is a chapter tried on the real game**, which is why this still answers false:
-    /// nothing here has put a snapshot of this game back, and a `true` that has never been restored
-    /// against is a mode offered on a reading nobody has held to the exe. That launch is this change's
-    /// own TODO.
-    ///
     /// `show_ranking` and its three, `jump_to_stage`, `panel_tile` and the music's four decline here as
     /// they decline for th06nc, which rewinds: they are what a mode does *beside* a chapter and not what
     /// one is made of.
-    ///
-    /// Until that launch a launch here is a normal-mode launch, which is what `attached` says in the log.
     fn rewinds(&self) -> bool {
         true
     }

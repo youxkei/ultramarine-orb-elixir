@@ -12,8 +12,8 @@
 # shape had the decide it was still holding answer the resume question itself. See
 # `the_run_picked_up_in_the_stage_it_walked_into`, where that happened.
 #
-# **What says the fresh run played on is the stage's own clock**, not a second chapter: the run is played
-# on for less than the stage's first chapter lasts.
+# **And the fresh run played into its second chapter**, the midboss's arrival, which is what says it went
+# on from the stage's own start rather than standing there.
 - wait_until: { screen: 2 }
   give_up_after: 36000
 - wait_until: { frames: 60 }
@@ -40,7 +40,7 @@
   give_up_after: 600
 - answer: { question: keep_replay, item: 0 }
   give_up_after: 900
-- play_until: { frames: 900 }
+- play_until: { stage: 1, chapter: 2 }
   give_up_after: 18000
 - leave: true
 - wait_until: { frames: 300 }

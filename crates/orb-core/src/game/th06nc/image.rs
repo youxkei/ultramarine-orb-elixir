@@ -1148,6 +1148,20 @@ impl Image {
         self.space().read(super::PLAYER + super::player::STATE)
     }
 
+    /// **The frames a bomb still takes a hit back in**, the field the hit writes 8 into and the game counts
+    /// down — see `player::A_BOMB_STILL_TAKES_IT_BACK`.
+    pub fn a_bomb_still_takes_the_hit_back_for(&self, frames: i32) {
+        self.space().write::<i32>(
+            super::PLAYER + super::player::A_BOMB_STILL_TAKES_IT_BACK,
+            frames,
+        );
+    }
+
+    pub fn the_frames_a_bomb_still_takes_the_hit_back_in(&self) -> i32 {
+        self.space()
+            .read(super::PLAYER + super::player::A_BOMB_STILL_TAKES_IT_BACK)
+    }
+
     /// **The player coming back, with the frames the state has left beside it** — the pair a stage's own
     /// register writes and the pair a death leaves, `player::COMING_BACK` and `player::UNTOUCHABLE`.
     pub fn the_player_is_coming_back(&self, frames: i32) {

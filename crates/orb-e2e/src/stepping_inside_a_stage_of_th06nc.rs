@@ -12,10 +12,11 @@
 //! `Th06nc::say_what_a_playback_is_told_by_when_it_changes`, the instrument that watched the four bytes and
 //! the state a playback could have been told by, and `th06nc/asm.md`'s *What is not established*.
 //!
-//! **And the boundaries are the fight's**, this game's midstage table being empty until a pass fills it:
-//! the stage's own start, the midboss's arrival, the card it puts up and the frame that boss goes down on.
-//! Which is what a pass has to step between before there is a table at all — see
-//! `a_chapter_table_collected_for_th06nc`.
+//! **And the boundaries are the fight's**: the stage's own start, the midboss's arrival, the card it puts up
+//! and the frame that boss goes down on. The laid-out stage ends 600 frames after that, well short of the
+//! first row `game/th06nc/chapters.rs` has for stage 1, so no row of the table is among them — and a pass
+//! over a replay steps between the fight's boundaries alone wherever it is building a table, which is what
+//! `a_chapter_table_collected_for_th06nc` is.
 //!
 //! **Four of them and not th06c's five**: that laid-out game's boss carries the count of the attack it is
 //! on, so the frame its card hands over to a plain attack begins a chapter there; this one's

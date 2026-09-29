@@ -42,17 +42,23 @@ pub(crate) mod fake;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_further_back_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_further_back_of_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_of_a_fight_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_of_a_fight_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_out_of_th06cs_table;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_out_of_th06ncs_table;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_table_collected_for_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_table_collected_for_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_chapter_under_a_bomb_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_chapter_under_a_bomb_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_clear_on_demand_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
@@ -88,9 +94,15 @@ mod stepping_inside_a_stage_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod th06cs_window_going_behind;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod th06ncs_window_going_behind;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_address_space_a_chapter_of_th06c_needs;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_address_space_a_chapter_of_th06nc_needs;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_bot_playing_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
@@ -148,6 +160,8 @@ mod the_replay_offered_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_run_a_retried_chapter_of_th06c_writes_down;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_run_a_retried_chapter_of_th06nc_writes_down;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_run_of_th06c_left_behind;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_run_of_th06c_written_down_off_the_frame;
@@ -166,7 +180,13 @@ mod the_screens_of_th06nc_in_english;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_snapshot_of_th06c_held_against_itself;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_snapshot_of_th06nc_held_against_itself;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_title_menu_of_th06c_walked;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_track_heard_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_track_heard_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_updates_a_resume_of_th06c_takes;
 #[cfg(all(test, target_arch = "x86_64"))]
@@ -187,11 +207,17 @@ mod a_chapter_further_back;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_chapter_further_back_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
+mod a_chapter_further_back_of_th08;
+#[cfg(all(test, target_arch = "x86"))]
 mod a_chapter_of_a_fight_of_th07;
+#[cfg(all(test, target_arch = "x86"))]
+mod a_chapter_of_a_fight_of_th08;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_chapter_of_the_stages_own_boss;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_chapter_out_of_th07s_table;
+#[cfg(all(test, target_arch = "x86"))]
+mod a_chapter_out_of_th08s_table;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_chapter_out_of_the_table;
 #[cfg(all(test, target_arch = "x86"))]
@@ -233,6 +259,8 @@ mod a_region_a_restore_cannot_write_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_region_a_restore_of_th08_cannot_write;
 #[cfg(all(test, target_arch = "x86"))]
+mod a_run_of_th07_played_twice;
+#[cfg(all(test, target_arch = "x86"))]
 mod a_run_of_th08_played_twice;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_stage_transition;
@@ -245,9 +273,13 @@ mod keys_from_another_program;
 #[cfg(all(test, target_arch = "x86"))]
 mod keys_from_another_program_into_th07;
 #[cfg(all(test, target_arch = "x86"))]
+mod keys_from_another_program_into_th08;
+#[cfg(all(test, target_arch = "x86"))]
 mod legacy_run;
 #[cfg(all(test, target_arch = "x86"))]
 mod legacy_run_of_th07;
+#[cfg(all(test, target_arch = "x86"))]
+mod legacy_run_of_th08;
 #[cfg(all(test, target_arch = "x86"))]
 mod mode_on_a_winmm_pad;
 #[cfg(all(test, target_arch = "x86"))]
@@ -275,9 +307,13 @@ mod th07s_window_going_behind;
 #[cfg(all(test, target_arch = "x86"))]
 mod th08;
 #[cfg(all(test, target_arch = "x86"))]
+mod th08s_window_going_behind;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_address_space_a_chapter_needs;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_address_space_a_chapter_of_th07_needs;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_address_space_a_chapter_of_th08_needs;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_bot_playing_th06;
 #[cfg(all(test, target_arch = "x86"))]
@@ -315,6 +351,8 @@ mod the_ending;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_ending_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
+mod the_frame_a_run_of_th06_acts_on;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_frame_a_run_of_th07_acts_on;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_frame_a_run_of_th08_acts_on;
@@ -335,9 +373,13 @@ mod the_handles_a_restore_leaves_alone;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_handles_a_restore_leaves_alone_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
+mod the_handles_a_restore_leaves_alone_of_th08;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_launch_before_its_device;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_launch_of_th07_before_its_device;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_launch_of_th08_before_its_device;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_letterbox_presented_into;
 #[cfg(all(test, target_arch = "x86"))]
@@ -360,6 +402,8 @@ mod the_music_across_a_restore;
 mod the_music_across_a_restore_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_number_th07s_shot_is_scaled_by;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_numbers_a_run_of_th06_was_made_with;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_numbers_a_run_of_th07_was_made_with;
 #[cfg(all(test, target_arch = "x86"))]
@@ -387,6 +431,8 @@ mod the_recipe_a_bot_plays_to;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_recipe_a_bot_plays_to_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
+mod the_recipe_a_bot_plays_to_of_th08;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_replay_a_run_leaves_behind;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_replay_a_run_of_th07_leaves_behind;
@@ -401,6 +447,8 @@ mod the_replay_offered_of_th08;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_run_a_retried_chapter_of_th07_writes_down;
 #[cfg(all(test, target_arch = "x86"))]
+mod the_run_a_retried_chapter_of_th08_writes_down;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_run_a_retried_chapter_writes_down;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_run_left_behind;
@@ -412,6 +460,8 @@ mod the_run_of_th07_read_back;
 mod the_run_of_th07_written_down_off_the_frame;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_run_of_th08_left_behind;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_run_of_th08_read_back;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_run_of_th08_written_down_off_the_frame;
 #[cfg(all(test, target_arch = "x86"))]
@@ -437,6 +487,8 @@ mod the_snapshot_held_against_itself;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_snapshot_of_th07_held_against_itself;
 #[cfg(all(test, target_arch = "x86"))]
+mod the_snapshot_of_th08_held_against_itself;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_song_a_resume_of_th07_puts_back;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_step_th07s_awards_have_climbed;
@@ -451,6 +503,10 @@ mod the_track_heard;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_track_heard_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
+mod the_track_heard_of_th08;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_updates_a_resume_of_th06_takes;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_updates_a_resume_of_th07_takes;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_updates_a_resume_of_th08_takes;
@@ -461,13 +517,19 @@ mod the_window_a_bot_plays_in;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_window_a_bot_plays_in_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
+mod the_window_a_bot_plays_in_of_th08;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_window_going_behind;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_window_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
+mod the_window_of_th08;
+#[cfg(all(test, target_arch = "x86"))]
 mod the_windows_orb_leaves_alone;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_windows_orb_leaves_alone_of_th07;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_windows_orb_leaves_alone_of_th08;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_word_a_run_of_th07_is_written_down_as;
 #[cfg(all(test, target_arch = "x86"))]

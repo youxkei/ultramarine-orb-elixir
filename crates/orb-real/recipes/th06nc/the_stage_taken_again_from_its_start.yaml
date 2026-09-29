@@ -1,18 +1,15 @@
-# A run of th06nc played a moment into its stage, the retry question raised by the recipe and answered
-# with ステージの最初から, so that the stage is built again from its own start, and then played on.
+# A run of th06nc played into its stage's third chapter, the retry question raised by the recipe and
+# answered with ステージの最初から, so that the stage is built again from its own start, and then played on
+# into its second chapter again.
 #
 # **The walk to the run is `a_death_answered_by_the_chapter_again`'s**, which is where the reading of this
 # game's screens is written down: 2 the title, 3 the main menu, then 9, 11, 13, 14, 24 and 25.
 #
-# **ステージの最初から is item 1 here and item 2 of th06c's**, because 更に前からやり直す is left out of
-# the ways on where there is no chapter behind the one that was lost — see `retry_ui`. A launch that
-# answered 3 got `retry: item 3 is past the 3 way(s) on`.
-#
-# **And the question is raised sixty frames in so that both games agree about that.** A fight is a chapter
-# of its own, so a run asked past one has a chapter behind it and four ways — the laid-out game's midboss
-# arrives at frame 400. The real game's is later than that: a launch that played 1,802 frames of its first
-# stage was asked to start over `in chapter 1` and read `boss=` false on every line of the way. Sixty
-# frames is before either, and before the first row of `game/th06nc/chapters.rs`.
+# **ステージの最初から is item 2**, as it is of th06c's recipe: asked in the midboss's card, the run has two
+# chapters behind the one it is in, so 更に前からやり直す is among the ways on — see `retry_ui`, which leaves
+# it out only where there is no chapter behind. Asked in the stage's first chapter, as this recipe was while
+# `game/th06nc/chapters.rs` was empty, the stage is item 1: a launch that answered 3 there got
+# `retry: item 3 is past the 3 way(s) on`.
 #
 # **And the item asks before it acts**, so the confirmation behind it is answered はい — item 0 of the
 # question it raises of its own.
@@ -76,14 +73,14 @@
 - wait_until: { frames: 30 }
 - press: [decide]
   frames: 6
-- play_until: { frames: 60 }
-  give_up_after: 7200
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
 - start_over: true
-- answer: { question: retry, item: 1 }
+- answer: { question: retry, item: 2 }
   give_up_after: 600
 - answer: { question: retry, item: 0 }
   give_up_after: 600
-- play_until: { frames: 900 }
+- play_until: { stage: 1, chapter: 2 }
   give_up_after: 18000
 - leave: true
 - wait_until: { frames: 300 }

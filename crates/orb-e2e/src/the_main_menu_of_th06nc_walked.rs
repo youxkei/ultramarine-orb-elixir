@@ -141,6 +141,52 @@ fn the_cursor_of_th06ncs_menu_steps_over_the_extra_it_is_not_offering() {
     });
 }
 
+/// **A cancel at the menu puts the cursor on its last item and leaves the menu standing**, which is what a
+/// launch of the real game found and what `an_attempt_at_a_card_counted_and_kept`'s recipe walks on: it taps
+/// the cancel until the menu is up and then aims the cursor at the first item again, and it would have
+/// reached no menu at all had a cancel gone back to the title.
+///
+/// **Tapped more than once**, because the recipe does: a cancel that brought the menu up again would start
+/// its twenty frames of grace over each time, and the decide the recipe presses after it would land on
+/// nothing.
+#[test]
+fn a_cancel_at_th06ncs_menu_puts_the_cursor_on_its_last_item_and_leaves_the_menu_up() {
+    in_its_own_process(|| {
+        let game = at_the_menu("th06nc-menu-cancel", true);
+        for _ in 0..3 {
+            game.press(keys::X);
+            assert_eq!(
+                game.image().the_screen_the_front_end_is_on(),
+                SCREEN_MENU,
+                "a cancel at the menu left it",
+            );
+            assert_eq!(
+                game.image().the_item_the_cursor_is_on(),
+                ITEMS - 1,
+                "a cancel did not put the cursor on the menu's last item",
+            );
+        }
+        // And the menu takes a press straight after, the cursor going round from its last item to its
+        // first — which is the walk the recipe makes once the cancel has stood the menu up — and a decide
+        // there is acted on: orb's own question goes up over the item a run is behind, which is the press
+        // reaching the menu's own case and not a grace the cancels started over.
+        game.press(keys::DOWN);
+        assert_eq!(
+            game.image().the_item_the_cursor_is_on(),
+            RUN,
+            "the menu did not take a press after the cancels",
+        );
+        let log = game.log();
+        game.press(keys::RETURN);
+        game.frames(2);
+        assert!(
+            log.said("menu: Run is under the cursor, asking which mode"),
+            "a decide after the cancels was held back by a grace they had started over:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
 /// **With a clear among the records it stops there**, the same menu offering one more item.
 #[test]
 fn the_cursor_of_th06ncs_menu_stops_on_the_extra_a_clear_unlocked() {

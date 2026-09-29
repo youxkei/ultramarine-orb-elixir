@@ -16,12 +16,9 @@
 //! honest before it costs six minutes of the real game: a step that never reaches its point, or a check that
 //! asks for something no launch shows, fails there first.
 //!
-//! **Except the two of th06nc's that play a run to its clear**, which the laid-out th06nc cannot yet play:
-//! `orb-e2e`'s `the_cases_of_th06nc_the_real_game_is_tested_with` names what it gates and what it does
-//! not, and the fake owes an ending, a staff roll, a ranking and an Extra before those two can be played
-//! there. So what a wrong step in one of them still costs is a launch of the real thing.
-//!
-//! **th08's are gated there like every other game's, clears and Extra included**, in
+//! **Every game's are gated there, clears and Extra included** — th06nc's whole-game cases over a field
+//! with no bullets, which is the one thing about them the laid-out game does not play: see
+//! `the_cases_of_th06nc_the_real_game_is_tested_with`'s `WITHOUT_BULLETS`. th08's are in
 //! `the_cases_of_th08_the_real_game_is_tested_with`, one test a chain: its first two took 35 seconds of the
 //! laid-out game where the real one took eight minutes, and the second of them was written wrong once — a
 //! check looking for a line orb writes on a hit rather than per frame, which the real game took seven
@@ -49,15 +46,15 @@ use orb_core::trace::Record;
 pub enum Game {
     Th06,
     Th07,
-    /// **And 「東方紅魔郷: Classic」, the Steam release of 東方紅魔郷**, a 64-bit game with the same sixteen cases as the two above:
-    /// `orb_core::game::th06c` rewinds, so a run of it is picked up, a chapter of it taken again and its
-    /// score file forked the way theirs are. Its front end is walked by its own screen numbers — see its
-    /// recipes.
+    /// **And 「東方紅魔郷: Classic」, the Steam release of 東方紅魔郷**, a 64-bit game with the same cases as
+    /// th06, and its two clears with no hit and no bomb after them: `orb_core::game::th06c` rewinds, so a
+    /// run of it is picked up, a chapter of it taken again and its score file forked the way theirs are. Its
+    /// front end is walked by its own screen numbers — see its recipes.
     Th06c,
     /// **And the other Steam release, 「東方紅魔郷: New Classic」**, on th06c's engine with every address its
-    /// own — see `orb_core::game::th06nc`, which rewinds now. Its cases are its own list all the same:
-    /// every case of that list about a chapter inside a stage wants a boundary its midstage table has none
-    /// of yet.
+    /// own — see `orb_core::game::th06nc`, which rewinds. Its cases are its own list, for what its front
+    /// end and its records are: its checks of a chapter inside a stage are th06c's, over recipes walking
+    /// this game's own screens.
     Th06nc,
     /// **And 東方永夜抄, Imperishable Night**, which `orb_core::game::th08` rewinds: its cases are every
     /// case the rewinding games have under this game's own recipes, with the clears and the Extra its own
@@ -256,20 +253,25 @@ pub fn chains_of(game: Game) -> Vec<Vec<Case>> {
 
 /// The cases of one game, in order.
 ///
-/// **th06nc's are its own list and not the same one yet.** What that list is about is a run
-/// picked up, a chapter taken again, a replay watched and a mode forked — and `Th06nc::rewinds` answers
-/// true now, so the snapshot and the forked file both of those stand on are here: one launch of it took
-/// nineteen chapter restores without a fault, wrote its run to `pointdevice_resume` and gave the run up
-/// to the title.
+/// **th06nc's are its own list and not the shared one.** What that list is about is a run picked up, a
+/// chapter taken again, a replay watched and a mode forked — `Th06nc::rewinds` answering true, one launch
+/// of it having taken nineteen chapter restores without a fault, written its run to `pointdevice_resume`
+/// and given the run up to the title — and every check of a chapter in it is th06c's.
 ///
-/// **What kept the list apart was `game/th06nc/chapters.rs`**, whose seven rows were empty when these
-/// cases were written: a stage of this game was one chapter until its fight started, so every case here
-/// that is about a chapter of a stage was written about chapter 1 or about the midboss's chapters, and its
-/// check is th06c's less the wait for a chapter after the one retried. The table holds th06c's rows now,
-/// moved onto this game's clock, so those waits are there to be had again.
+/// **What keeps the list apart is the game's own front end and records**: recipes walking this game's
+/// screen numbers, the attempt at a card its run build loses, and clears with no ranking of the game's own.
+/// **And what kept its checks apart once was `game/th06nc/chapters.rs`**, whose seven rows were empty
+/// when these cases were written: six of them were th06c's less the wait for a chapter after the one
+/// retried, the recipes stopping inside the stage's first chapter. The table holds th06c's rows now, moved
+/// onto this game's clock, and the recipes play on to the chapters th06c's play to.
 pub fn cases_of(game: Game) -> Vec<Case> {
     match game {
-        Game::Th06 | Game::Th07 => the_cases_of_a_game_orb_rewinds(game),
+        Game::Th06 => the_cases_of_a_game_orb_rewinds(game),
+        Game::Th07 => {
+            let mut cases = the_cases_of_a_game_orb_rewinds(game);
+            cases.extend(the_card_cases_of_th07());
+            cases
+        }
         Game::Th06c => {
             let mut cases = the_cases_of_a_game_orb_rewinds(game);
             cases.extend(the_no_hit_cases_of_th06c());
@@ -473,6 +475,18 @@ fn the_cases_of_th08() -> Vec<Case> {
             within: A_WHOLE_GAME,
             check: checks::the_extra_of_th08_played_to_its_clear,
         },
+        // **And a chapter of the Extra taken again**, which is what the rewinding games' Extra case holds
+        // and the whole-run one above does not: continuing it, in the directory whose records hold the
+        // unlock, and a case of its own rather than an ask inside that run — whose check is the clear, and
+        // an ask there would be one more thing between the run and its end.
+        Case {
+            game: Game::Th08,
+            name: "a_chapter_of_the_extra_taken_again",
+            recipe: include_str!("../recipes/th08/a_chapter_of_the_extra_taken_again.yaml"),
+            continues: true,
+            within: WITHIN,
+            check: checks::a_chapter_of_th08s_extra_taken_again,
+        },
         // **And the other three ways the question offers**, whose items are `retry_ui::RetryMenu::new`'s
         // own order: the chapter, then 更に前からやり直す where the chapters behind the lost one are not
         // none, then the stage, then the run given up. So a recipe that asks in the stage's first chapter
@@ -546,41 +560,34 @@ fn the_cases_of_th08() -> Vec<Case> {
 /// the chain, and a clear is known from the ending's own job arriving. Both are `orb-core`'s
 /// `game/th06nc/asm.md`'s.
 ///
-/// **And a list of its own rather than the rewinding games', because this game's midstage table was
-/// empty when it was written.** So every case the rewinding list writes about a chapter *of* a stage is
-/// written here about **chapter 1** instead, which a stage's own start is and which a death goes back to,
-/// or about the midboss's chapters. See [`cases_of`].
+/// **And a list of its own rather than the rewinding games'**, for this game's own front end and records
+/// — see [`cases_of`], which also has why six of its checks were once shorter than th06c's.
 ///
 /// **The Extra continues the clear**, in the directory the clear's launch left its records in: this game
 /// offers its Extra only once a run has been cleared, and the records that say so are the score file the
-/// first launch pressed through to the title to have written. As with th06c, no laid-out th06nc plays either
-/// first.
+/// first launch pressed through to the title to have written.
 fn the_cases_of_th06nc() -> Vec<Case> {
     vec![
-        // **The mode's own case, and the one chapter 1 alone can reach**: a death answered by the chapter
-        // again. A death early in a stage goes back to that stage's start, which is chapter 1, so the
-        // retry, the restore and the run carrying on out of it are all here. Its check is this game's own
-        // for one step of it: what says the run went on is the stage's own clock and not a chapter after
-        // the one it died in, the recipe stopping inside that chapter.
+        // **The mode's own case**: a death answered by the chapter again, and the run played on into the
+        // chapters of the fight after it — th06c's check, which waits for a chapter past the one died in.
         Case {
             game: Game::Th06nc,
             name: "a_death_answered_by_the_chapter_again",
             recipe: include_str!("../recipes/th06nc/a_death_answered_by_the_chapter_again.yaml"),
             continues: false,
             within: WITHIN,
-            check: checks::a_death_of_th06nc_answered_by_the_chapter_again,
+            check: checks::a_death_answered_by_the_chapter_again,
         },
         // **And the run that case left, started over rather than picked up**, which is the other answer
         // the resume question takes: the replay of the run being written over is asked about and kept,
-        // and the fresh run plays on from the stage's own start. Its check is th06c's less the wait for a
-        // second chapter.
+        // and the fresh run plays on from the stage's own start into its second chapter.
         Case {
             game: Game::Th06nc,
             name: "the_run_started_over_and_its_replay_kept",
             recipe: include_str!("../recipes/th06nc/the_run_started_over_and_its_replay_kept.yaml"),
             continues: true,
             within: WITHIN,
-            check: checks::the_run_of_th06nc_started_over_and_its_replay_kept,
+            check: checks::the_run_started_over_and_its_replay_kept,
         },
         // **And one attempt of that replay watched**, off orb's own four-deep list: this game records no
         // replay a rewound run would fit, so the main menu's item 4 — the replays — is a question of
@@ -606,17 +613,17 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             within: WITHIN,
             check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
         },
-        // **The other two answers the same question takes**, which need no boundary inside a stage
-        // either: the stage again from its own start — which for this game *is* chapter 1, so what it
-        // says over the chapter again is that the item asks before it acts and that the confirmation is
-        // answered — and the run given up, which leaves the run for the front end.
+        // **The other three answers the same question takes**, each th06c's case over this game's own walk:
+        // the chapter again asked for without a death, the stage again from its own start — asked in the
+        // midboss's card, so the stage is the third of four ways on — and the run given up, which leaves the
+        // run for the front end.
         Case {
             game: Game::Th06nc,
             name: "a_chapter_taken_again_without_a_death",
             recipe: include_str!("../recipes/th06nc/a_chapter_taken_again_without_a_death.yaml"),
             continues: false,
             within: WITHIN,
-            check: checks::a_chapter_of_th06nc_taken_again_without_a_death,
+            check: checks::a_chapter_taken_again_without_a_death,
         },
         Case {
             game: Game::Th06nc,
@@ -624,7 +631,7 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             recipe: include_str!("../recipes/th06nc/the_stage_taken_again_from_its_start.yaml"),
             continues: false,
             within: WITHIN,
-            check: checks::the_stage_of_th06nc_taken_again_from_its_start,
+            check: checks::the_stage_taken_again_from_its_start,
         },
         Case {
             game: Game::Th06nc,
@@ -637,9 +644,7 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             check: checks::the_run_given_up_at_the_retry,
         },
         // **And a chapter further back**, which wants two of a stage's own boundaries behind the one the
-        // run is in — the fight's, this game's table being empty. th06c's check unchanged: it plays back
-        // *up* to the chapter it was asked in rather than past it, so nothing in it is about a boundary
-        // this game has not got.
+        // run is in — the fight's. th06c's check unchanged.
         Case {
             game: Game::Th06nc,
             name: "a_chapter_further_back_taken_again",
@@ -662,9 +667,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
         },
         // **The run left in its second chapter and picked up there** — the pair a stage's *own* boundary
         // is needed for, which stage 1 of this game has first where its midboss arrives, its one row of
-        // `game/th06nc/chapters.rs` coming after the midboss. The recipes therefore wait on the boss before
-        // asking for a second chapter, and both checks are th06c's unchanged, every line of them being
-        // orb's rather than a game's.
+        // `game/th06nc/chapters.rs` coming after the midboss. Both checks are th06c's unchanged, every line
+        // of them being orb's rather than a game's.
         Case {
             game: Game::Th06nc,
             name: "a_run_left_in_its_second_chapter",
@@ -683,15 +687,15 @@ fn the_cases_of_th06nc() -> Vec<Case> {
         },
         // **The stage after the first, and the run left there picked up in it** — the pair of cases about
         // a stage a run *walked into* rather than started at: the second stage's chapter 1 is reached by
-        // playing the first stage out. Each check is th06c's less the wait for a chapter after the one
-        // retried, written while this game had none inside a stage.
+        // playing the first stage out, and its second is that stage's first row of the table. Both checks
+        // are th06c's.
         Case {
             game: Game::Th06nc,
             name: "a_chapter_of_the_stage_after_the_first",
             recipe: include_str!("../recipes/th06nc/a_chapter_of_the_stage_after_the_first.yaml"),
             continues: false,
             within: WITHIN,
-            check: checks::a_chapter_of_th06nc_in_the_stage_after_the_first,
+            check: checks::a_chapter_of_the_stage_after_the_first,
         },
         Case {
             game: Game::Th06nc,
@@ -701,7 +705,7 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             ),
             continues: true,
             within: WITHIN,
-            check: checks::the_run_of_th06nc_picked_up_in_the_stage_it_walked_into,
+            check: checks::the_run_picked_up_in_the_stage_it_walked_into,
         },
         // **The attempt a retry inside a spell card counts, and the run after it keeping that count** —
         // the case both of orb's dealings with this game's card records want, and the one case here that
@@ -832,6 +836,24 @@ fn the_no_hit_cases_of_th06c() -> Vec<Case> {
             check: checks::a_normal_run_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb,
         },
     ]
+}
+
+/// **th07's attempt at a card counted and kept**, after the rest of its cases and continuing none of them:
+/// the two runs are one launch, and the records it counts into are the game's own taken aside, so what the
+/// second run's build reads the file back over is this launch's count and nothing a case before it left.
+///
+/// **th07's alone of the four rewinding games' lists**, because it is the one whose count is lost at a read
+/// orb brackets: th06 and th06c carry their captures in memory, and th06nc's case of this name is its own
+/// list's.
+fn the_card_cases_of_th07() -> Vec<Case> {
+    vec![Case {
+        game: Game::Th07,
+        name: "an_attempt_at_a_card_counted_and_kept",
+        recipe: include_str!("../recipes/th07/an_attempt_at_a_card_counted_and_kept.yaml"),
+        continues: false,
+        within: WITHIN,
+        check: checks::an_attempt_at_a_card_of_th07_counted_and_kept,
+    }]
 }
 
 /// **What th06c's Normal run with no hit may take**, a whole game at the game's own speed — its own number,
@@ -1306,6 +1328,10 @@ pub mod checks {
     /// [`TH08_LAST_SPELLS`] for which cards those are and [`th08_took_a_last_spell`] for how an attempt is
     /// read. A death in this mode is answered by the chapter again, so what is held is the attempt the run
     /// got through, not the first.
+    ///
+    /// **And the screen the run ends at, which is this game's one Pointdevice clear reaching it**: the name
+    /// typed into its entry and orb's replay of the run kept in place of the game's own offer — what every
+    /// other rewinding game's clear is held to, and what nothing of this game's asked before.
     pub fn a_run_of_th08_played_to_its_clear_without_a_bomb(trace: &Trace) -> Result<(), String> {
         let started = trace.in_run_from(0).ok_or("no run was ever started")?;
         let normal = trace.records[started]
@@ -1319,7 +1345,21 @@ pub mod checks {
         let ending = trace
             .ending_from(started)
             .ok_or("the run never reached its ending")?;
-        th08_took_a_last_spell(trace, started, ending).map(|_| ())
+        th08_took_a_last_spell(trace, started, ending)?;
+        // **And the screen the run ends at**, as [`a_run_played_to_its_clear`] holds the rewinding games'
+        // clears to it: the name the ranking was registered under, and the replay of the run kept.
+        trace
+            .line_from(ending, "types ORB into the name the game asks for")
+            .ok_or("the ranking was not registered under the name the recipe typed")?;
+        let offered = trace
+            .question_from(ending, "keep_replay")
+            .ok_or("the replay of the run that was finished with was never asked about")?;
+        trace
+            .line_from(offered, "replay: kept")
+            .map(|_| ())
+            .ok_or_else(|| {
+                "the question about that replay was not answered with keeping it".to_owned()
+            })
     }
 
     /// **th06c's bomb in the word a run is played with** — `orb_core`'s `th06c::button::BOMB`, written out for
@@ -1892,31 +1932,6 @@ pub mod checks {
     /// is answered at the question the file raises, the question about that run's replay comes up behind it
     /// and is answered はい, and the run that starts is a fresh one — nothing played back into place.
     pub fn the_run_started_over_and_its_replay_kept(trace: &Trace) -> Result<(), String> {
-        let started = the_run_started_over_with_its_replay_kept(trace)?;
-        trace
-            .chapter_from(started, 1, 2)
-            .map(|_| ())
-            .ok_or_else(|| {
-                "the run started from the beginning never reached its second chapter".to_owned()
-            })
-    }
-
-    /// **th06nc's own, which is the check above less its last step**: the recipe it is written for stops
-    /// before that game's midboss, so no second chapter of the stage is reached and what says the fresh
-    /// run played on is the stage's own clock — see [`carried_past`], and [`cases_of`] for why reaching
-    /// one is a matter of playing that far rather than of the midstage table.
-    pub fn the_run_of_th06nc_started_over_and_its_replay_kept(trace: &Trace) -> Result<(), String> {
-        let started = the_run_started_over_with_its_replay_kept(trace)?;
-        let from = trace.records[started]
-            .state
-            .expect("in_run_from answers a record with a state");
-        carried_past(trace, started, from.stage_frames)
-    }
-
-    /// **Every step of [`the_run_started_over_and_its_replay_kept`] up to the fresh run being on**, which
-    /// is all of it that says nothing about a second chapter — and so all of it a game with one chapter a
-    /// stage can be held to. Answers where that run starts.
-    fn the_run_started_over_with_its_replay_kept(trace: &Trace) -> Result<usize, String> {
         let answered = the_beginning_answered(trace)?;
         let offered = trace
             .question_from(answered, "keep_replay")
@@ -1924,7 +1939,13 @@ pub mod checks {
         let kept = trace
             .line_from(offered, "replay: kept")
             .ok_or("the question about the replay was not answered with keeping it")?;
-        a_fresh_run_after(trace, kept)
+        let started = a_fresh_run_after(trace, kept)?;
+        trace
+            .chapter_from(started, 1, 2)
+            .map(|_| ())
+            .ok_or_else(|| {
+                "the run started from the beginning never reached its second chapter".to_owned()
+            })
     }
 
     /// **th08's own, which keeps the replay without asking about it**: this game's team select is no screen
@@ -2132,60 +2153,6 @@ pub mod checks {
             .ok_or_else(|| format!("the run never got past chapter {died_in} after retrying it"))
     }
 
-    /// **th06nc's death answered by the chapter again**, which is [`a_death_answered_by_the_chapter_again`]
-    /// up to its last step: the retry stands with a death counted, it is answered with the chapter again,
-    /// the run comes back in the chapter it died in with the stage's clock behind it, and the retry is
-    /// counted.
-    ///
-    /// **And then the run carries on past where it died, rather than into the chapter after it.** The
-    /// recipe stops before this game's midboss, so no chapter after the one it died in is reached and
-    /// what says the run went on is the stage's own clock passing the frame the death was on. Which is
-    /// the weaker of the two claims and the only one this recipe can make: a run put back and then stuck
-    /// would show as a clock that never got there. See [`cases_of`] for why the stronger one is a matter
-    /// of playing as far as the fight.
-    pub fn a_death_of_th06nc_answered_by_the_chapter_again(trace: &Trace) -> Result<(), String> {
-        let started = trace.in_run_from(0).ok_or("no run was started")?;
-        let retry = trace
-            .question_from(started, "retry")
-            .ok_or("the retry question never stood, so nothing was hit")?;
-        let before = trace.records[retry]
-            .state
-            .ok_or("the retry stood over no state")?;
-        let died_in = trace.records[retry].chapter;
-        expect(before.deaths >= 1, || {
-            format!(
-                "the retry stood with the game counting {} deaths",
-                before.deaths
-            )
-        })?;
-        let answered = trace
-            .line_from(retry, "retry: the chapter again")
-            .ok_or("the retry question was not answered with the chapter again")?;
-        let back = trace
-            .in_run_from(answered + 1)
-            .ok_or("the run never came back after the retry")?;
-        let after = trace.records[back]
-            .state
-            .expect("in_run_from answers a record with a state");
-        expect(trace.records[back].chapter == died_in, || {
-            format!(
-                "the run came back in chapter {} rather than chapter {died_in}, which it died in",
-                trace.records[back].chapter
-            )
-        })?;
-        expect(after.stage_frames < before.stage_frames, || {
-            format!(
-                "the stage's clock did not go back: {} before the retry, {} after",
-                before.stage_frames, after.stage_frames
-            )
-        })?;
-        expect(trace.records[back].retries >= 1, || {
-            "the retry was not counted".to_owned()
-        })?;
-        put_back_where_its_chapter_began(trace, back)?;
-        carried_past(trace, back, before.stage_frames)
-    }
-
     /// **A death in the attack a boss moves to after a card, answered by that attack again** — th06nc's and
     /// th06c's case of this name. The chapter the run died in began as a nonspell and the one before it as a
     /// card, and the run the chapter again put back is in that same chapter with no card up: a fight whose
@@ -2326,10 +2293,10 @@ pub mod checks {
             })
     }
 
-    /// **th08's death answered by the chapter again**, which is
-    /// [`a_death_of_th06nc_answered_by_the_chapter_again`]'s shape for that game's reason: no row of this
-    /// game's midstage table is measured either, so a stage is one chapter and no chapter after the one
-    /// died in is reached — what says the run went on is its clock passing the frame the death was on.
+    /// **th08's death answered by the chapter again**, which is [`a_death_answered_by_the_chapter_again`]
+    /// up to its last step, written while no row of this game's midstage table was measured: what says the
+    /// run went on is its clock passing the frame the death was on, rather than a chapter after the one
+    /// died in.
     ///
     /// **And the clock it is read on is `script_frames` and not `stage_frames`**, which is this game's
     /// own split: the clock the game steps carries the *run's* frames, continuous across every stage —
@@ -2420,6 +2387,50 @@ pub mod checks {
     /// reason no death is looked for here: orb counts an attempt for any chapter taken again with a card
     /// up, and rules told to take a hit once the card's chapter is running take it in the chapter after.
     pub fn an_attempt_at_a_card_of_th06nc_counted_and_kept(trace: &Trace) -> Result<(), String> {
+        an_attempt_at_a_card_counted_and_kept(trace, "score: what the run before counted put back")
+    }
+
+    /// **th07's attempt at a card counted and kept**, which is th06nc's two runs over this game's own
+    /// read: the save th07 makes at every run's build empties every record (0x42e657) and reads the file
+    /// straight back into them (0x42e735), and `Th07::put_back_the_cards_a_run_left` is the put-back
+    /// inside that save — `score: the records this run left put back over N the file's own differ in`,
+    /// said once the read is done.
+    ///
+    /// **And a card put back with more attempts than the file had**, which is what says the put-back
+    /// carried the attempt — read off the line it says per record it moved, `score: card N now A
+    /// attempt(s) … where the file had B and …`. Not off the count of records moved: the real game's
+    /// put-back moved 141 of them, every one but the card retried reading `now 0 attempt(s)` where the file
+    /// had 0, the records differing from the file's in more than their counts.
+    pub fn an_attempt_at_a_card_of_th07_counted_and_kept(trace: &Trace) -> Result<(), String> {
+        an_attempt_at_a_card_counted_and_kept(
+            trace,
+            "score: the records this run left put back over ",
+        )?;
+        let gained = |line: &str| -> Option<(u32, u32)> {
+            let (_, now) = line.split_once("score: card ")?.1.split_once(" now ")?;
+            let (attempts, rest) = now.split_once(" attempt(s)")?;
+            let had = rest
+                .split_once("where the file had ")?
+                .1
+                .split(' ')
+                .next()?;
+            Some((attempts.parse().ok()?, had.parse().ok()?))
+        };
+        let kept = trace
+            .records
+            .iter()
+            .flat_map(|record| record.lines.iter())
+            .filter_map(|line| gained(line))
+            .any(|(now, had)| now > had);
+        expect(kept, || {
+            "no card was put back with more attempts than the file had, so the attempt was not in it"
+                .to_owned()
+        })
+    }
+
+    /// The two runs both of those are: a chapter taken again inside a card counting an attempt, the run
+    /// left, a second run started, and `put_back` said from the frame the first was left on.
+    fn an_attempt_at_a_card_counted_and_kept(trace: &Trace, put_back: &str) -> Result<(), String> {
         let started = trace.in_run_from(0).ok_or("no run was started")?;
         let card = trace.records[started..]
             .iter()
@@ -2481,127 +2492,10 @@ pub mod checks {
             .ok_or("no second run was started in the launch, so the put-back was never spent")?;
         // **Read from the frame the run was left on** and not from the frame the second is in: the
         // put-back is made inside the build, which the state does not read as a run yet.
-        trace
-            .line_from(left, "score: what the run before counted put back")
-            .map(|_| ())
-            .ok_or_else(|| {
-                "the run after the one that counted put nothing back over the records its build read \
+        trace.line_from(left, put_back).map(|_| ()).ok_or_else(|| {
+            "the run after the one that counted put nothing back over the records its build read \
                  the file into"
-                    .to_owned()
-            })
-    }
-
-    /// **th06nc's chapter taken again without a death**, which is
-    /// [`a_chapter_taken_again_without_a_death`] up to its last step — and that step is the stage's own
-    /// clock passing the frame the run was asked to start over at, for
-    /// [`a_death_of_th06nc_answered_by_the_chapter_again`]'s reason: its recipe stops before the fight,
-    /// so no chapter after the one asked about is reached.
-    pub fn a_chapter_of_th06nc_taken_again_without_a_death(trace: &Trace) -> Result<(), String> {
-        let started = trace.in_run_from(0).ok_or("no run was started")?;
-        let asked = trace
-            .line_from(started, "retry: the run was asked to start over")
-            .ok_or("the run was never asked to start over")?;
-        let up = trace
-            .question_from(asked, "retry")
-            .ok_or("the ask raised no question of where to start again")?;
-        let before = trace.records[up]
-            .state
-            .ok_or("the question stood over no state")?;
-        let asked_in = trace.records[up].chapter;
-        let answered = trace
-            .line_from(up, "retry: the chapter again")
-            .ok_or("the question was not answered with the chapter again")?;
-        let back = trace
-            .in_run_from(answered + 1)
-            .ok_or("the run never came back after the retry")?;
-        let after = trace.records[back]
-            .state
-            .expect("in_run_from answers a record with a state");
-        expect(after.deaths == before.deaths, || {
-            format!(
-                "the run died on the way to the chapter again: {} death(s) when it was asked to \
-                 start over and {} when it came back",
-                before.deaths, after.deaths
-            )
-        })?;
-        expect(trace.records[back].chapter == asked_in, || {
-            format!(
-                "the run came back in chapter {} rather than chapter {asked_in}, which it was asked \
-                 to start over in",
-                trace.records[back].chapter
-            )
-        })?;
-        expect(after.stage_frames < before.stage_frames, || {
-            format!(
-                "the stage's clock did not go back: {} before the retry, {} after",
-                before.stage_frames, after.stage_frames
-            )
-        })?;
-        expect(trace.records[back].retries >= 1, || {
-            "the retry was not counted".to_owned()
-        })?;
-        put_back_where_its_chapter_began(trace, back)?;
-        carried_past(trace, back, before.stage_frames)
-    }
-
-    /// **th06nc's stage taken again from its start**, which is [`the_stage_taken_again_from_its_start`]
-    /// up to its last step — the stage's own clock passing the frame the run was asked at, for the same
-    /// reason: a chapter after the stage's first is what this game has none of.
-    pub fn the_stage_of_th06nc_taken_again_from_its_start(trace: &Trace) -> Result<(), String> {
-        let started = trace.in_run_from(0).ok_or("no run was started")?;
-        let asked = trace
-            .line_from(started, "retry: the run was asked to start over")
-            .ok_or("the run was never asked to start over")?;
-        let up = trace
-            .question_from(asked, "retry")
-            .ok_or("the ask raised no question of where to start again")?;
-        let before = trace.records[up]
-            .state
-            .ok_or("the question stood over no state")?;
-        let asked_in = trace.records[up].chapter;
-        trace
-            .line_from(up, "retry: asking about the stage again")
-            .ok_or("the stage was taken again without being asked about first")?;
-        let answered = trace
-            .line_from(up, "retry: the stage again")
-            .ok_or("the question was not answered with the stage again")?;
-        let back = trace
-            .in_run_from(answered + 1)
-            .ok_or("the run never came back after the stage was taken again")?;
-        let after = trace.records[back]
-            .state
-            .expect("in_run_from answers a record with a state");
-        expect(trace.records[back].chapter == 1, || {
-            format!(
-                "the run came back in chapter {} rather than in the stage's first, having been asked \
-                 to start over in chapter {asked_in}",
-                trace.records[back].chapter
-            )
-        })?;
-        expect(after.stage_frames < before.stage_frames, || {
-            format!(
-                "the stage's clock did not go back: {} before the retry, {} after",
-                before.stage_frames, after.stage_frames
-            )
-        })?;
-        // **Past the frame it came back at and not past the frame it was asked at**, which is what the
-        // stage's own start means: the clock goes back to the beginning of the stage, so a run that
-        // played its way up to where it was asked would have to play the whole stage again — and this
-        // game has no chapter after the stage's first to say it that way instead.
-        carried_past(trace, back, after.stage_frames)
-    }
-
-    /// **The run played on past a frame of the stage it had already reached**, which is the weaker of the
-    /// two ways a case says the run carried on and the only one a game with a single chapter a stage can
-    /// make: a run put back and then stuck would show as a clock that never got there.
-    fn carried_past(trace: &Trace, from: usize, frames: u32) -> Result<(), String> {
-        let carried_on = trace.records[from..].iter().any(|record| {
-            record
-                .state
-                .is_some_and(|state| state.in_run && state.stage_frames > frames)
-        });
-        expect(carried_on, || {
-            format!("the run never played past frame {frames} of the stage")
+                .to_owned()
         })
     }
 
@@ -2850,14 +2744,10 @@ pub mod checks {
             .ok_or_else(|| format!("the run never got past chapter {asked_in} of the second stage"))
     }
 
-    /// **Every step of [`a_chapter_of_the_stage_after_the_first`] up to the retry coming back**, which is
-    /// all of it that says nothing about a chapter after the one retried — and so all of it a recipe that
-    /// stops before the fight can be held to. Answers where the run came back and the chapter it was
-    /// asked to start over in.
-    ///
-    /// A function of its own rather than a flag on that check, so that neither caller can read the other's
-    /// tail: what a recipe that stops inside the chapter retried has to say instead is the stage's own
-    /// clock carrying on — see [`carried_past`].
+    /// **Every step of [`a_chapter_of_the_stage_after_the_first`] up to the retry coming back**: the second
+    /// stage reached with the numbers the first ended with, a chapter of it asked for again, and the run back
+    /// in that chapter with the clock behind where it was asked. Answers where the run came back and the
+    /// chapter it was asked to start over in.
     fn the_stage_after_the_first_and_its_chapter_again(
         trace: &Trace,
     ) -> Result<(usize, u32), String> {
@@ -2945,24 +2835,10 @@ pub mod checks {
         Ok((back, asked_in))
     }
 
-    /// **th06nc's own, which is the check above less its last step**: its recipe stops before the second
-    /// stage's fight, so there is no chapter after the one retried to wait for and what says the run went
-    /// on is the stage's own clock — see [`carried_past`].
-    pub fn a_chapter_of_th06nc_in_the_stage_after_the_first(trace: &Trace) -> Result<(), String> {
-        let (back, _) = the_stage_after_the_first_and_its_chapter_again(trace)?;
-        let after = trace.records[back]
-            .state
-            .expect("the run came back with a state");
-        carried_past(trace, back, after.stage_frames)
-    }
-
-    /// **th06nc's own pick-up in the stage it walked into**, which is
-    /// [`the_run_picked_up_in_the_stage_it_walked_into`] with both of its chapter waits taken out: the
-    /// chapter the run is left in and picked up in is the second stage's first, that being the only one
-    /// this game has, and what says the run played on afterwards is the stage's own clock.
-    pub fn the_run_of_th06nc_picked_up_in_the_stage_it_walked_into(
-        trace: &Trace,
-    ) -> Result<(), String> {
+    /// **The run left in the stage it walked into is picked up in that stage**: the build a resume answers
+    /// for is pointed at the stage the file names, so the run comes up there rather than at a run's first —
+    /// then lands in the chapter it was left in and plays on.
+    pub fn the_run_picked_up_in_the_stage_it_walked_into(trace: &Trace) -> Result<(), String> {
         let asked = trace
             .question_from(0, "resume")
             .ok_or("the resume question never stood, so nothing was left to pick up")?;
@@ -2970,7 +2846,7 @@ pub mod checks {
             .line_from(asked, "resume: from where it stopped")
             .ok_or("the resume question was not answered with where it stopped")?;
         let landed = trace
-            .chapter_from(taken, 2, 1)
+            .chapter_from(taken, 2, 2)
             .ok_or("the run never came back up in a chapter of the second stage")?;
         // **And the stage held to exactly and not to *at or past***, which is what
         // `Trace::chapter_from` asks and what let a launch pass with the run one stage too far: it read
@@ -2989,11 +2865,14 @@ pub mod checks {
             )
         })?;
         // And nothing between the answer and the landing was in another stage either, which is what says
-        // the stage above is the one the build came up in rather than one the run walked on into.
+        // the stage above is the one the build came up in rather than one the run walked on into. **A stage
+        // of -1 is no stage yet and not another one**: th06c's build reads as a run for frames before it
+        // names its stage — the laid-out game's frame 449 of this pick-up read `stage=-1` — so only a stage
+        // the state names is held to it.
         let elsewhere = trace.between(taken, landed).iter().find(|record| {
             record
                 .state
-                .is_some_and(|state| state.in_run && state.stage != 1)
+                .is_some_and(|state| state.in_run && state.stage >= 0 && state.stage != 1)
         });
         expect(elsewhere.is_none(), || {
             let record = elsewhere.expect("a record in another stage");
@@ -3001,39 +2880,6 @@ pub mod checks {
                 "frame {} of the pick-up is in stage {}, where the file named stage 2",
                 record.frame,
                 record.state.expect("a record with a state").stage + 1
-            )
-        })?;
-        let landed_at = trace.records[landed]
-            .state
-            .expect("chapter_from answers a record with a state");
-        carried_past(trace, landed, landed_at.stage_frames)
-    }
-
-    /// **The run left in the stage it walked into is picked up in that stage**: the build a resume answers
-    /// for is pointed at the stage the file names, so the run comes up there rather than at a run's first —
-    /// then lands in the chapter it was left in and plays on.
-    pub fn the_run_picked_up_in_the_stage_it_walked_into(trace: &Trace) -> Result<(), String> {
-        let asked = trace
-            .question_from(0, "resume")
-            .ok_or("the resume question never stood, so nothing was left to pick up")?;
-        let taken = trace
-            .line_from(asked, "resume: from where it stopped")
-            .ok_or("the resume question was not answered with where it stopped")?;
-        let landed = trace
-            .chapter_from(taken, 2, 2)
-            .ok_or("the run never came back up in a chapter of the second stage")?;
-        // **And it came up in that stage rather than at a run's own first**, which is the other way this can
-        // go wrong: the build a resume answers for is pointed at the stage the file names, and a first stage
-        // coming up here would be a run started from the beginning with a chapter of the second to put back.
-        let at_the_first = trace.between(taken, landed).iter().find(|record| {
-            record
-                .state
-                .is_some_and(|state| state.in_run && state.stage == 0)
-        });
-        expect(at_the_first.is_none(), || {
-            format!(
-                "frame {} of the pick-up is in the first stage, where the file named the second",
-                at_the_first.expect("a record in the first stage").frame
             )
         })?;
         trace.chapter_from(landed, 2, 3).map(|_| ()).ok_or_else(|| {
@@ -3225,6 +3071,20 @@ pub mod checks {
     /// only where the game's own score file holds the record, and the case before this one is what put it
     /// there.
     pub fn the_extra_a_cleared_run_unlocked(trace: &Trace) -> Result<(), String> {
+        a_chapter_of_the_extra_taken_again(trace, 7)
+    }
+
+    /// **th08's Extra, one of its chapters taken again** — [`the_extra_a_cleared_run_unlocked`] over this
+    /// game's Extra, which is its ninth stage word: the case after its whole-run Extra, continuing it, so
+    /// that the records the front end reads hold the unlock that one's predecessors left.
+    pub fn a_chapter_of_th08s_extra_taken_again(trace: &Trace) -> Result<(), String> {
+        a_chapter_of_the_extra_taken_again(trace, TH08_THE_EXTRAS_STAGE + 1)
+    }
+
+    /// The Extra started, `stage` being the number the chapters count it as, and one of its chapters taken
+    /// again: the run back in the chapter it was asked in, its clock behind where the question stood, and the
+    /// chapter after it reached.
+    fn a_chapter_of_the_extra_taken_again(trace: &Trace, stage: i32) -> Result<(), String> {
         let asked = trace
             .question_from(0, "mode")
             .ok_or("the mode question never stood over the item that starts the Extra")?;
@@ -3241,7 +3101,7 @@ pub mod checks {
             )
         })?;
         let in_a_chapter = trace
-            .chapter_from(started, 7, 1)
+            .chapter_from(started, stage, 1)
             .ok_or("the Extra never reached a chapter of its own")?;
         let asked_over = trace
             .line_from(in_a_chapter, "retry: the run was asked to start over")
@@ -3276,7 +3136,7 @@ pub mod checks {
             )
         })?;
         trace
-            .chapter_from(back, 7, asked_in + 1)
+            .chapter_from(back, stage, asked_in + 1)
             .map(|_| ())
             .ok_or_else(|| format!("the Extra never got past chapter {asked_in} after retrying it"))
     }
@@ -3330,11 +3190,10 @@ mod tests {
     /// **Every recipe this crate carries is one orb can read**, which is the one thing about a case that
     /// nothing else here would find until a launch.
     ///
-    /// **`orb-e2e` plays most of them and would**, but not all: the cases that play a whole game are named
-    /// in `the_cases_of_th06nc_the_real_game_is_tested_with`'s own `NOT_GATED_YET` because the laid-out
-    /// game cannot reach their ending, and a recipe of one of those goes to the real game unparsed. What
-    /// that costs is the launch: `cargo xtask real` writes the recipe out, orb reads it, and a step it
-    /// cannot read is a game that comes up and plays nothing.
+    /// **`orb-e2e` plays every one of them and would too**, but a gate that one day leaves a case out —
+    /// as th06nc's did while its laid-out game could not reach an ending — sends that recipe to the real
+    /// game unparsed. What that costs is the launch: `cargo xtask real` writes the recipe out, orb reads
+    /// it, and a step it cannot read is a game that comes up and plays nothing.
     #[test]
     fn every_recipe_reads() {
         for case in super::cases() {

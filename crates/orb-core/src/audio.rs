@@ -414,8 +414,9 @@ impl Saved {
     }
 }
 
-/// **What is coming out of the speakers, as one line**: which track, whether its buffer is playing, and where
-/// in the file the sound audible now begins.
+/// **What is coming out of the speakers, as one line**: which track, and — for a game whose buffer orb can
+/// ask, see [`crate::game::Game::music`] — whether it is playing and where in the file the sound audible now
+/// begins.
 ///
 /// One function, so that every line about the music says it the same way and a log can be read for the track
 /// alone. The track is named where the game keeps the name — see [`crate::game::Game::the_track_heard`] — and
@@ -430,12 +431,18 @@ pub unsafe fn what_is_heard(game: &dyn crate::game::Game) -> String {
     let named = game
         .the_track_heard()
         .unwrap_or_else(|| format!("{identity:#010x}"));
-    let music = game.music();
-    let sounding = music
-        .as_ref()
-        .is_some_and(|music| unsafe { music.sounding() });
-    let standing = if sounding { "playing" } else { "stopped" };
-    match music.and_then(|music| unsafe { music.audible_offset() }) {
+    // **No state at all where the game gives no buffer to ask**, rather than `stopped`: a game whose
+    // `Game::music` answers nothing is a game whose buffer is not read, and a line saying `stopped` over a
+    // track playing is a line a reader believes — th06c's and th06nc's said it of every track they played.
+    let Some(music) = game.music() else {
+        return format!("{named} is on the stream, whether it plays and where not to be had");
+    };
+    let standing = if unsafe { music.sounding() } {
+        "playing"
+    } else {
+        "stopped"
+    };
+    match unsafe { music.audible_offset() } {
         Some(at) => format!("{named} is {standing} at {at} in the file"),
         None => format!("{named} is {standing}, its position not to be had"),
     }

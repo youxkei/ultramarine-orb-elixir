@@ -15,9 +15,9 @@
 # resume question itself — `resume: from the beginning, answered on the pad`, which is the one answer this
 # case must not give.
 #
-# **And what says the run played on is the stage's own clock**, not a chapter after the one it came back
-# in, which is the second stage's chapter 1 or 2 according to how far the run that left it had got past
-# `game/th06nc/chapters.rs`'s row at 790.
+# **And played on into the second stage's third chapter**, the one after the chapter it was left in: the
+# case before it leaves the run in chapter 2, which `game/th06nc/chapters.rs`'s row at 790 begins, so the
+# third is that stage's midboss arriving.
 - wait_until: { screen: 2 }
   give_up_after: 36000
 - wait_until: { frames: 60 }
@@ -42,7 +42,7 @@
   give_up_after: 3600
 - answer: { question: resume, item: 0 }
   give_up_after: 600
-- play_until: { frames: 900 }
+- play_until: { stage: 2, chapter: 3 }
   give_up_after: 18000
 - leave: true
 - wait_until: { frames: 300 }

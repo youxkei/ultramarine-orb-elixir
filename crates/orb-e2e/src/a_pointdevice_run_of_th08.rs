@@ -47,7 +47,7 @@ const FRAMES_THE_TEAM_SELECT_COMES_UP_OVER: u32 = 10;
 const TITLE_ITEM_START: i32 = 0;
 
 /// Two of the retry menu's own ways on, in the language a launch on this machine comes out in, and the
-/// chapter it is offering: a stage with no midstage boundary measured has its own start and no other.
+/// chapter it is offering: the stage's own start, the death coming before the table's first row of it.
 const AGAIN: &str = "チャプターをやり直す";
 const GIVEN_UP: &str = "タイトルに戻る";
 const CHAPTER: &str = "MIDSTAGE 1";
@@ -169,8 +169,8 @@ fn a_pointdevice_run_of_th08_is_chosen_chaptered_lost_and_retried() {
             "the run the walk started is not the one this game's own front end starts",
         );
 
-        // ── 3. The stage's first chapter, which is its own start: no row of this game's midstage table is
-        // measured yet, so every chapter of it is a stage's start until a tuning run says otherwise.
+        // ── 3. The stage's first chapter, which is its own start: the midstage table's first row of it is
+        // script frame 1352, well past what this run plays before its death.
         game.frames_until("the stage's first chapter", 600, || {
             log.said("stage 1 chapter 1 (stage start)")
         });

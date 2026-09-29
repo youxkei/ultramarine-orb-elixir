@@ -3,13 +3,19 @@
 //! whose step never reaches its point, or a check that asks for something no launch shows, fails here
 //! before it costs a launch of the real game.
 //!
-//! **All eleven of this game's chains are gated here**, which [`CHAINS`] names and
-//! [`every_chain_of_th06ncs_cases_has_a_test_of_its_own`] holds to `orb-real`'s own list — the same as
-//! th06c's eleven. The last of them to be gated was the clear and the Extra that continues it, which
-//! wanted three things of the laid-out game: the stage the Extra's own run starts in, its end reaching
-//! the screen a run ends at rather than an ending, and a boss beaten leaving with a few points of life
-//! rather than with her attack's own. See `fake::th06nc`, where each is beside the address it was read
-//! from.
+//! **All fifteen of this game's chains are gated here**, which [`CHAINS`] names and
+//! [`every_chain_of_th06ncs_cases_has_a_test_of_its_own`] holds to `orb-real`'s own list. The last of them
+//! to be gated was the clear and the Extra that continues it, which wanted three things of the laid-out
+//! game: the stage the Extra's own run starts in, its end reaching the screen a run ends at rather than an
+//! ending, and a boss beaten leaving with a few points of life rather than with her attack's own. See
+//! `fake::th06nc`, where each is beside the address it was read from.
+//!
+//! **And the laid-out game is held to walking where the real one walked**, by the traces `cargo xtask real`
+//! left where `ORB_REAL_TRACES_TH06NC` names them — the same holding th06c's gate does. Passing its own
+//! check is what a case asks of a launch; walking the places the real launch walked, in its order, is what
+//! says the laid-out front end and stage are the real ones as far as a recipe can tell. Without the holding
+//! a fake that reached a check's fields by another path — a screen skipped, a select the real game repeats
+//! a held key on taken as one edge — passed here and cost a launch to find out.
 
 use std::path::{Path, PathBuf};
 
@@ -87,7 +93,13 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
     }
 }
 
-fn played_out(game: &Fake, dir: &Path, case: &Case) {
+enum Held {
+    NotCompared,
+    Same,
+    Different(String),
+}
+
+fn played_out(game: &Fake, dir: &Path, case: &Case, against: &[PathBuf]) -> Held {
     for _ in 0..FRAMES {
         if game.sim().exited().is_some() {
             break;
@@ -123,6 +135,57 @@ fn played_out(game: &Fake, dir: &Path, case: &Case) {
             trace.narrative().replace('\n', "\n    "),
         );
     }
+    held_against_the_real_game(case, &trace, against)
+}
+
+/// The session directories `cargo xtask real` left, as `ORB_REAL_TRACES_TH06NC` names them, `;` apart —
+/// none where it names none, which is a run of the suite with no real launch to hold the laid-out one to.
+fn real_traces() -> Vec<PathBuf> {
+    std::env::var(format!(
+        "ORB_REAL_TRACES_{}",
+        Game::Th06nc.name().to_uppercase()
+    ))
+    .unwrap_or_default()
+    .split(';')
+    .filter(|named| !named.is_empty())
+    .map(PathBuf::from)
+    .collect()
+}
+
+/// **The places the laid-out launch walked held against the real one's**, where a session holds a trace
+/// of this case — see `Trace::shape` — and where the two part, both walks with the step they parted at
+/// marked.
+fn held_against_the_real_game(case: &Case, laid_out: &Trace, sessions: &[PathBuf]) -> Held {
+    let Some(bytes) = sessions
+        .iter()
+        .find_map(|session| std::fs::read(session.join(case.name).join(TRACE_FILE)).ok())
+    else {
+        return Held::NotCompared;
+    };
+    let real = Trace::read(&bytes).expect("the real game's trace reads back");
+    let (ours, theirs) = (laid_out.shape(), real.shape());
+    let Some(at) = (0..ours.len().max(theirs.len())).find(|at| ours.get(*at) != theirs.get(*at))
+    else {
+        return Held::Same;
+    };
+    let said = |shape: &[String]| {
+        shape
+            .iter()
+            .enumerate()
+            .map(|(step, line)| format!("      {}{line}", if step == at { "> " } else { "  " }))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    Held::Different(format!(
+        "{} {}: parted at {at}, the laid-out game walking {} places and the real one {}\n    \
+         the laid-out game:\n{}\n    the real game:\n{}",
+        case.game.name(),
+        case.name,
+        ours.len(),
+        theirs.len(),
+        said(&ours),
+        said(&theirs),
+    ))
 }
 
 /// The cases of the chain that starts at `head` — see `orb_real::chains_of`.
@@ -157,6 +220,9 @@ fn every_chain_of_th06ncs_cases_has_a_test_of_its_own() {
 /// One chain played out on the laid-out game, in its own order and its own directory.
 fn the_chain_passes(head: &str) {
     in_its_own_process(|| {
+        let against = real_traces();
+        let mut held = 0;
+        let mut parted: Vec<String> = Vec::new();
         let mut left: Vec<(PathBuf, Vec<u8>)> = Vec::new();
         // **Whether the records the next launch starts from hold a clear**, folded over the chain the way
         // `xtask real` folds it: cleared before a case that does not continue the one before it, and set by
@@ -164,7 +230,9 @@ fn the_chain_passes(head: &str) {
         // unlocks it** — see `orb_real::Case::leaves_a_clear`, whose doc has the session this game's own
         // order cost.
         let mut a_clear = false;
-        for case in the_chain_from(head) {
+        let chain = the_chain_from(head);
+        let names: Vec<&str> = chain.iter().map(|case| case.name).collect();
+        for case in chain {
             a_clear = a_clear && case.continues;
             let name = format!("th06nc-real-{}", case.name);
             let game = Fake::attach_configured(
@@ -193,9 +261,25 @@ fn the_chain_passes(head: &str) {
                     game.sim().files().put(dir.join(inside), bytes);
                 }
             }
-            played_out(&game, &dir, &case);
+            match played_out(&game, &dir, &case, &against) {
+                Held::NotCompared => {}
+                Held::Same => held += 1,
+                Held::Different(how) => {
+                    held += 1;
+                    parted.push(how);
+                }
+            }
             left = left_by(&game, &dir);
         }
+        assert!(
+            parted.is_empty(),
+            "the laid-out game did not walk where the real one did:\n  {}",
+            parted.join("\n  ")
+        );
+        assert!(
+            against.is_empty() || held > 0,
+            "{against:?} holds no trace of any of {names:?}",
+        );
     });
 }
 

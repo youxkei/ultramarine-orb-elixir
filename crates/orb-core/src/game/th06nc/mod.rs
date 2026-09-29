@@ -40,8 +40,8 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering}
 use orb_api::mem;
 
 use crate::game::{
-    Boundary, Call, Entered, FileOpen, FrameCalls, Game, Hooks, Lookup, Memory, Menu, Pad,
-    PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads, Walks,
+    Boundary, Call, CountedDeath, Entered, FileOpen, FrameCalls, Game, Hooks, Lookup, Memory, Menu,
+    Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads, Walks,
 };
 
 pub mod chapters;
@@ -1572,7 +1572,10 @@ mod player {
     // in* and the numbers `the_player_a_stage_of_th06nc_starts` holds the build to, and no dead constant
     // of this module's.
     /// **The frames a bomb still takes the hit back in**: the hit writes 8 into it at `0x14006c20e`,
-    /// and the laser's own hit the same at `0x14006c45b`.
+    /// and the laser's own hit the same at `0x14006c45b`. Taken one off a frame of the hit's state at
+    /// `0x14006a21b`, and the frame it reaches nought is the frame the death is made final — the count at
+    /// `0x14053cab0` stepped at `0x14006a22a`; `0x14006a0e2` is the bomb refusing to fire where it is
+    /// nought.
     pub const A_BOMB_STILL_TAKES_IT_BACK: usize = 0x773c;
     /// **Whether a bomb is going off**, one byte: `0x14006a1a4` writes 1 as the bomb's own start runs —
     /// beside the `0x3e7` at `+0x9f20` and the `-999` at `+0x7ac0` — `0x140069e9e` clears it as the
@@ -3695,6 +3698,25 @@ impl Game for Th06nc {
                 this: 0,
             },
             orbs_own: true,
+        }
+    }
+
+    /// **This game counts the hit**, the way th06c does — orb's count moves as the state becomes
+    /// [`player::HIT`], see [`DEATHS`] — so what became of it is read off the two fields the game decides it
+    /// with: the state, and the frames a bomb is still taken in at [`player::A_BOMB_STILL_TAKES_IT_BACK`].
+    /// A state no longer the hit's with the window still open is a death a bomb took back.
+    ///
+    /// **Not the default's `Taken`**, which is th07's answer for a game that counts a death only once the
+    /// window has closed: read here, every deathbomb of a pointdevice run was a death, the retry menu going
+    /// up on the frame of the hit and the bomb pressed inside the window never reaching the game.
+    unsafe fn where_a_counted_death_stands(&self) -> CountedDeath {
+        let state = mem::read_committed::<u8>(at(PLAYER + player::STATE)).unwrap_or(player::NORMAL);
+        let window = mem::read_committed::<i32>(at(PLAYER + player::A_BOMB_STILL_TAKES_IT_BACK))
+            .unwrap_or(0);
+        match state == player::HIT {
+            true if window > 0 => CountedDeath::Open,
+            true => CountedDeath::Taken,
+            false => CountedDeath::Bombed,
         }
     }
 

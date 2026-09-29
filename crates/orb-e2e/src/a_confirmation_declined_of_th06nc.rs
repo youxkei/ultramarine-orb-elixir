@@ -7,10 +7,10 @@
 //!
 //! **Three ways on here where th06c is asked over four**, which is the one thing about this game the file
 //! is for: `retry_ui` leaves 更に前からやり直す out where the chapter that was lost has nothing behind it,
-//! and this game's `chapters.rs` holds seven rows with nothing in them — so a stage of it is one chapter
-//! from its own start and the chapter a death falls in is chapter 1. ステージをやり直す is therefore **one**
-//! down from チャプターをやり直す and not two, and タイトルに戻る two and not three. A recipe of
-//! `orb-real`'s that answered 3 got `retry: item 3 is past the 3 way(s) on`.
+//! and the death here falls in the stage's first chapter, before the midboss's arrival or any row of this
+//! game's `chapters.rs`. ステージをやり直す is therefore **one** down from チャプターをやり直す and not two,
+//! and タイトルに戻る two and not three. A recipe of `orb-real`'s that answered 3 got
+//! `retry: item 3 is past the 3 way(s) on`.
 //!
 //! **And the question is answered on the keyboard**, which is what says orb sees a press of this game at
 //! all: the word the run acts on is what `runtime::the_frames_word` reads, the frame's own keys go into it

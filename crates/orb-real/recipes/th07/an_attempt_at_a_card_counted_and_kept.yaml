@@ -1,0 +1,76 @@
+# Two runs of th07 in one launch: the first asked for its chapter again inside a spell card, so that the retry
+# counts an attempt at that card, and the second started from the beginning, so that the count is put back
+# over the read its own build makes.
+#
+# **The two runs are what this case is for.** `Th07::count_card_attempt` adds one to the record of the card
+# that is up where a chapter is taken again — the game counts an attempt where a card *starts* and a chapter
+# beginning inside one never starts it — and `Th07::put_back_the_cards_a_run_left` is what keeps that count:
+# the save this game makes at every run's build empties every record (0x42e657) and reads the file straight
+# back into them (0x42e735), so a count is lost at the start of the run after the one that made it and
+# nowhere else. th06nc's case of this name is the same two runs over that game's own read.
+#
+# **Nothing is taken at all, the chapter being asked for again rather than lost**: orb counts an attempt for
+# any chapter taken again with a card up, and a hit is drawn for once as a chapter starts — so rules told to
+# take one while the card's own chapter is already running take it in the chapter after, by which time the
+# card is over.
+#
+# The walk to each run is a_death_answered_by_the_chapter_again's.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 4, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# The first card of the run, and two seconds of it played before it is asked about: the wait ends on the frame
+# the card starts, which is the frame its chapter begins on, and th06nc's launch of this walk read the card on
+# no frame the check could find — three frames of it in nearly seven thousand.
+- play_until: { card: true }
+  give_up_after: 18000
+- play_until: { frames: 120 }
+  give_up_after: 1800
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 900 }
+  give_up_after: 18000
+# The run left for the title, which is where orb notes what it counted — and where the chapter it was in is
+# written down, so the run after it is asked about.
+- leave: true
+- wait_until: { frames: 300 }
+# **And the second run from the beginning**, the answer that starts a run rather than picking one up: its
+# build is the save that empties the records and reads the file back, which is the moment the count has to
+# be put back at. The mode question is answered again first, orb's question standing over the title's own
+# item, and the run left unfinished is asked about after it — and its replay kept, はじめから writing over it.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 4, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 30
+  until: { question: resume }
+  give_up_after: 1800
+- answer: { question: resume, item: 1 }
+  give_up_after: 600
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 900
+- play_until: { frames: 300 }
+  give_up_after: 1800
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

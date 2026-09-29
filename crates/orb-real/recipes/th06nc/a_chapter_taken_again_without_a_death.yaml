@@ -4,9 +4,9 @@
 # **The walk to the run is `a_death_answered_by_the_chapter_again`'s**, which is where the reading of this
 # game's screens is written down: 2 the title, 3 the main menu, then 9, 11, 13, 14, 24 and 25.
 #
-# **And the run is played in frames rather than to a chapter further on**, which is what the case was
-# written with while `game/th06nc/chapters.rs` was empty: what says the run went on after the chapter came
-# back is the stage's own clock passing the frame it was asked to start over at.
+# **Asked in the stage's second chapter and played on into its third**, th06c's recipe's chapters: the
+# midboss's arrival is where the ask is made, and her card is what says the run went on after the chapter
+# came back.
 #
 # **Item 0 is もう一度 whatever the run has behind it**, which is why this one needs no care about where the
 # question is raised: `retry_ui` puts the chapter first of the ways on always, and leaves 更に前からやり直す
@@ -74,12 +74,12 @@
   frames: 6
 # **Nothing is taken on purpose**, which is what tells this retry from the one a death asks for: the run
 # is asked to start over with every one of its lives in hand.
-- play_until: { frames: 600 }
-  give_up_after: 7200
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
 - start_over: true
 - answer: { question: retry, item: 0 }
   give_up_after: 600
-- play_until: { frames: 900 }
+- play_until: { stage: 1, chapter: 3 }
   give_up_after: 18000
 - leave: true
 - wait_until: { frames: 300 }

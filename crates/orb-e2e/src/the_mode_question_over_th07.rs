@@ -354,3 +354,44 @@ fn keys_are_not_read_at_th07s_question_with_another_window_in_front() {
         answer(&game, keys::Z);
     });
 }
+
+/// The title's Score item, which is the ranking and not a run: th07's own `TITLE_ITEM_SCORE`, written out here for
+/// the reason every other number an e2e test holds is.
+const TITLE_ITEM_SCORE: i32 = 4;
+
+/// **The ranking is asked the same way and with the same two modes**: one choice for both, because the ranking of
+/// pointdevice runs and a pointdevice run are the same file — the question `mode_question.rs` asks of th06.
+///
+/// A different question, and it says so — `どちらのスコアを見る` where a run gets `モードを選ぶ` — and what the
+/// answer lets through is the game's own Score item, which asks the supervisor for the ranking's scene: the same
+/// scene orb asks for after a run, and the one the game builds the ranking on.
+#[test]
+fn th07s_ranking_is_asked_the_same_way_and_says_it_is_about_a_ranking() {
+    in_its_own_process(|| {
+        let game = game("th07-mode-ranking");
+        let log = game.log();
+        game.image().the_title_menu_points_at(TITLE_ITEM_SCORE);
+        game.one_frame();
+        let from = log.written();
+        game.press_until(keys::Z, "the question over the ranking", || {
+            log.said_since(from, "menu: Scores is under the cursor, asking which mode")
+        });
+        game.one_frame();
+        assert_eq!(
+            game.says(title(Menu::Scores, LANGUAGE)).len(),
+            1,
+            "the question over a ranking is not the one asked about a ranking:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            game.says(title(Menu::Run, LANGUAGE)).is_empty(),
+            "the question over a ranking is the one asked about a run",
+        );
+        game.frames(READS_KEYS_AFTER);
+        assert_eq!(under_the_cursor(&game), Mode::Pointdevice);
+        let image = game.image();
+        game.press_until(keys::Z, "the Pointdevice ranking", || {
+            image.the_scene_now() == image.scene_of_the_ranking()
+        });
+    });
+}

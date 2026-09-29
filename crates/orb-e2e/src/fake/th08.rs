@@ -474,6 +474,10 @@ const A_TRACK_BEFORE_ITS_LOOP: u32 = 0x40_0000;
 /// the window it plays in by — see `orb_core::window::is_game_class`.
 const WINDOW_CLASS: &CStr = c"BASE";
 
+/// And a class of some other window, which is what an ask orb hands straight on looks like: any name but the
+/// one above — see [`Fake::creates_another_window`].
+const OTHER_WINDOW_CLASS: &CStr = c"th08-notify";
+
 /// And the ask itself, which is what a pass-through leaves standing and what orb rewrites every argument
 /// of: a position, a size and a style with a caption on it.
 ///
@@ -617,6 +621,24 @@ impl Launched for Fake {
     }
 }
 
+/// **The facts about the machine a launch is declared with** beside its display: the language its windows
+/// are in, whether it says where its panel is, and whether the game has made its device yet.
+struct Host {
+    ui_language: Option<u16>,
+    monitor: bool,
+    device: bool,
+}
+
+impl Host {
+    /// What an ordinary launch has: the machine's own language, a panel to lay a window out against, and a
+    /// device made before orb is attached.
+    const ORDINARY: Self = Self {
+        ui_language: None,
+        monitor: true,
+        device: true,
+    };
+}
+
 impl Fake {
     /// Lays the game out on a display an e2e test says the whole of, gives it a device, and attaches orb
     /// to it the way a launch there is attached: **orb's own frame loop, with the game's update and draw
@@ -640,7 +662,22 @@ impl Fake {
         work: Work,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, None, true, name, &[], work, settings)
+        Self::attach_declaring(display, Host::ORDINARY, name, &[], work, settings)
+    }
+
+    /// And on a host that will not say where its panel is — **no monitor declared**, which is a window orb has
+    /// nothing to lay out against: see `the_windows_orb_leaves_alone_of_th08.rs`.
+    pub fn attach_without_a_monitor(
+        display: Display,
+        name: &str,
+        work: Work,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
+        let host = Host {
+            monitor: false,
+            ..Host::ORDINARY
+        };
+        Self::attach_declaring(display, host, name, &[], work, settings)
     }
 
     /// And in a directory that already holds `left`, each file at its path inside the directory — what an
@@ -653,7 +690,7 @@ impl Fake {
         work: Work,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, None, true, name, left, work, settings)
+        Self::attach_declaring(display, Host::ORDINARY, name, left, work, settings)
     }
 
     /// And on a machine whose own windows are in the language `ui_language` names — `orb_sim::langid` — with
@@ -665,7 +702,11 @@ impl Fake {
         work: Work,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, Some(ui_language), true, name, &[], work, settings)
+        let host = Host {
+            ui_language: Some(ui_language),
+            ..Host::ORDINARY
+        };
+        Self::attach_declaring(display, host, name, &[], work, settings)
     }
 
     /// And laid out with **no device**, which is what a process is before its Direct3D setup has run: orb
@@ -678,15 +719,18 @@ impl Fake {
         work: Work,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, None, false, name, &[], work, settings)
+        let host = Host {
+            device: false,
+            ..Host::ORDINARY
+        };
+        Self::attach_declaring(display, host, name, &[], work, settings)
     }
 
     /// Every host fact a launch is declared with, in one place: the wrappers above are what an e2e test
     /// calls, each naming the one it is about and passing the rest as what an ordinary launch has.
     fn attach_declaring(
         display: Display,
-        ui_language: Option<u16>,
-        device: bool,
+        host: Host,
         name: &str,
         left: &[(PathBuf, Vec<u8>)],
         work: Work,
@@ -698,7 +742,7 @@ impl Fake {
         let image = Image::laid_out_seeded(display.seed);
         let installed = image.enter();
         // And the language its windows are in, before the attach settles which language orb's screens are.
-        if let Some(ui_language) = ui_language {
+        if let Some(ui_language) = host.ui_language {
             image.sim().set_ui_language(ui_language);
         }
         // What the log says is read after what has been said is written — see `orb_sim::Log::waits_first`.
@@ -729,7 +773,7 @@ impl Fake {
         // The device where the launch has one already, and a null where it is attached before the game's
         // own setup has made one — which is every real launch.
         image.shows_through(
-            if device {
+            if host.device {
                 launch.device()
             } else {
                 orb_api::Device::NULL
@@ -764,9 +808,12 @@ impl Fake {
             sim.display().as_a_metronome();
         }
         // And the monitor the window goes on, before orb is attached and for the reason the rate is: the
-        // attach is where orb says this process reads sizes as real pixels.
-        sim.windows()
-            .set_monitor(orb_sim::Monitor::scaled(), orb_sim::Frame::SOME);
+        // attach is where orb says this process reads sizes as real pixels. Declared for every launch but the
+        // one that asks for a host with no panel to read.
+        if host.monitor {
+            sim.windows()
+                .set_monitor(orb_sim::Monitor::scaled(), orb_sim::Frame::SOME);
+        }
 
         let fake = Box::new(Self {
             image,
@@ -868,6 +915,12 @@ impl Fake {
     pub fn creates_its_window(&self) -> orb_api::Hwnd {
         orb_core::runtime::create_game_window(std::ptr::null_mut());
         self.asks_for_a_window_of_the_class(WINDOW_CLASS)
+    }
+
+    /// And a window of another class, which is an ask orb has to hand straight on: the same call on a class
+    /// that is not the one the game plays in.
+    pub fn creates_another_window(&self) -> orb_api::Hwnd {
+        self.asks_for_a_window_of_the_class(OTHER_WINDOW_CLASS)
     }
 
     fn asks_for_a_window_of_the_class(&self, class: &CStr) -> orb_api::Hwnd {

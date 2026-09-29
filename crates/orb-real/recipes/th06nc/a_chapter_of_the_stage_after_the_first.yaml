@@ -8,10 +8,9 @@
 # difficulty, 11 the character, 13 the shot, and 14, 24 and 25 each taking a press before the stage. Past
 # the question the selects are pressed through in one step — see below for why.
 #
-# **The second stage's chapter 1 is a chapter the run reaches by walking into that stage**, and the nine
-# hundred frames played after the retry cross that stage's first row of `game/th06nc/chapters.rs`, at 790,
-# and stop well before its midboss. What its check holds it to is the stage's own clock carrying on after
-# the retry.
+# **The second stage's chapter 1 is a chapter the run reaches by walking into that stage**, and the run
+# is played after the retry into that stage's second, which is the first row of `game/th06nc/chapters.rs`
+# for it, at script 790 — where it is left for the case after this one to pick up.
 #
 # **And the chapter again is item 0 whichever way the question comes up.** The ways on are three where
 # there is no chapter behind the one that was lost and four where there is, 更に前からやり直す being the
@@ -53,7 +52,7 @@
 - answer: { question: retry, item: 0 }
   give_up_after: 600
 # And on into the stage the run walked into, which is where the run is left for the case after this one.
-- play_until: { frames: 900 }
+- play_until: { stage: 2, chapter: 2 }
   give_up_after: 18000
 - leave: true
 - wait_until: { frames: 300 }

@@ -248,7 +248,7 @@ fn the_chain_passes(head: &str) {
     });
 }
 
-// One test per chain, so that the twelve of them are played at once rather than one after another — see
+// One test per chain, so that the fourteen of them are played at once rather than one after another — see
 // [`CHAINS`], and [`every_chain_of_th06cs_cases_has_a_test_of_its_own`], which is what says none is
 // missing. Named after the case each starts at, so a failure names the chain in the harness's own output.
 

@@ -2461,26 +2461,12 @@ pub extern "system" fn get_input() -> u16 {
         unsafe { game.hand_the_read_to_the_run(buttons, the_first_read_of(frame)) };
         return buttons;
     }
-    // Asked of the system rather than read from the game's own `WM_ACTIVATEAPP`
-    // flag, which only says what the game was last told; this is the same question
-    // orb asks for its own keys, so the two cannot disagree.
-    let window = unsafe { game.window() };
-    let active = !window.is_null() && orb_api::window::foreground() == window;
     // **Said before the bot's word is handed over and not after it.** None of what the window is doing applies
     // to a bot — its word is not the keyboard's and goes in whichever window is in front, which is the block
     // below — but a launch that says nothing about the window is a launch nobody can ask. Somebody watching one
     // play itself in a corner of their screen saw its presses come and go with the focus, and the log had no
     // line either way: this one was written after that block, so a launch playing itself never reached it.
-    if INPUT_ACTIVE.swap(active, Ordering::Relaxed) != active {
-        log!(
-            "input: window {}",
-            if active {
-                "in front"
-            } else {
-                "behind, keys not read"
-            }
-        );
-    }
+    let active = unsafe { the_window_is_in_front(game) };
     // **And the word orb plays the game with where it is playing it itself**, in the same place and through the
     // same hand-over: a bot's frame is a frame of a run in every way a recorded frame is. After the playback
     // above, so that a run being put back is put back with what it was played with and not with what a bot
@@ -2547,6 +2533,30 @@ pub extern "system" fn get_input() -> u16 {
     // the word arriving here already has every pad in it, and it has them before it is written down,
     // which is what makes a direction pushed on a pad a direction the run recorded.
     unsafe { noted(game, frame, held_back(game, buttons)) }
+}
+
+/// **Whether the game's window is the one in front**, said in the log on the read it changes on — the one
+/// question both reads orb stands in front of, [`get_input`] and [`keyboard_state`], drop a person's keys on.
+///
+/// Asked of the system rather than read from the game's own `WM_ACTIVATEAPP` flag, which only says what the
+/// game was last told; this is the same question orb asks for its own keys, so the two cannot disagree.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn the_window_is_in_front(game: &dyn Game) -> bool {
+    let window = unsafe { game.window() };
+    let active = !window.is_null() && orb_api::window::foreground() == window;
+    if INPUT_ACTIVE.swap(active, Ordering::Relaxed) != active {
+        log!(
+            "input: window {}",
+            if active {
+                "in front"
+            } else {
+                "behind, keys not read"
+            }
+        );
+    }
+    active
 }
 
 /// **The keyboard read of a game that looks its own up**, which the game itself put in place: orb
@@ -2618,8 +2628,28 @@ unsafe fn the_keyboard_state(state: *mut u8) -> i32 {
     // The word is written back over the snapshot whichever way round it came, because what
     // `Game::press_into` writes is the whole of what the game reads: a decide taken out and left down in
     // the bytes is a press held back and acted on anyway.
+    //
+    // **And nothing of a person's keys while the window is behind**, [`get_input`]'s rule: this read answers
+    // what was typed at whichever window is in front, so a run read here while behind is a run played with
+    // somebody else's typing. The bot's word and a fed one are not a person's and go in regardless, as they
+    // do there; the question is still asked with them, so that a launch playing itself says where its window
+    // is — and not while a run is being played back into place, which is played wherever the window is.
+    //
+    // **Nor before orb knows the window at all**, which is where this read parts from [`get_input`]'s: the
+    // games this read is for name theirs only through the swapchain orb takes at its first present — see
+    // `dxgi::the_window` — so a launch's first reads have none to ask about, and a window not known yet is no
+    // window behind. Asked as `get_input` asks, those reads dropped the key a run was placed holding.
+    let active = unsafe { resume::landing() }.is_some()
+        || unsafe { runtime.game.window() }.is_null()
+        || unsafe { the_window_is_in_front(runtime.game) };
     let word = match the_word_the_game_reads() {
         Some(word) => Some(word),
+        None if !active => {
+            // What was held is forgotten with the frames given nothing — see [`get_input`]'s own.
+            DECIDE_WAS_DOWN.store(false, Ordering::Relaxed);
+            let frame = unsafe { runtime.game.stage_frame() };
+            unsafe { runtime.game.word_in(state) }.map(|_| unsafe { noted(runtime.game, frame, 0) })
+        }
         None => {
             let frame = unsafe { runtime.game.stage_frame() };
             unsafe { runtime.game.word_in(state) }.map(|pressed| unsafe {

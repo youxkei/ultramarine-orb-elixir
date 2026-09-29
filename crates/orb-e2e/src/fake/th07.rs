@@ -134,6 +134,8 @@ const STAGES_TO_PRACTISE: i32 = 6;
 const TITLE_ITEM_START: i32 = 0;
 const TITLE_ITEM_EXTRA: i32 = 1;
 const TITLE_ITEM_PRACTICE: i32 = 2;
+/// And the title's Score item, which asks for the ranking rather than walking to a screen of its own.
+const TITLE_ITEM_SCORE: i32 = 4;
 
 /// The two phases a screen of the front end is in, as `Th07` reads them: the one its build runs in and the one
 /// its items are read in — and how long each screen is up before it moves to the second. The title's gate is the
@@ -2388,6 +2390,13 @@ impl Fake {
                 // rather than orb's `close_the_game`: what ends the process here is the game, and a laid-out
                 // host answers the call and returns instead of ending a test binary.
                 SCREEN_TITLE if moved == TITLE_ITEMS - 1 => orb_api::process::exit(0),
+                // **The Score item, which is a scene and not a screen**: `[0x575aa8] = 5` at 0x455f95, the
+                // supervisor's own `wanted` — the same write `Th07::show_ranking` makes after a run — and the
+                // ranking then built by the supervisor, see [`Fake::follows_its_supervisor`].
+                SCREEN_TITLE if moved == TITLE_ITEM_SCORE => {
+                    self.image
+                        .is_in_scene(front_end, self.image.scene_of_the_ranking());
+                }
                 SCREEN_TITLE if moved == TITLE_ITEM_EXTRA => {
                     self.walking.set(true);
                     // On its own first item, which is what the real one came up on: `front end: screen 12,
@@ -2751,6 +2760,31 @@ impl Drop for Fake {
 /// # Panics
 /// Where no entry holds that name.
 pub const EXE: &str = "th07.exe";
+
+/// **The walk from the title to a run of the mode, as a recipe**, which is the real recipes' own — see
+/// `orb-real/recipes/th07/a_run_left_in_its_second_chapter.yaml` for why each step is shaped so — ending
+/// on the run's first chapter.
+///
+/// **Here rather than in the e2e module that plays it**, for the reason `fake::th08::TO_A_RUN` is: it is
+/// this game's screens, and a screen number changed in one copy of it would leave the others walking a game
+/// that no longer exists.
+pub(crate) const TO_A_RUN: &str = "\
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 4, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+";
 
 fn the_game_this_is() -> &'static dyn orb_core::game::Game {
     orb_core::game::found(EXE)

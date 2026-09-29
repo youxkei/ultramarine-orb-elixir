@@ -73,19 +73,20 @@
 - take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
 # **A window of frames for the one death this case is about**, and not a chapter: which chapter the death
 # falls in is a thing of how well the rules play and of where the stage's own bullets are, and this window
-# stops before the midboss — which arrives later than stage frame 1,925 — so a chapter further on is
-# nothing to wait for. The question itself cannot be waited for, the rules answering the offer the frame
-# it comes up.
+# stops before the midboss — which arrives later than stage frame 1,925 — so the death is in the stage's
+# first chapter. The question itself cannot be waited for, the rules answering the offer the frame it comes
+# up.
 #
 # **Eighteen hundred and not th06c's four hundred**, because a hit has to be there to be taken: the rules
 # walk into one where the stage offers one, and a launch of this game given four hundred frames from the
 # stage's start played them all out untouched — `the retry question never stood, so nothing was hit`.
 - play_until: { frames: 1800 }
   give_up_after: 7200
-# And then on with no chance of being hit, which is what the chapter again has to carry the run through.
+# And then a chapter past the one it died in, with no chance of being hit on the way, as th06c's recipe
+# plays: the midboss's arrival, her card and the attack after it, each a chapter of the fight.
 - take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
-- play_until: { frames: 1200 }
-  give_up_after: 18000
+- play_until: { stage: 1, chapter: 4 }
+  give_up_after: 36000
 - leave: true
 - wait_until: { frames: 300 }
 - quit: true
