@@ -15,8 +15,8 @@ else — that is also the name of its crates and of the files it installs.
   same cases pass in `orb-e2e`.
 - Run `cargo xtask seam` after touching a crate above the seam: it builds those crates for a target with no
   Windows, which is what says no call went past the seam.
-- Run `cargo xtask check` by hand before asking for a commit: it is the four checks in the order CI
-  runs them, and nothing fires it, jj running no git hooks.
+- Run `cargo xtask check` by hand before calling a change finished: it is the four checks in the order
+  CI runs them, and nothing fires it, jj running no git hooks.
 - Keep the tree at zero warnings, for every target the checks name and not only the one that ships.
   Answer a lint that is wrong about this code with an allow and the reason beside it — as narrow as
   the thing it is wrong about, since an allow over a whole crate stands over whatever that crate
@@ -50,12 +50,11 @@ Write commit messages in English.
 - Then write why: the problem the change solves, with the numbers and addresses that make it real, and
   why this way rather than the obvious alternative. Where a commit adds e2e tests beside other changes,
   write here what they now cover.
-- Give unrelated changes separate commits.
 
 ### Reading the message back
 
-Have the message read back by agents before asking for a commit, and change the line where a reader
-and the commit disagree.
+Have the message read back by agents before it goes onto the change with `jj desc`, and change the
+line where a reader and the commit disagree.
 
 1. Hand **the description by itself** — prefix off, together with any bullet it leans on — to an
    agent with an empty context, no sight of the diff and no access to this repository. Ask it: what
