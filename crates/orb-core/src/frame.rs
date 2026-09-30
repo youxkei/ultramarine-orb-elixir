@@ -814,6 +814,9 @@ impl Pacing {
         // same question. See [`crate::dxgi::hands_over_without_waiting`], which has the measurement —
         // `--pace=4` and `--pace=8` held the same 8.3ms a frame until this, one refresh apiece.
         crate::dxgi::hands_over_without_waiting(self.faster > 1);
+        // And a Direct3D 9 device, whose interval is set as it is made — see
+        // [`crate::window::presents_without_waiting`].
+        crate::window::presents_without_waiting(self.faster > 1);
         if self.faster > 1 {
             log!(
                 "frame: paced at {}Hz, {} time(s) the game's own rate — the clock pacing it, no display \
@@ -1608,6 +1611,16 @@ impl Pacing {
         // five frames of every six hundred were a refresh late, so the value never moved off
         // its floor. It is driven from the flush's own overshoot instead, in `measure_compose`,
         // which is the same question asked of something that answers.
+
+        crate::trace::spans(&[
+            ("gap", self.micros(gap)),
+            ("wait", self.micros(marks.waited - marks.cleared)),
+            ("update", self.micros(marks.updated - marks.waited)),
+            ("sound", self.micros(marks.sounded - marks.updated)),
+            ("draw", self.micros(marks.drawn - marks.sounded)),
+            ("hold", self.micros(marks.held - marks.drawn)),
+            ("present", self.micros(marks.presented - marks.held)),
+        ]);
 
         // The breakdown, for the frames that did not come out on the cadence. Rationed,
         // because a bad patch would otherwise fill the log with the same line.

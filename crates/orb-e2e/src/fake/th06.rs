@@ -1307,7 +1307,9 @@ impl Fake {
     ///
     /// The panel goes in before orb is attached and the window is made after, both for the reasons
     /// [`attach_to_a_panel`](Fake::attach_to_a_panel) and
-    /// [`creates_its_window`](Fake::creates_its_window) give.
+    /// [`creates_its_window`](Fake::creates_its_window) give — **and the device after that**, which is when a
+    /// launch has orb redirect `Present` into the letterbox: the black is only beside a picture presented into
+    /// it, and orb paints there only once it is.
     pub fn attach_watching_the_pacing_on_a_panel(
         display: Display,
         panel: Panel,
@@ -1321,7 +1323,7 @@ impl Fake {
             name,
             &[],
             the_run(),
-            true,
+            false,
             |config| {
                 config.pacing_log = true;
                 // Fullscreen, that being what puts bars down the sides: the game's 4:3 output on a
@@ -1331,6 +1333,7 @@ impl Fake {
             },
         );
         game.creates_its_window();
+        game.finds_its_device();
         game.frame_takes(work);
         game
     }

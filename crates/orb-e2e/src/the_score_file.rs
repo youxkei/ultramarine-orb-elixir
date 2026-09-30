@@ -1029,12 +1029,13 @@ fn the_practice_scores_shown_are_the_answered_modes_own() {
             "a stage neither file has practised is not zero:\n  {}",
             scores_in_memory(&game)
         );
-        // And the one open that number came out of, which is the answer's own read and lands in that file.
+        // And nothing read out of the game's own file: that number came out of orb's, read into the object
+        // after the front end's own read, so the answer reads it again only where the object holds another
+        // file's — see `runtime::choose`.
         let (reads, writes) = reads_and_writes(&game.score_file_opens());
-        assert_eq!(
-            reads,
-            vec![OURS.to_owned()],
-            "the read the answer made did not land in the file that mode's runs are in",
+        assert!(
+            reads.iter().all(|read| read == OURS),
+            "a read the answer made did not land in the file that mode's runs are in: {reads:?}",
         );
         assert!(writes.is_empty(), "answering the question wrote a file");
 

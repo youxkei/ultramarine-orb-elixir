@@ -80,6 +80,7 @@ pub unsafe fn install(
     content: (u32, u32),
     screen: Screen,
     out_of_the_way: bool,
+    faster: bool,
 ) -> Result<(), hook::Error> {
     let previous = unsafe {
         hook::install_import(
@@ -90,6 +91,58 @@ pub unsafe fn install(
         )?
     };
     REGISTER_CLASS_A.store(previous, Ordering::Relaxed);
+    // **And `SetForegroundWindow`, for a launch that plays itself**, whose answer is `orb-core`'s: th10's WinMain
+    // brings its window to the front once it is made (0x438cb1), which took the focus off whatever somebody was
+    // working in on every launch of a bench. **Not refused where the game does not import it**: a game that brings
+    // nothing forward through this entry has nothing to be stopped from doing.
+    if out_of_the_way
+        && let Ok(previous) = unsafe {
+            hook::install_import(
+                module,
+                "USER32.dll",
+                "SetForegroundWindow",
+                hook::address(orb_core::window::set_foreground_window as _),
+            )
+        }
+    {
+        unsafe { orb_core::window::answers_the_window_brought_forward(previous) };
+    }
+    // **And `Direct3DCreate9`, for the same launch**, whose answer writes over the object's `CreateDevice` — see
+    // `orb_core::window::create_device9`, the device being what brought th10's window to the front once the two
+    // above had been dealt with. A Direct3D 8 game imports none, and its `CreateDevice` takes no
+    // `D3DCREATE_NOWINDOWCHANGES`: th08 stopped on its own `Direct3D の初期化に失敗しました` given it (2026-10-04
+    // 04:10). **And for
+    // a launch paced faster than the display**, whose device is made presenting without waiting for its blank — see
+    // `orb_core::window::presents_without_waiting`.
+    if (out_of_the_way || faster)
+        && let Ok(previous) = unsafe {
+            hook::install_import(
+                module,
+                "d3d9.dll",
+                "Direct3DCreate9",
+                hook::address(orb_core::window::direct3d_create9 as _),
+            )
+        }
+    {
+        unsafe { orb_core::window::answers_the_direct3d_made(previous) };
+    }
+    // **And `SetActiveWindow`, for the same launch**, whose answer is `orb-core`'s: th08 attaches its input to the
+    // foreground window's thread, takes the foreground lock's timeout to nought and activates its own window
+    // (0x4436a0 through 0x443725) — which took the focus off the user's own program for 579 milliseconds on a launch
+    // whose `SetForegroundWindow` nothing called. **Not refused where the game does not import it**, for
+    // `SetForegroundWindow`'s reason.
+    if out_of_the_way
+        && let Ok(previous) = unsafe {
+            hook::install_import(
+                module,
+                "USER32.dll",
+                "SetActiveWindow",
+                hook::address(orb_core::window::set_active_window as _),
+            )
+        }
+    {
+        unsafe { orb_core::window::answers_the_window_activated(previous) };
+    }
     // And the window's own arguments, whose rewrite is `orb-core`'s: what was in the entry is handed over
     // the way a laid-out game hands its own function over, and that handover is what settles the window
     // this game is to get.

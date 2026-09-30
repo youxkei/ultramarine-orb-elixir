@@ -94,6 +94,7 @@ pub mod clock;
 pub mod codepage;
 pub mod d3d11;
 pub mod d3d8;
+pub mod d3d9;
 pub mod display;
 pub mod dsound;
 pub mod fs;
@@ -559,6 +560,9 @@ pub trait Win: Send + Sync + 'static {
     /// is not in front comes out wrong.
     fn foreground_window(&self) -> Hwnd;
 
+    /// `SetForegroundWindow` — see [`crate::window::bring_forward`].
+    fn bring_forward(&self, window: Hwnd) -> bool;
+
     /// Every monitor, as the desktop has them arranged — see [`crate::window::monitors`], and
     /// `orb_core::window::the_leftmost_of`, which is what does the choosing.
     fn monitors(&self) -> Vec<Rect>;
@@ -599,10 +603,10 @@ pub trait Win: Send + Sync + 'static {
         true
     }
 
-    /// `ShowWindow` with `SW_SHOW` — see [`crate::window::show`], and `orb_core::window`'s own reason for
-    /// a window that is made hidden. A laid-out host has nothing to show, so the default answers that the
-    /// host took it.
-    fn show(&self, _window: Hwnd) -> bool {
+    /// `ShowWindow` with `SW_SHOWNA` — see [`crate::window::show_without_activating`], and `orb_core::window`'s
+    /// own reason for a window that is made hidden. A laid-out host has nothing to show, so the default answers
+    /// that the host took it.
+    fn show_without_activating(&self, _window: Hwnd) -> bool {
         true
     }
 

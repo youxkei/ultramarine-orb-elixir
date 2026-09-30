@@ -27,8 +27,9 @@ use crate::audio::{Music, Track};
 // The rule for an axis' dead zone and a hat's angle, which both games are read for and neither owns — see
 // `crate::joystick::axis`.
 use crate::game::{
-    Axis, Boundary, Call, CountedDeath, Entered, FileOpen, FrameCalls, Game, Hooks, Memory, Menu,
-    Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads,
+    Axis, Boundary, Building, Call, CountedDeath, Entered, FileOpen, FrameCalls, FrameEntered,
+    Game, Hooks, Memory, Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State,
+    Threads,
 };
 use crate::joystick::{axis, hat};
 use crate::{detail, log, score};
@@ -1425,6 +1426,9 @@ impl Game for Th06 {
             // how orb's loop reaches them.
             walks: None,
             // Nothing: orb is inside this game's frame, and the two above are it.
+            // `__thiscall`s, all three: `Chain::RunCalcChain` and `RunDrawChain` on the chain, and
+            // `GameWindow::Render` on the window.
+            frame_entered: FrameEntered::InEcx,
             runs_its_frame: None,
             save_replay: Some(Patch {
                 target: SAVE_REPLAY,
@@ -1438,10 +1442,10 @@ impl Game for Th06 {
                 target: GAME_MANAGER_ADDED,
                 prologue: GAME_MANAGER_ADDED_PROLOGUE,
             })),
-            stage_building: Some(Patch {
+            stage_building: Some(Building::Cdecl(Patch {
                 target: STAGE_REGISTER_CHAIN,
                 prologue: STAGE_REGISTER_CHAIN_PROLOGUE,
-            }),
+            })),
             unlocks_read: Some(Entered::OnTheStack(Patch {
                 target: MAIN_MENU_ADDED,
                 prologue: MAIN_MENU_ADDED_PROLOGUE,

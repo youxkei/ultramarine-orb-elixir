@@ -1,0 +1,58 @@
+# **A chapter of th10's Extra taken again**, which is what the rewinding games' Extra case holds and
+# the_extra_played_to_its_clear, the whole run of it, does not: continuing that case, in the directory whose
+# records hold the unlock the Normal clear before it left.
+#
+# **The walk is the_extra_played_to_its_clear's**: the main menu's second item, orb's own mode question over
+# it, and then the run's three selects.
+#
+# **And the ask is the pause menu's own item and not a hit**, as a_chapter_taken_again_without_a_death's is:
+# `start_over` presses it, orb takes the game's ask off and answers with its own question, and item 0 is the
+# chapter again. Asked in the Extra's third chapter — the midboss's second nonspell — so the question stands
+# over a chapter with two behind it, and played on into the fourth to say the run went on.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [down]
+  frames: 10
+  until: { screen: 2, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 7, chapter: 0 }
+  give_up_after: 900
+- play_until: { stage: 7, chapter: 3 }
+  give_up_after: 18000
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 7, chapter: 4 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

@@ -15,12 +15,13 @@
 //! than a body that stays beside the patch.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    BM_CLICK, GetDlgItem, PostMessageW, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
-    WM_INITDIALOG,
+    BM_CLICK, CreateDialogIndirectParamW, DestroyWindow, DispatchMessageW, GetDlgItem, GetMessageW,
+    IsDialogMessageW, MSG, PostMessageW, PostQuitMessage, SW_SHOW, SWP_NOACTIVATE, SWP_NOSIZE,
+    SWP_NOZORDER, SetWindowPos, ShowWindow, TranslateMessage, WM_INITDIALOG, WS_VISIBLE,
 };
 
 use crate::hook;
@@ -65,6 +66,15 @@ pub unsafe fn install(module: usize, clicks: &'static [i32]) -> Result<(), hook:
         )?
     };
     DIALOG_BOX_INDIRECT_PARAM_W.store(previous, Ordering::Relaxed);
+    let previous = unsafe {
+        hook::install_import(
+            module,
+            "USER32.dll",
+            "EndDialog",
+            hook::address(end_dialog as _),
+        )?
+    };
+    END_DIALOG.store(previous, Ordering::Relaxed);
     Ok(())
 }
 
@@ -87,7 +97,69 @@ unsafe extern "system" fn dialog_box_indirect_param_w(
         return unsafe { original(instance, template, parent, None, param) };
     };
     THE_GAMES_OWN.store(procedure as usize, Ordering::Relaxed);
-    unsafe { original(instance, template, parent, Some(answered), param) }
+    // **Made hidden and modeless, and run here until the game's procedure ends it**, so that it is never shown and
+    // never activated: shown, it was the one window of a launch that came to the front, th06c's taking the focus off
+    // the user's own program for 154 milliseconds (2026-10-04 04:27) once the window it asks about had been dealt
+    // with. **Not the modal dialog with `WS_VISIBLE` taken off its template**, which was tried: `DialogBox` activates
+    // the dialog all the same, 161 milliseconds in front (04:30). **Written in the game's own template**, which it
+    // builds in memory rather than loads.
+    if !template.is_null() {
+        let extended = unsafe { std::ptr::read_unaligned(template.cast::<u16>().add(1)) } == 0xffff;
+        let style = unsafe { template.cast::<u8>().add(if extended { 12 } else { 0 }) }
+            .cast::<u32>()
+            .cast_mut();
+        unsafe { std::ptr::write_unaligned(style, std::ptr::read_unaligned(style) & !WS_VISIBLE) };
+    }
+    let dialog = unsafe {
+        CreateDialogIndirectParamW(instance, template.cast(), parent, Some(answered), param)
+    };
+    if dialog.is_null() {
+        return unsafe { original(instance, template, parent, Some(answered), param) };
+    }
+    THE_DIALOG.store(dialog as usize, Ordering::Relaxed);
+    let mut message = unsafe { std::mem::zeroed::<MSG>() };
+    while THE_DIALOG.load(Ordering::Relaxed) != 0 {
+        match unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) } {
+            // A quit asked for while the dialog is up is the application's, put back for its own loop.
+            0 => {
+                unsafe { PostQuitMessage(message.wParam as i32) };
+                break;
+            }
+            -1 => break,
+            _ => {
+                if unsafe { IsDialogMessageW(dialog, &message) } == 0 {
+                    unsafe {
+                        TranslateMessage(&message);
+                        DispatchMessageW(&message);
+                    }
+                }
+            }
+        }
+    }
+    ENDED_WITH.load(Ordering::Relaxed)
+}
+
+/// The dialog orb made in the game's place, until the game's procedure ends it — see [`end_dialog`].
+static THE_DIALOG: AtomicUsize = AtomicUsize::new(0);
+/// And what it was ended with, which is what the game's own `DialogBoxIndirectParamW` would have answered.
+static ENDED_WITH: AtomicIsize = AtomicIsize::new(0);
+/// The original of the exe's `EndDialog` entry.
+static END_DIALOG: AtomicUsize = AtomicUsize::new(0);
+
+type EndDialog = unsafe extern "system" fn(HWND, isize) -> i32;
+
+/// **The dialog orb made ended as a modal one is**, with what the game's procedure handed it kept for the answer,
+/// and every other dialog's end handed on: a modeless dialog is not ended by `EndDialog`, so the game's call is what
+/// says the loop in [`dialog_box_indirect_param_w`] is over.
+unsafe extern "system" fn end_dialog(window: HWND, result: isize) -> i32 {
+    if window as usize == THE_DIALOG.load(Ordering::Relaxed) {
+        ENDED_WITH.store(result, Ordering::Relaxed);
+        THE_DIALOG.store(0, Ordering::Relaxed);
+        unsafe { DestroyWindow(window) };
+        return 1;
+    }
+    let original: EndDialog = unsafe { std::mem::transmute(END_DIALOG.load(Ordering::Relaxed)) };
+    unsafe { original(window, result) }
 }
 
 /// Forwards every message to the game's own procedure, and once the dialog is up, posts the clicks.
@@ -133,6 +205,8 @@ unsafe extern "system" fn answered(
                     "dialog: the game's own startup dialog has no control {id}; \
                      it is left to be answered by hand"
                 ));
+                // Shown for that hand, the dialog being made hidden — see [`dialog_box_indirect_param_w`].
+                unsafe { ShowWindow(window, SW_SHOW) };
                 return answer;
             }
             unsafe { PostMessageW(control, BM_CLICK, 0, 0) };

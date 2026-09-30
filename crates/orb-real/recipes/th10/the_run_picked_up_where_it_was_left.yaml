@@ -1,0 +1,58 @@
+# The run a_run_left_in_its_second_chapter left, offered as the run is asked for and taken up where it stopped,
+# and then played on into the chapter after — the midboss's next attack, at frame 3247 of the stage.
+#
+# **The walk is that case's, and the resume question comes at its end**: orb asks it as the shot select's
+# `decide` asks for the run, which is the first frame it knows which run that is — the difficulty, the
+# character and the shot a run left unfinished is kept under.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { question: resume }
+  give_up_after: 900
+- answer: { question: resume, item: 0 }
+  give_up_after: 1800
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

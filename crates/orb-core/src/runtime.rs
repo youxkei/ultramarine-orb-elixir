@@ -350,6 +350,12 @@ const UPDATES_BETWEEN_PUMPS: u32 = 600;
 static CARRYING_A_CONVERSATION: AtomicI32 = AtomicI32::new(CARRYING_NOTHING);
 const CARRYING_NOTHING: i32 = -1;
 
+/// **The update of a skip of an ending that waits for a press, counted from 1, or 0 where no such skip is
+/// running** — see `Game::an_ending_waits_for_a_press`. [`get_input`] answers the decide on the odd ones and
+/// nothing on the even, which is a key going down every other update: one held all the way through goes down
+/// once and is let go never.
+static PRESSING_THROUGH_AN_ENDING: AtomicU32 = AtomicU32::new(0);
+
 /// How long the press carrying a conversation is held and let go for, in updates of the playback: a cycle
 /// of twice this, pressed for the first half and let go for the second. Six, which is a press every twelfth
 /// update — quicker than a person and long enough for the game to see both edges.
@@ -449,6 +455,9 @@ pub struct Runtime {
     /// Whether anybody is there to be asked which. A pass over a replay is not, and a menu
     /// frozen on a question nobody answers is a pass that never ends.
     asks_mode: bool,
+    /// Whether the bracket a game whose one read is at startup has up since the attach is still up for a
+    /// launch that will never be asked — see where [`on_update`] takes it down.
+    startup_read_bracketed: bool,
     /// `Some` while the game is frozen on that question.
     asking: Option<ModeMenu>,
     /// Whether the game is being held on a chapter boundary stepped to during a
@@ -852,6 +861,7 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             spell: None,
             card_frames: None,
             stage_frames: None,
+            difficulty: None,
         },
         pressing: None,
         said: None,
@@ -1369,6 +1379,9 @@ pub unsafe fn detached() {
 /// # Safety
 /// Must run on the game's main thread, before any of orb's hooks are reached.
 pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usize>) {
+    // **No frame of this launch has ended yet**, whatever an earlier attach in this process left: held against
+    // a generator the launch before ended on, the first frame read as drawn outside orb's frame and said so.
+    THE_GENERATOR_AS_THE_FRAME_ENDED.store(NO_WORD, Ordering::Relaxed);
     // Which mode a launch starts in, before anybody has been asked: pointdevice, since that is
     // what orb is for, and normal where `--no-chapters` has left it nothing to be — or where the game
     // itself has nothing orb can rewind, which is a game orb has read no run of. See [`Game::rewinds`]
@@ -1447,7 +1460,8 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     }
     // Which of the two rankings this run is headed for, said whether or not the hook that acts on it
     // went in: with nothing able to rewind, the mode is normal and this is the game's own file, which
-    // is where it was anyway.
+    // is where it was anyway. By the game's own names for the two files, which differ from game to game.
+    score::name_the_files(game.score_files());
     score::fork(mode == Mode::Pointdevice);
     // A game that reads the file once, at startup, makes the front end's read of its unlocks there — before
     // any callback a bracket could go round — so the bracket goes up now and comes down where the mode is
@@ -1489,6 +1503,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
         trace::open(&config.base_dir.join(path));
     }
     trace::wants_the_field_in(config.trace_the_field_in);
+    trace::wants_the_world(config.trace_the_world);
     // And whether this launch is looking for a field of the game's own rather than playing it — see
     // [`find`], whose pass is nine megabytes a frame and so belongs to no other launch.
     unsafe { find::looks_for_what_moves(config.find) };
@@ -1530,6 +1545,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             marked_after: 0,
             mode,
             asks_mode,
+            startup_read_bracketed: game.reads_its_file_once_at_startup() && !asks_mode,
             asking: None,
             held: false,
             walled: false,
@@ -1561,6 +1577,16 @@ impl Runtime {
     /// chapter written down over the file of the run this attempt came out of, and a replay of a replay.
     fn chaptering(&self) -> bool {
         self.config.chapters && self.mode == Mode::Pointdevice && self.watching.is_none()
+    }
+
+    /// **And whether a run with no chapters of its own has them counted anyway**: a legacy run orb plays, whose
+    /// chapters are what the autoplay engine's ways are taken up by — counted, with nothing kept of them, see
+    /// [`Chapters::counts_only`].
+    fn counts_the_chapters_alone(&self) -> bool {
+        !self.chaptering()
+            && self.config.chapters
+            && self.config.autoplay.is_some()
+            && self.watching.is_none()
     }
 
     /// And whether what it presses is being written down, so that the chapter it is left in can be
@@ -1699,7 +1725,9 @@ unsafe fn what_is_reached(runtime: &Runtime) {
     // stage's fourth attack was over before the stage began. After the stage above, so the two agree on
     // the game whose stage is read here.
     playing.reached.chapter = the_chapter_of_the_stage(runtime, Some(playing.reached.stage - 1));
+    let started = profile::now();
     playing.pressing = (playing.word)(runtime.game, playing.reached);
+    unsafe { profile::record(profile::Phase::Steering, started) };
 }
 
 /// Which of orb's own questions is up, if one is: what a recipe's step waits for, and what a trace records
@@ -1856,7 +1884,17 @@ unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
     // The bracket a game whose one read is at startup had up since the attach comes down here, the mode
     // being settled: nothing inside one is running between frames, so this is nought for every other game.
     score::reading_unlocks(false);
-    unsafe { the_modes_own_records_again() };
+    // **Only where what the object holds is another file's**: once the mode's own file has been read into it, the
+    // object in memory is newer than that file, which the game writes only as a run is torn down and as it leaves
+    // — th10's clear is marked after the teardown on the way to the ending, and a second run of the game's own
+    // mode, its file read here again, wrote the clear away. And not *where the mode changes*: the mode starts as
+    // pointdevice while the object holds what the game read out of its own file.
+    if RECORDS_READ_OUT_OF
+        .lock()
+        .is_ok_and(|read| *read != Some(score::the_file_now_opened()))
+    {
+        unsafe { the_modes_own_records_again() };
+    }
     resume::keep(runtime.keeping());
     // The replay of a run follows the same two things the chapter it is left in does: the mode, and orb
     // keeping what the run pressed at all. What each of them then *does* with it is its own — see [`replay`].
@@ -2354,6 +2392,14 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
             // asked on.
             crate::shot::taken(device);
             d3d8::set_texture(device, 0, None);
+        } else {
+            // **And the same for a game whose device is Direct3D 9**, th10, whose scene its own drawing has just
+            // ended — the frame's every picture otherwise lost, its trace holding none for a hit or the clock.
+            let nine = game.direct3d_9_device();
+            if !nine.is_null() {
+                the_clocks_own_picture(runtime);
+                crate::shot::taken_through_direct3d_9(nine);
+            }
         }
         let drawn = frame::now();
         // Between the drawing and the handover, which is the one place the frame's own work is a
@@ -2380,6 +2426,96 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
 unsafe fn call_render(window: *mut c_void) -> i32 {
     let original: OnItsThis = unsafe { std::mem::transmute(RENDER.load(Ordering::Relaxed)) };
     original(window)
+}
+
+/// **The three hooks again, entered the way a game that pushes their argument enters them** — see
+/// `game::FrameEntered`, and th10, which is that game.
+///
+/// **Entry points of their own and not a second spelling of the three above**, because what the game's
+/// code does around a call is the ABI: it pushes the argument and the callee pops it with `ret 0x4`, so a
+/// hook over the prologue has to be that function, and one entered as `fastcall` would read `ecx` and leave
+/// the stack four bytes out on the way back. What each does is call the hook it stands for, so everything
+/// orb does in a frame is the same code whichever way the game got there.
+///
+/// **And the originals behind them in slots of their own** — [`RUN_CALC_CHAIN_ON_THE_STACK`] and its two
+/// neighbours — with [`RUN_CALC_CHAIN`], [`RUN_DRAW_CHAIN`] and [`RENDER`] holding
+/// [`calls_the_calc_chain_on_the_stack`] and its two neighbours instead, which push. So [`call_original`] and
+/// [`call_render`] keep
+/// the one convention they are written in, and what differs is kept where the trampoline is.
+///
+/// x86 alone: `stdcall` is that architecture's, and a 64-bit game has one convention.
+///
+/// # Safety
+/// As the hook each stands for.
+#[cfg(target_arch = "x86")]
+pub unsafe extern "stdcall" fn run_calc_chain_on_the_stack(chain: *mut c_void) -> i32 {
+    unsafe { the_calc_chain(chain) }
+}
+
+/// See [`run_calc_chain_on_the_stack`].
+///
+/// # Safety
+/// As [`run_draw_chain`].
+#[cfg(target_arch = "x86")]
+pub unsafe extern "stdcall" fn run_draw_chain_on_the_stack(chain: *mut c_void) -> i32 {
+    unsafe { the_draw_chain(chain) }
+}
+
+/// See [`run_calc_chain_on_the_stack`].
+///
+/// # Safety
+/// As [`render`].
+#[cfg(target_arch = "x86")]
+pub unsafe extern "stdcall" fn render_on_the_stack(game_window: *mut c_void) -> i32 {
+    unsafe { the_frame(game_window) }
+}
+
+/// The game's own calc walk behind [`run_calc_chain_on_the_stack`] — the trampoline its patch left.
+#[cfg(target_arch = "x86")]
+pub static RUN_CALC_CHAIN_ON_THE_STACK: AtomicUsize = AtomicUsize::new(0);
+/// And its draw walk's.
+#[cfg(target_arch = "x86")]
+pub static RUN_DRAW_CHAIN_ON_THE_STACK: AtomicUsize = AtomicUsize::new(0);
+/// And its whole frame's.
+#[cfg(target_arch = "x86")]
+pub static RENDER_ON_THE_STACK: AtomicUsize = AtomicUsize::new(0);
+
+/// **The game's own calc walk called the way it is entered**, from the one convention [`call_original`] is
+/// written in: this is what [`RUN_CALC_CHAIN`] holds for a game whose walks take their argument on the
+/// stack — see [`run_calc_chain_on_the_stack`].
+///
+/// # Safety
+/// As [`pushed`], over [`RUN_CALC_CHAIN_ON_THE_STACK`], with `chain` the game's own chain.
+#[cfg(target_arch = "x86")]
+pub unsafe extern "fastcall" fn calls_the_calc_chain_on_the_stack(chain: *mut c_void) -> i32 {
+    unsafe { pushed(&RUN_CALC_CHAIN_ON_THE_STACK, chain) }
+}
+
+/// And its draw walk.
+///
+/// # Safety
+/// As [`pushed`], over [`RUN_DRAW_CHAIN_ON_THE_STACK`], with `chain` the game's own chain.
+#[cfg(target_arch = "x86")]
+pub unsafe extern "fastcall" fn calls_the_draw_chain_on_the_stack(chain: *mut c_void) -> i32 {
+    unsafe { pushed(&RUN_DRAW_CHAIN_ON_THE_STACK, chain) }
+}
+
+/// And its whole frame.
+///
+/// # Safety
+/// As [`pushed`], over [`RENDER_ON_THE_STACK`], with `game_window` the object the game calls its frame on.
+#[cfg(target_arch = "x86")]
+pub unsafe extern "fastcall" fn calls_the_frame_on_the_stack(game_window: *mut c_void) -> i32 {
+    unsafe { pushed(&RENDER_ON_THE_STACK, game_window) }
+}
+
+/// # Safety
+/// `trampoline` must hold a function of the game's that takes one argument on the stack and pops it.
+#[cfg(target_arch = "x86")]
+unsafe fn pushed(trampoline: &AtomicUsize, argument: *mut c_void) -> i32 {
+    let original: extern "stdcall" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(trampoline.load(Ordering::Relaxed)) };
+    original(argument)
 }
 
 /// Replaces the game's device setup, to redirect the device's `Present` before
@@ -2416,6 +2552,34 @@ pub extern "C" fn init_d3d_device() {
 pub extern "system" fn get_input() -> u16 {
     let original: extern "system" fn() -> u16 =
         unsafe { std::mem::transmute(GET_INPUT.load(Ordering::Relaxed)) };
+    the_read(|| original())
+}
+
+/// **The same hook over a game whose read is the pad's half of it** — see `game::Read::PadHalf`, and th10,
+/// which is that game: entered with the keyboard's word in `ecx` and the player and the pad pushed, and what
+/// it answers is the word the game stores — with what `Game::pad_word` adds to it, which over such a game is
+/// what its own half of the read leaves out.
+///
+/// `fastcall` with two arguments past the two registers is that call exactly: `ecx`, an `edx` the game does
+/// not set and the callee does not read, and two words on the stack the callee pops.
+#[cfg(target_arch = "x86")]
+pub extern "fastcall" fn get_input_with_the_keys(
+    keys: u32,
+    _edx: u32,
+    player: u32,
+    pad: u32,
+) -> u16 {
+    let original: extern "fastcall" fn(u32, u32, u32, u32) -> u16 =
+        unsafe { std::mem::transmute(GET_INPUT.load(Ordering::Relaxed)) };
+    let added = unsafe { chosen() }.map_or(0, |game| unsafe {
+        game.pad_word(joystick::reading(), DPAD_MOVES.load(Ordering::Relaxed))
+    });
+    the_read(|| original(keys, 0, player, pad) | added)
+}
+
+/// [`get_input`]'s own work, with the game's read handed in as the one call that makes it — which is what
+/// differs between a read that is a function of nothing and one that folds a pad into the keys it is given.
+fn the_read(original: impl FnOnce() -> u16) -> u16 {
     // Nothing of orb's in a process the attach settled on no game in: every line below reads one, and
     // the game's own read is what this hook stands in front of. See [`GAME`].
     let Some(game) = (unsafe { chosen() }) else {
@@ -2488,6 +2652,19 @@ pub extern "system" fn get_input() -> u16 {
     // made at a keyboard put orb's question up.
     // **Behind the press a run given up waits for**, which goes in front of the bot's word and the keyboard's
     // both: the run is on its way to the title whatever either would do with the read.
+    // **And behind the presses a skip of an ending makes**, in front of both for the same reason: the frame is
+    // orb's, and what either would press is one word held across every update of the skip.
+    match PRESSING_THROUGH_AN_ENDING.load(Ordering::Relaxed) {
+        0 => {}
+        update => {
+            let word = if update % 2 == 1 {
+                game.menu_decide()
+            } else {
+                0
+            };
+            return unsafe { noted(game, frame, word) };
+        }
+    }
     if let Some(word) = the_press_a_hand_over_waits_for(game, frame) {
         return unsafe { noted(game, frame, word) };
     }
@@ -2679,6 +2856,9 @@ unsafe fn the_keyboard_state(state: *mut u8) -> i32 {
     if unsafe { resume::landing() }.is_none() {
         unsafe { crate::window::keeps_its_corner() };
         unsafe { crate::window::keeps_its_frame() };
+        // And the focus, for a game whose window came forward by a way orb has no answer for — see
+        // [`crate::window::keeps_the_focus_where_it_was`], which does nothing in every other launch.
+        unsafe { crate::window::keeps_the_focus_where_it_was() };
     }
     answer
 }
@@ -3317,6 +3497,10 @@ pub extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
     result
 }
 
+/// The file whose records [`the_modes_own_records_again`] last read into the score object, and `None` before
+/// its first read.
+static RECORDS_READ_OUT_OF: Mutex<Option<&'static str>> = Mutex::new(None);
+
 /// Reads what the mode's own file records over the half of the front end's read that is a record of runs —
 /// see [`Game::read_what_the_modes_file_records`], and [`unlocks_read`] for why it is here.
 ///
@@ -3328,6 +3512,9 @@ unsafe fn the_modes_own_records_again() {
         return;
     };
     unsafe { game.read_what_the_modes_file_records() };
+    if let Ok(mut read) = RECORDS_READ_OUT_OF.lock() {
+        *read = Some(score::the_file_now_opened());
+    }
     // **And what a run has counted back on top of it.** That read replaces the card records wholesale out of the
     // mode's own file, so a run still playing has its counting taken out of memory here by a read of *orb's*
     // rather than the game's — the same loss [`card_records_read`] puts back after the game's own read, and the
@@ -3613,6 +3800,17 @@ pub extern "C" fn stage_building(stage: i32) -> i32 {
     original(stage)
 }
 
+/// [`stage_building`] over a call that takes two and pops them itself — see `game::Building`.
+#[cfg(target_arch = "x86")]
+pub extern "stdcall" fn stage_building_of_two(first: u32, second: u32) -> u32 {
+    let original: extern "stdcall" fn(u32, u32) -> u32 =
+        unsafe { std::mem::transmute(STAGE_BUILDING.load(Ordering::Relaxed)) };
+    if let Some(game) = unsafe { chosen() } {
+        unsafe { resume::stage_building(game) };
+    }
+    original(first, second)
+}
+
 /// **The pad half of the input read, which is orb's and not the game's.** A tail call inside the keyboard
 /// half, so it cannot be told apart from outside it — and it is not called through: what the buttons and
 /// the axes of every pad mean to this frame is [`Game::pad_word`], for the device the game holds as much
@@ -3739,12 +3937,17 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // moved since the answer before.
     THE_FRAME_IS_THE_SEAM.store(true, Ordering::Relaxed);
     unsafe { what_is_reached(runtime) };
+    // **And the focus handed back where the window orb plays in took it** — see
+    // [`crate::window::keeps_the_focus_where_it_was`]. Every frame orb stands in, as well as the keyboard's read
+    // for a game it stands in no frame of: th10 reads its pad, and that read is the only one it makes.
+    unsafe { crate::window::keeps_the_focus_where_it_was() };
     // Here, at the top, for the reason `trace::Record` gives: this update leaves by several doors, and a
     // record taken before any of them is one record however the frame went.
     // **With the chapter the stage read is in**, for the reason a recipe's is — see [`what_is_reached`]. A
     // trace that paired th08's next stage with the last chapter of the stage being left put that stage's
     // beginning on the frame its build was asked for, `stage=1 frames=20646`, and a check reading the
     // second stage's clock there found it where the first stage's had stopped.
+    unsafe { the_world_for_the_trace(runtime.game) };
     trace::frame(
         runtime.frames,
         runtime.previous,
@@ -4083,6 +4286,20 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // see `fast_forward` above; the first was asked at the top of the frame with everything else.
         if repeat > 0 && runtime.config.autoplay.is_some() {
             unsafe { what_is_reached(runtime) };
+            // **And the part the state says, off the state the last update left**, and not the frame's end's
+            // alone: a way that keeps where it has got to by the card's own frames read the frame's first
+            // update's at all four of a frame's, so card 103's way chose its pace again on every frame and set
+            // its place a pace from the run there, never as far as a focused step — the run stood at
+            // `-0.6,366.1` from card frame 98 to 302 on an attempt that was to go on at a pace from its first
+            // frames, and every attempt of a whole Extra's chapter at four updates a frame was hit 494 to 526
+            // frames into the card, where a pick-up of it at one went through (2026-10-02).
+            if let Some(playing) = PLAYING_IT
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_mut()
+            {
+                unsafe { reached_off_the_state(runtime, &mut playing.reached, &state) };
+            }
         }
         // Before the update, because what reads it is the hit test inside the update. Not
         // during a replay or the attract demo, where the run is a record of one somebody
@@ -4117,7 +4334,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // no read it was not already paying — see [`profile::record_until`].
         let the_state_was_read = profile::now();
         unsafe { profile::record_until(profile::Phase::State, started, the_state_was_read) };
-        if runtime.chaptering() {
+        let counted_alone = runtime.counts_the_chapters_alone();
+        if runtime.chaptering() || counted_alone {
+            runtime.chapters.counts_only(counted_alone);
             // **Timed as its own phase**, the boundary's own work being `Phase::Snapshot`'s and this
             // being what every other frame pays — see [`profile::Phase::Chaptering`], whose doc has the
             // measurement it was added for.
@@ -4251,6 +4470,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // ending is what a run of somebody's own earned, and the run an attempt is watched in is nobody's — it
     // played the frames the boss died on again. Somebody who asked for the ending asked for it about their
     // own clear.
+    let mut an_ending_run_out = false;
     if (runtime.config.skip_ending || runtime.watching.is_some())
         && state.in_ending
         && !state.demo
@@ -4265,6 +4485,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         let track = runtime.game.music_identity();
         let mut frames = 0;
         let mut rolling = false;
+        let pressing = runtime.game.an_ending_waits_for_a_press();
         // Stops at the scene change as well as at the flag, so that whatever follows the
         // ending is reached and then left alone.
         while state.in_ending
@@ -4274,12 +4495,17 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             && result != CHAIN_EXIT_SUCCESS
             && result != CHAIN_EXIT_ERROR
         {
+            if pressing {
+                PRESSING_THROUGH_AN_ENDING.store(frames + 1, Ordering::Relaxed);
+            }
             result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
             state = unsafe { runtime.game.read_state() };
             frames += 1;
             rolling = moved_on(script, state.ending_script);
         }
+        PRESSING_THROUGH_AN_ENDING.store(0, Ordering::Relaxed);
         runtime.rolling = rolling;
+        an_ending_run_out = true;
         if rolling {
             // The track with it, because the roll's script starts one of its own — the ending
             // plays `bgm/th06_16` and the roll `bgm/th06_17` — so both changing on the same
@@ -4521,7 +4747,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // The mode as well as the chapter, because the result screen is a screen every run ends at: a
     // normal run's game over would otherwise take away the chapter a pointdevice run was left in.
     // And this run's own file, which is the one the run just finished was written to.
-    if runtime.kept.is_some() && runtime.keeping() && unsafe { runtime.game.run_finished() } {
+    //
+    // **And an ending run out above as a run finished**, the scene it was read off having gone with it: th10's
+    // skip goes from the ending's scene to the title's inside the one update, so the frame after it reads no
+    // finished run, and a whole Normal cleared that way left the file its last chapter wrote to be offered.
+    if runtime.kept.is_some()
+        && runtime.keeping()
+        && (an_ending_run_out || unsafe { runtime.game.run_finished() })
+    {
         let run = unsafe { runtime.game.run_start() };
         resume::discard(&runtime.config.base_dir, runtime.game, &run);
         runtime.kept = None;
@@ -4554,7 +4787,8 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             .previous
             .is_some_and(|previous| state.deaths > previous.deaths) =>
         {
-            runtime.deciding_a_death = true
+            runtime.deciding_a_death = true;
+            unsafe { keep_the_chapter_hit_in(runtime, &state) };
         }
         true => {}
     }
@@ -4658,6 +4892,21 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 };
             }
         }
+    }
+
+    // **And the bracket round a startup read taken down for a launch nobody is asked**, on the first frame
+    // the title takes a press — which no game reaches before its one read is over. Such a launch never
+    // reaches [`choose`], which is where an asked launch takes it down, and left up it sent every write of
+    // the session to the game's own file: a Pointdevice run of th10 under `--tune` wrote `scoreth10.dat` at
+    // each stage it left. See [`Game::reads_its_file_once_at_startup`].
+    if runtime.startup_read_bracketed && unsafe { runtime.game.menu_takes_a_press() } {
+        runtime.startup_read_bracketed = false;
+        score::reading_unlocks(false);
+        unsafe { the_modes_own_records_again() };
+        log!(
+            "score: the startup read is over and nobody is asked; the file is {}",
+            score::the_file_now_opened()
+        );
     }
 
     // And the same thing said a screen earlier, over the game's own shot type select, where it costs
@@ -5716,6 +5965,7 @@ unsafe fn reached_off_the_state(runtime: &Runtime, reached: &mut Reached, state:
     reached.spell = state.spellcard;
     reached.card_frames = state.spellcard.and(state.boss_attack_frames);
     reached.stage_frames = state.in_run.then_some(state.stage_frames);
+    reached.difficulty = state.in_run.then_some(state.difficulty);
     reached.card_name = unsafe { runtime.game.a_cards_name_is_shown() };
     // And the game's own name entry, which the run's end is past — see `recipe::Until::Name`.
     reached.typing_a_name = unsafe { runtime.game.typing_a_name() };
@@ -5972,6 +6222,7 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // that one frame's, `ms` and the state being what tell these apart — and the state is the run
         // being put back, which is the thing a resume is read for.
         let traced = orb_api::clock::counter();
+        unsafe { the_world_for_the_trace(runtime.game) };
         trace::frame(
             runtime.frames,
             Some(reached),
@@ -6281,10 +6532,52 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
 ///
 /// # Safety
 /// Must run on the game's main thread, with a stage running.
+/// **The world the game holds, kept for the record about to be taken** — where the launch asked for it, and
+/// from a game that has been read for it. See [`crate::trace::TheWorld`].
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn the_world_for_the_trace(game: &dyn Game) {
+    if trace::the_world_is_wanted()
+        && let Some(world) = unsafe { game.the_world() }
+    {
+        trace::the_world(world);
+    }
+}
+
 fn the_worlds_fingerprint(game: &dyn Game) -> String {
     match unsafe { game.the_worlds_fingerprint() } {
         Some(said) => format!(" {said}"),
         None => String::new(),
+    }
+}
+
+/// **Keeps the chapter a pointdevice run was just hit in, where the launch asked for them** — see
+/// `Config::keep_hits_in` — as the chapter written down at its start, in a directory of its own named by the
+/// stage, the chapter and the frame of the hit, so that `--keep-in` naming it puts a later launch straight back
+/// at the start of that chapter.
+///
+/// **On the count moving and not on the death being settled**, so that a hit a bomb takes back is kept as well:
+/// a chapter the rules bombed out of is as much a chapter they could not get through as one they died in.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn keep_the_chapter_hit_in(runtime: &Runtime, state: &State) {
+    let Some(dir) = runtime.config.keep_hits_in.as_ref() else {
+        return;
+    };
+    if !runtime.keeping() {
+        return;
+    }
+    let dir = dir.join(format!(
+        "s{}-c{}-f{}",
+        state.stage + 1,
+        runtime.chapters.number(),
+        state.stage_frames
+    ));
+    match unsafe { resume::keep_a_copy(&dir, runtime.game) } {
+        Some(path) => log!("resume: the chapter hit in kept as {}", path.display()),
+        None => detail!("resume: no chapter written down yet to keep for the hit"),
     }
 }
 
@@ -6906,6 +7199,9 @@ unsafe fn after_draw() {
         return;
     }
     let started = profile::now();
+    if let Some(runtime) = unsafe { RUNTIME.get() }.as_ref() {
+        unsafe { runtime.game.draw_what_is_queued() };
+    }
     unsafe { draw_overlay() };
     unsafe { profile::record(profile::Phase::Draw, started) };
 }
@@ -6975,17 +7271,24 @@ unsafe fn draw_overlay() {
         // **Whichever of the two this game draws through**, asked in that order: a game with a Direct3D 8
         // device is drawn on with that device, and one with none — which is what `d3d_device` answering
         // null means — is drawn on through the swapchain its own frames go to. A game that has neither yet
-        // has nothing to build on, and the frame is handed back with a try still to spend.
+        // has nothing to build on, and the frame is handed back with a try still to spend. th10's
+        // Direct3D 9 device is asked after the other two, being no game's but that one's.
         let device = unsafe { runtime.game.d3d_device() };
         let swapchain = crate::dxgi::the_swapchain();
-        if device.is_null() && swapchain == 0 {
+        let nine = unsafe { runtime.game.direct3d_9_device() };
+        if device.is_null() && swapchain == 0 && nine.is_null() {
             return;
         }
         runtime.overlay_attempts -= 1;
-        runtime.overlay = match device.is_null() {
-            false => unsafe { Overlay::new(device, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT) },
-            true => unsafe {
+        runtime.overlay = match (device.is_null(), swapchain == 0) {
+            (false, _) => unsafe {
+                Overlay::new(device, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT)
+            },
+            (true, false) => unsafe {
                 Overlay::over_a_swapchain(swapchain, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT)
+            },
+            (true, true) => unsafe {
+                Overlay::on_a_direct3d_9_device(nine, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT)
             },
         };
         // Said when it is there and when the last try has gone, and nothing in between: what

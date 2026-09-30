@@ -1,6 +1,6 @@
-//! **The names th07 and th08 keep their songs by**, which is one sound engine's: one music file with a record
-//! per track, looked up by a name with its directory cut off, and a stage's own data naming its tracks by the
-//! `.mid` names the load writes `wav` over.
+//! **The names th07, th08 and th10 keep their songs by**, which is one sound engine's: one music file with a
+//! record per track, looked up by a name with its directory cut off, and a stage's own data naming its tracks by
+//! the names the load writes `wav` over.
 
 use orb_api::mem;
 
@@ -19,7 +19,9 @@ pub(crate) fn name_at(address: usize, room: usize) -> Option<Vec<u8>> {
 }
 
 /// The file's own name out of a path, which is everything past the last separator: the player's own lookup
-/// walks past both kinds — th07's at 0x44bb06, th08's at 0x45c6c6 — so both are cut here.
+/// walks past both kinds — th07's at 0x44bb06, th08's at 0x45c6c6 — so both are cut here. th10's cuts at its
+/// last `/` and looks for a `\` only where there is none (0x43d2b1, 0x43d2c9), which comes to the same for a
+/// path with one kind in it, as every path its stage data holds is.
 pub(crate) fn file_name(path: &[u8]) -> &[u8] {
     let cut = path
         .iter()

@@ -1,0 +1,57 @@
+# **A run of th10 in the other mode, which is the game as it comes**: orb's own question over the main menu's
+# first item answered with the normal mode, a run played for twenty seconds, and nothing of it kept — no
+# chapter counted, no retry, and nothing written down for a later launch to pick up.
+#
+# **The front end is walked by this game's own screen numbers** — see `a_run_started_and_given_up.yaml`,
+# which walks the same four.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+- play_until: { frames: 1200 }
+  give_up_after: 7200
+# The run left for the title, which a run of this mode leaves nothing behind for.
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

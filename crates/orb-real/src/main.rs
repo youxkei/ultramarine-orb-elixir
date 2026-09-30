@@ -10,6 +10,7 @@
 //! orb-real list
 //! orb-real show <trace> [<needle>]
 //! orb-real spawns <trace>
+//! orb-real paths <trace> [<every>]
 //! ```
 //!
 //! `<session-dir>/<case>/trace.msgpack` is where each case's trace is looked for; a case with no trace there
@@ -40,7 +41,8 @@ fn main() -> ExitCode {
         eprintln!(
             "usage: orb-real <session-dir> [th06|th07]\n       orb-real list\n       \
              orb-real show <trace> [<needle>]\n       orb-real watching <trace>\n       \
-             orb-real picture <trace> <out.bmp> [<frame>]\n       orb-real spawns <trace>"
+             orb-real picture <trace> <out.bmp> [<frame>]\n       orb-real spawns <trace>\n       \
+             orb-real paths <trace> [<every>]"
         );
         return ExitCode::FAILURE;
     };
@@ -77,6 +79,27 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         };
         return match shown(&path, args.next().as_deref()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                eprintln!("orb-real: {why}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if session == "paths" {
+        let Some(path) = args.next() else {
+            eprintln!("usage: orb-real paths <trace> [<every>]");
+            return ExitCode::FAILURE;
+        };
+        let every = match args.next().map(|it| it.parse::<i32>()) {
+            None => A_PLACE_EVERY,
+            Some(Ok(every)) if every > 0 => every,
+            Some(_) => {
+                eprintln!("usage: orb-real paths <trace> [<every>], <every> a count of frames");
+                return ExitCode::FAILURE;
+            }
+        };
+        return match paths(&path, every) {
             Ok(()) => ExitCode::SUCCESS,
             Err(why) => {
                 eprintln!("orb-real: {why}");
@@ -281,6 +304,70 @@ fn spawns(path: &str) -> Result<(), String> {
             );
         }
         before = Some(state);
+    }
+    Ok(())
+}
+
+/// **How many frames apart the places `paths` writes are, where nothing says**: a focused step of `2.0` a frame
+/// goes `8` between two, close enough that a path gone along between them is the one the player went.
+const A_PLACE_EVERY: i32 = 4;
+
+/// One card's frames on its first attempt, each with where the player was on it.
+type ACardsPath = (u32, Vec<(i32, (f32, f32))>);
+
+/// **The player's path through every card a trace holds, written as the recipe steps that go along it**: for
+/// each card, its first attempt's frames — the card's own count, from the boss's attack — and the player's place
+/// on every `every`th of them, as a `follow` step.
+///
+/// **What a replay is learnt from in one playing.** A replay played back with `--trace` puts the player's place
+/// into every record, and a card whose fire is aimed at the player is gone through again by going where the player
+/// went on each of its frames — th10's `土着神「宝永四年の赤蛙」`, whose doubles go at where the player is and lay their
+/// rice on the way.
+fn paths(path: &str, every: i32) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
+    let trace = Trace::read(&bytes)?;
+    // Each card's frames and the place on each, its first attempt alone: a card's count going back is a retry.
+    let mut cards: Vec<ACardsPath> = Vec::new();
+    let mut done: Vec<u32> = Vec::new();
+    for record in &trace.records {
+        let (Some(state), Some(at)) = (&record.state, record.at) else {
+            continue;
+        };
+        let (Some(card), Some(frames)) = (state.spellcard, state.boss_attack_frames) else {
+            continue;
+        };
+        if done.contains(&card) {
+            continue;
+        }
+        match cards.iter_mut().find(|(it, _)| *it == card) {
+            Some((_, places)) if places.last().is_some_and(|(last, _)| frames < *last) => {
+                done.push(card)
+            }
+            Some((_, places)) => places.push((frames, at)),
+            None => cards.push((card, vec![(frames, at)])),
+        }
+    }
+    for (card, places) in cards {
+        let Some(&(last, _)) = places.last() else {
+            continue;
+        };
+        let mut kept = Vec::new();
+        let mut at = places[0].1;
+        let mut next = places.iter().peekable();
+        for frame in (every..=last).step_by(usize::try_from(every).unwrap_or(1)) {
+            while let Some((_, place)) = next.next_if(|(it, _)| *it <= frame) {
+                at = *place;
+            }
+            kept.push(format!("[{:.1}, {:.1}]", at.0, at.1));
+        }
+        println!("- follow:");
+        println!("    spell: {card}");
+        println!("    every: {every}");
+        println!("    path: [");
+        for line in kept.chunks(8) {
+            println!("      {},", line.join(", "));
+        }
+        println!("    ]");
     }
     Ok(())
 }

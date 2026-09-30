@@ -686,6 +686,52 @@ fn the_field_of_th06c_is_traced_where_no_card_is_up_for_a_launch_that_named_none
     });
 }
 
+/// **And on every frame, a card's and no card's alike, where a launch named all** — which is how a replay is read
+/// in one playing, its every card and the stretches between them.
+#[test]
+fn the_field_of_th06c_is_traced_on_a_card_and_where_no_card_is_up_for_a_launch_that_named_all() {
+    in_its_own_process(|| {
+        const A_CARD: u32 = 7;
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th06c-the-field-traced-on-every-frame",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some("[]".to_owned());
+                config.trace = Some(std::path::PathBuf::from(orb_real::TRACE_FILE));
+                config.trace_the_field_in = Some(orb_core::trace::EVERY_FRAME);
+            },
+        );
+        game.in_a_run_in_the_stage(1);
+        game.fires_at_the_player(false);
+        let log = game.log();
+        game.frames_until("the stage started", 600, || log.said("(stage start)"));
+        game.image().the_player_is_at(100.0, 300.0);
+        game.image()
+            .a_bullet_of_size_is_at(0, 150.0, 200.0, (0.0, 0.0), (8.0, 8.0));
+        game.image().bullets_alive(1);
+        game.frames(3);
+        game.image().a_boss_is_fighting(1000, 10);
+        game.image().the_spellcard_is(A_CARD);
+        game.frames(3);
+        orb_core::trace::close();
+        let bytes = game
+            .sim()
+            .files()
+            .get(game.dir().join(orb_real::TRACE_FILE))
+            .expect("the launch wrote a trace");
+        let records = orb_core::trace::read(&bytes).expect("the trace reads back");
+        let cards: Vec<_> = records
+            .iter()
+            .filter_map(|record| record.the_field.as_ref().map(|field| field.card))
+            .collect();
+        assert!(
+            cards.contains(&orb_core::trace::NO_CARD) && cards.contains(&A_CARD),
+            "the frames with no card up and the card's were not both traced: {cards:?}",
+        );
+    });
+}
+
 /// **A place a recipe tells the rules goes as deep as the floor it names**, below the low line the rules wait
 /// on of their own — which is where th06c's Extra after its midboss is got through, its fans of three aimed at
 /// the run furthest apart there.

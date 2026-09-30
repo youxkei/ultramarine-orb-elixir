@@ -1,0 +1,61 @@
+# A run of th10 hit on purpose in the first attack a boss moves to after a card, and the death answered by the
+# rules with the chapter again — which has to put the run back at that attack's own start and not at the
+# card's. th06nc's case of this name is where this was first missed, and says why the card and not a
+# chapter's number is what the hit is aimed by. The walk is a_death_answered_by_the_chapter_again's.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# The first card of the run.
+- play_until: { card: true }
+  give_up_after: 18000
+# Hit in each chapter's first attempt and not in its retry: the card first, and then the attacks after it —
+# until a nonspell after a card is one of them, which over stage 1 is the boss's: the midboss leaves on her
+# card, and the chapter after it is the stage's and not a nonspell.
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { frames: 12000 }
+  give_up_after: 24000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

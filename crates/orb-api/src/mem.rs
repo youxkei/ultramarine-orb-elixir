@@ -416,6 +416,13 @@ pub enum Source {
     /// th06nc's `heap1.1` read `0xf000` in one snapshot and, in the next, `0x6000` and `0x2000` with an
     /// uncommitted hole between — so a count into the answer moves where this does not.
     Heap { which: usize, region: usize },
+    /// **And one block of the `n`th heap that is in none of its regions**, counted from 1 in the order
+    /// `HeapWalk` hands such blocks over: an allocation too large for a segment, which the heap manager puts in
+    /// pages of its own and `HeapWalk` lists as a busy block outside every region. th10's sprite manager is
+    /// one, `0x732460` bytes, and its bullets and items two more — walked by their regions alone, a chapter of
+    /// th10 put back neither, and a restored enemy looked its sprite up in a pool the restore had not touched
+    /// and faulted (`0x448992`).
+    HeapBlock { which: usize, block: usize },
     /// The `n`th range the game reserved straight from the OS, counted the same way — see
     /// [`note_reservation`].
     Reservation(usize),
@@ -433,6 +440,7 @@ impl std::fmt::Display for Source {
         match self {
             Source::Data => write!(f, "data"),
             Source::Heap { which, region } => write!(f, "heap{which}.{region}"),
+            Source::HeapBlock { which, block } => write!(f, "heap{which}.big{block}"),
             Source::Reservation(which) => write!(f, "reserve{which}"),
             Source::LaidOut(which) => write!(f, "laid-out{which}"),
         }
@@ -457,6 +465,10 @@ mod names {
             }
             .to_string(),
             "heap1.3",
+        );
+        assert_eq!(
+            Source::HeapBlock { which: 1, block: 2 }.to_string(),
+            "heap1.big2"
         );
         assert_eq!(Source::Reservation(2).to_string(), "reserve2");
         assert_eq!(Source::LaidOut(3).to_string(), "laid-out3");

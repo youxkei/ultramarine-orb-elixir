@@ -244,6 +244,8 @@ struct Steered {
     /// opposite findings — a rule outranked against a rule that fired and was not followed.
     settled: Settled,
     nearest: Option<Nearest>,
+    /// And what came nearest to standing still, the first of [`WAYS`] — see [`Before::nearest_still`].
+    nearest_still: Option<Nearest>,
     counted: Counted,
     held: [Option<Held>; HELD],
     /// How many were within reach, which is not how many of them fit in [`Steered::held`].
@@ -282,6 +284,9 @@ enum Settled {
     /// **The nearest way out of a beam the run is standing in**, which is the one errand that outranks
     /// every other — see [`the_way_out_of_a_beam`].
     OutOfABeam,
+    /// **The place on a player's own path a recipe has the rules go along through the card that is up** — see
+    /// [`FOLLOWING`].
+    APlayersPath,
 }
 
 impl Settled {
@@ -302,6 +307,7 @@ impl Settled {
             Self::ThePlaceItWasTold => "the place it was told to stand",
             Self::TheWayItWasToldToDodge => "the place the card's own dodge puts it",
             Self::OutOfABeam => "the way out of the beam it is in",
+            Self::APlayersPath => "the place on the player's path it follows",
         }
     }
 }
@@ -569,6 +575,17 @@ impl Judged {
 /// moves goes through one of them — the rules stood with `0 of the nine clear` for over `150` frames on the top
 /// edge, `185,16`, while the card's chasers came up to them, and each of the card's hits was of a run standing
 /// still like that. Over six frames a bullet going `0.5` moves `3`, and the run `24`.
+///
+/// **And while th10's `天流「お天水の奇跡」` is cut back across**, the place wanted being away across from the run — see
+/// `crate::cards::the_miracle_of_otensui`. The card's fire is aimed at the run, so over forty frames every move the
+/// other way goes into fire still coming down where the run has been: judged so, the way back from a swing took 444
+/// and 563 frames where it came at all, and twice never did, the dodging carrying the run on into the wall it had
+/// swung at (c90p, c90q, 2026-10-03).
+///
+/// **And while th10's stage 4 waterfall is crossed to behind its band**, for the same reason — see
+/// [`away_from_where_the_fall_lands`]: from keep\hits-u11-normal-pd-1\s4-c4-f4874 the way wanted `-60,368` behind a
+/// band sweeping right for 124 frames, and the run went the other way ahead of it from `42` to the right wall and was
+/// hit there at `184.0,432.0` (w4g, 2026-10-03).
 const A_CROSSINGS_LOOK_AHEAD: usize = 6;
 
 /// The nine one-frame moves, as the direction each goes in.
@@ -724,7 +741,18 @@ struct Before {
     /// boxes read `0, 0, 0, 0, 0` on all three, a beam being no part of the counting.
     warned: u32,
     fire: [f32; BOXES_ACROSS],
+    /// **And what came nearest to standing still, said where [`A_FEW_CLEAR`] or fewer were** — which is what a
+    /// frame with nearly none of the nine clear needs and its line could not say: th10's `源符「厭い川の翡翠」` had
+    /// one frame in four read that way with nothing moving within 90 of the run, and pressing down on each of
+    /// them walked the run to the floor; and later a hundred frames running with only the moves down clear.
+    /// **Standing still's and not the move made's**, which on those frames was a bank of the river sixty off
+    /// that a move held for the whole look reaches, and says nothing of why the rest were shut.
+    nearest_still: Option<Nearest>,
 }
+
+/// **How few of the nine clear a frame before a hit says what came nearest to standing still on** — see
+/// [`Before::nearest_still`].
+const A_FEW_CLEAR: u32 = 2;
 
 /// The frames before, oldest first once it has wrapped — see [`THE_FRAMES_BEFORE`].
 static BEFORE: Mutex<(usize, [Option<Before>; THE_FRAMES_BEFORE])> =
@@ -758,7 +786,7 @@ fn say_the_frames_before() {
     }) {
         detail!(
             "autoplay: before it, {} frame(s) back, at {:.0},{:.0} wanting {} at {:.0},{:.0}, \
-             pressing {:#05x} with {} of the nine clear, {} of them only warned, and {} and the boxes {}",
+             pressing {:#05x} with {} of the nine clear, {} of them only warned, and {} and the boxes {}{}",
             back - step,
             before.at.0,
             before.at.1,
@@ -778,6 +806,21 @@ fn say_the_frames_before() {
                 .map(|fire| format!("{fire:.0}"))
                 .collect::<Vec<_>>()
                 .join(", "),
+            match (before.clear <= A_FEW_CLEAR, before.nearest_still) {
+                (true, Some(near)) => format!(
+                    ", the nearest to standing still {} at {:.1},{:.1} stepping {:.1},{:.1}{}",
+                    near.what,
+                    near.at.0,
+                    near.at.1,
+                    near.step.0,
+                    near.step.1,
+                    match near.feared {
+                        Some((x, y)) => format!(" feared out to {x:.1},{y:.1}"),
+                        None => String::new(),
+                    },
+                ),
+                _ => String::new(),
+            },
         );
     }
 }
@@ -807,6 +850,9 @@ struct Remembered {
     /// Where each bullet was, the step it claimed, and the count that says the bullet in that slot now is
     /// the same one — see [`Stayed`].
     bullets: Vec<Option<Stayed>>,
+    /// **And how each bullet moved**, which is what a bullet a script moves is projected along — see the
+    /// bullet's arm of `steer`.
+    bullets_went: Vec<Option<Stayed>>,
     /// Where each body was, how it was moving, and the count that says the body in that slot now is the
     /// same one — see [`Stayed`].
     bodies: Vec<Option<Stayed>>,
@@ -981,6 +1027,12 @@ fn moved(was: Option<(f32, f32)>, (x, y): (f32, f32)) -> (f32, f32) {
 /// reading `12.2 of room` with nothing else near, and stage 6's turning card gave three of them.
 const A_STEP_OF_ITS_OWN: f32 = 0.5;
 
+/// **How many frames before its burst a knot of `蛙狩「蛙は口ゆえ蛇に呑まるる」` is feared over it**, its box
+/// spreading at the burst's own pace from now: so a knot is feared `32` wider than it will be at most, on the frame
+/// it goes — and one further off its burst, of which the field holds hundreds at rest, is left standing where it
+/// stands, which is what a knot being laid is.
+const A_KNOT_IS_FEARED_FROM: i32 = 8;
+
 /// **The move's own next frame, and then the [`LOOK_AHEAD`] after it.**
 ///
 /// **The player and the hazard are projected by the same count, because one frame moves both.** th06c
@@ -996,6 +1048,11 @@ const A_STEP_OF_ITS_OWN: f32 = 0.5;
 /// the frame whose test has already run, no move can change where the player already is, and the same
 /// answer for all nine moves is one that decides nothing between them.
 const THE_NEXT_FRAME_AND_LOOK_AHEAD: usize = LOOK_AHEAD + 1;
+
+/// **How many of a move's frames are passed over together** where a hazard cannot come near the move over them —
+/// see `steer`'s judging: five stretches of the forty, each a box the move keeps to of at most `36` across at the
+/// whole step against a hazard's own short way.
+const A_STRETCH: usize = 8;
 
 /// **How little room the move chosen has left on its own next frame for the frame to count as one that
 /// was lost**, which is not [`ROOM_TO_SPARE`] and is a different question from it.
@@ -1106,7 +1163,10 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let frame = seen.get_or_insert_with(Frame::default);
-    if !unsafe { game.what_a_bot_sees(frame) } {
+    let started = orb_core::profile::now();
+    let sees = unsafe { game.what_a_bot_sees(frame) };
+    unsafe { orb_core::profile::record(orb_core::profile::Phase::Sight, started) };
+    if !sees {
         return 0;
     }
     orb_core::trace::the_player_at(frame.at);
@@ -1115,9 +1175,73 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // All of them for those frames, and not the hidden bullets taken out of what the rules see: `th08::sight`
     // hands those over as hitting for the card it measured that on, with nothing on them to say they are
     // hidden, and this card's schedule says when none of its bullets can hit without asking which.
+    //
+    // **And for `源符「厭い川の翡翠」`, whose way has played the card's own fire on to choose its place** — see
+    // `crate::cards::jade_of_the_loathsome_river`. Judged by the rules' own projection, which carries a bullet
+    // being laid straight on past where it comes to rest and never sets a bank's off, the place it chose was
+    // walked away from: wanted at `-35,366` from `-36,367`, the rules pressed down and to the left with `2 of the
+    // nine clear`, went on so to the floor and were hit at `-43.4,432.0` 545 frames into the card on all twelve
+    // attempts from keep\hits-xpd2\s7-c17-f24245, where the way played in the model from the same start went
+    // through the card unhit.
+    //
+    // **And for `土着神「宝永四年の赤蛙」`**, whose way does the same — see `crate::cards::the_red_frog_of_hoei_four`.
+    let looked_ahead = hazards == Hazards::Dodged
+        && matches!(
+            the_dodge(),
+            Some(Dodge::JadeOfTheLoathsomeRiver | Dodge::TheRedFrogOfHoeiFour)
+        )
+        && the_cards_frames().is_some();
+    // **And for a player's own path a recipe has them go along, once the run is on it** — see [`FOLLOWING`]: the
+    // card fires at where the player is, so a run where they were frame for frame is fired at as they were, and
+    // what they went through is gone through. **The hazards dodged on the way to it**, where the run is off it: gone
+    // to the path with them left to it, a run that started th10's `土着神「宝永四年の赤蛙」` off the path walked into
+    // what the attack before had left and was hit at `-24.8,390.9` eight frames into the card, every attempt, from
+    // keep\hits-x12-pd\s7-c25-f31194 (c107j, 2026-10-03).
+    //
+    // **And not while fire from before the run was on it can reach the run**, which is fire at where the run was and
+    // not where the player was: the attack before th10's `神具「洩矢の鉄の輪」` leaves rice falling into the card, and a
+    // run that joined the path 22 frames in walked on to its place into a grain out for 143 frames and was hit at
+    // `9.1,407.5`, every attempt, from keep\hits-xpd1\s7-c15-f20929; one that joined it 110 frames in, from the
+    // floor's left corner, kept to it within `0.5` and was hit at `-117.7,111.4` 506 frames in by the rings thrown
+    // at it on its way, from keep\hits-xpd7\s7-c15-f19296 (c102g). The hazards are dodged with the path's place
+    // wanted until that fire is past.
+    let on_a_path = hazards == Hazards::Dodged
+        && the_cards_frames().is_some_and(|now| {
+            let near = on_the_path_at(now).is_some_and(|(place, _)| {
+                (place.0 - frame.at.0).hypot(place.1 - frame.at.1) <= ON_THE_PATH_WITHIN
+            });
+            let joined = match near {
+                true => i32::try_from(JOINED_THE_PATH_AT.load(Ordering::Relaxed))
+                    .ok()
+                    .filter(|joined| (0..=now).contains(joined))
+                    .unwrap_or_else(|| {
+                        JOINED_THE_PATH_AT.store(i64::from(now), Ordering::Relaxed);
+                        now
+                    }),
+                false => {
+                    JOINED_THE_PATH_AT.store(-1, Ordering::Relaxed);
+                    now
+                }
+            };
+            near && !fire_from_before_reaches(frame, now - joined)
+        });
+    // **At the whole step where the path goes faster than the focused one**, and the focused step otherwise — which
+    // follows a place to within one of its own `2.0` where the whole step's `4.5` does not.
+    let a_path_wants_the_whole_step =
+        the_cards_frames()
+            .and_then(on_the_path_at)
+            .is_some_and(|(_, pace)| {
+                pace > frame.focused_straight.0.max(frame.focused_straight.1) + 0.01
+            });
+    let looked_ahead = looked_ahead || on_a_path;
+    //
+    // **Not for `開宴「二拝二拍一拝」`**, whose way's places are no reading of its fire: with the card's hazards left
+    // to them, the run was hit 310 and 215 frames in, `-169.2,337.5`, on the first attempts from
+    // keep\hits-x16-pd\s7-c11-f15707 — a spoke of lasers walked into on the way to a place.
     let hazards = match hazards == Hazards::Dodged
         && the_dodge() == Some(Dodge::VisionaryTuning)
         && the_cards_frames().is_some_and(crate::cards::visionary_tunings_lattice_cannot_hit)
+        || looked_ahead
     {
         true => Hazards::Ignored,
         false => hazards,
@@ -1178,11 +1302,19 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // answer; a pick-up of that card's chapter played it focused took four hits and a death where the whole
     // step's took two and none, at the floor on 47% of its wanted lines against 40%.
     //
+    // **And for [`Dodge::JadeOfTheLoathsomeRiver`] and [`Dodge::TheRedFrogOfHoeiFour`]**, whose ways go at paces
+    // of `0.4` to `2.0` a frame, which the focused step follows to within one of its own `2.0` and the whole step's
+    // `4.5` does not. Their hazards are left to the ways themselves, which is why it is asked for apart from them.
+    //
     // **And for the rest of a card whose grazes have held the gauge short of its human end** — see
     // [`HELD_OFF_THE_HUMAN_END_FOR`].
     let held_off = held_off_the_human_end(frame);
-    let focused_through =
-        hazards == Hazards::Dodged && (the_dodge() == Some(Dodge::Focused) || held_off);
+    let wants_the_whole_step = match on_a_path {
+        true => a_path_wants_the_whole_step,
+        false => crate::cards::a_pace_looked_ahead_wants_the_whole_step(),
+    };
+    let focused_through = looked_ahead && !wants_the_whole_step
+        || hazards == Hazards::Dodged && (the_dodge() == Some(Dodge::Focused) || held_off);
     let steered = match a_tick_read_again(frame) {
         Some(again) => {
             AGAIN.fetch_add(1, Ordering::Relaxed);
@@ -1207,7 +1339,9 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // them, which the halved step does not do in time — see `crate::cards::laevateinn`. **Nor for
     // `「過去を刻む時計」`**, whose low clock is got past by crossing behind its centre — see
     // `crate::cards::the_clock`. **Nor for `「そして誰もいなくなるか？」`**, whose walk round the whole field has
-    // to keep ahead of the fire piling up behind it.
+    // to keep ahead of the fire piling up behind it. **Nor for `神具「洩矢の鉄の輪」`**, whose change from the
+    // bottom of the field to the top is made as a ring is about to arrive and has to be over before the next one is
+    // sent — see `crate::cards::moriyas_iron_rings`.
     let the_whole_step_through = matches!(
         the_dodge(),
         Some(
@@ -1215,6 +1349,7 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
                 | Dodge::Laevateinn
                 | Dodge::Clock
                 | Dodge::AndThenThereWereNone
+                | Dodge::MoriyasIronRings
         )
     );
     if !focused && !the_whole_step_through && holds_the_focus(frame, hazards, &steered) {
@@ -1250,7 +1385,14 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // One launch's hit was exactly that — every whole-step move shut, the fine pass answering
     // `2.2 of room`, and the player hit on the frame after. So the same margin [`holds_the_focus`] asks
     // for is asked here, of the step this move will actually take.
-    if !focused && steered.room.is_none() {
+    //
+    // **And not on a player's path**, whose step is the path's pace and whose move is the one nearest it with
+    // the hazards left to the path: there a move without room is what going along it is, and the fine pass took
+    // the focused step wherever the whole one ran into something over the frames looked at. Off the left wall
+    // of `神具「洩矢の鉄の輪」` the user's path turns down and to the right at `4.2` a frame, and the run went it at
+    // `1.41` each way, fell `46` to `162` behind it and was hit at `-119.8,385.1` 1,356 frames in (c102f, from
+    // keep\at-102), having kept to it within `1` for the 1,040 frames before.
+    if !focused && !on_a_path && steered.room.is_none() {
         let fine = steer(frame, &keys, hazards, true, ASKED_AGAIN);
         let enough = ROOM_TO_SPARE + frame.focused_straight.0.max(frame.focused_straight.1);
         if fine.room.is_some_and(|room| room > enough) {
@@ -1443,6 +1585,7 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
             .filter(|judged| judged.only_warned())
             .count() as u32,
         fire: steered.counted.fire,
+        nearest_still: steered.nearest_still,
     });
     // **And the same three said every frame where a launch asked for them**, which is the one instrument a
     // question about a whole fight has: the record above is kept for the seconds before a hit, and what a
@@ -1919,6 +2062,90 @@ pub fn dodge_with(dodge: Option<Dodge>) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = dodge;
 }
 
+/// **A player's own path through the card that is up, which a recipe has the rules go along**, or nothing — see
+/// `recipe::Step::Follow`: the place on the card's frame `every`, `2 × every` and on. A static for the reason
+/// [`DODGE`] is one.
+static FOLLOWING: Mutex<Option<Following>> = Mutex::new(None);
+
+/// **A path handed to the rules**, the places a recipe wrote for one card and how many of its frames apart they are.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Following {
+    pub every: u32,
+    pub path: std::sync::Arc<[(f32, f32)]>,
+}
+
+/// Tells the rules which path to go along through the card that is up, or none.
+pub fn follow(path: Option<Following>) {
+    *FOLLOWING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = path;
+}
+
+/// **Where the path the rules go along has the run on the card's frame `now`**, between the two places either side
+/// of it, and how far a frame the path goes there — or nothing, where no path is being gone along.
+fn on_the_path_at(now: i32) -> Option<((f32, f32), f32)> {
+    let following = FOLLOWING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Following { every, path } = following.as_ref()?;
+    let every = i32::try_from(*every).ok()?;
+    let last = path.len().checked_sub(1)?;
+    // **Nothing past the path's last place**, which leaves the card to the way the recipe dodges it with: a card the
+    // run's shot takes longer over than the player's did goes on after the path, and a run kept on the path's last
+    // place was hit `-7.2,432.0` 215 frames past its end at `167.9,32.0` (c102h, keep\hits-xpd7\s7-c15-f19296).
+    if now > (i32::try_from(last).ok()? + 1) * every {
+        return None;
+    }
+    let at = |index: i32| path[usize::try_from(index.max(0)).unwrap_or(0).min(last)];
+    let index = now / every - 1;
+    let (from, to) = (at(index), at(index + 1));
+    let along = (now % every) as f32 / every as f32;
+    Some((
+        (
+            from.0 + (to.0 - from.0) * along,
+            from.1 + (to.1 - from.1) * along,
+        ),
+        (to.0 - from.0).hypot(to.1 - from.1) / every as f32,
+    ))
+}
+
+/// **How near the place the path has it the run is on it**: some two of the whole steps of `4.5`, the run going
+/// there by the nearest of its eight ways a frame and not on to the place itself.
+const ON_THE_PATH_WITHIN: f32 = 8.0;
+
+/// **The card's frame the run last came on to the path the rules go along**, -1 while it is off it — see
+/// [`word_to_press`]. An atomic for the reason [`STAGE_FRAMES`] is one.
+static JOINED_THE_PATH_AT: AtomicI64 = AtomicI64::new(-1);
+
+/// **Whether a bullet out for longer than `frames` can reach the run** inside the frames the rules look ahead: its
+/// nearest to where the run stands, carried on along its own step for them, within its box and the run's nearness
+/// to a path. Nothing where a game keeps no age on its bullets.
+///
+/// **Its nearest along its way and not the ground its step covers in any direction**, which was tried: every grain
+/// of `神具「洩矢の鉄の輪」`'s rings goes at some `2.3` a frame, so the ground was a hundred units round the run, and a
+/// run on the path was taken off it by rings going away from it — off it from 240 frames to 400, from 520 to 680,
+/// from 800 to 1,000 and from 1,080 to 1,280 of keep\hits-xpd7\s7-c15-f19296's card and never on it again after
+/// 1,360 (c102h).
+fn fire_from_before_reaches(frame: &Frame, frames: i32) -> bool {
+    frame.hazards.iter().any(|hazard| {
+        matches!(hazard.kind, Kind::Bullet { .. })
+            && hazard.frames.is_some_and(|out_for| out_for > frames)
+            && {
+                let (step_x, step_y) = hazard.step.unwrap_or((0.0, 0.0));
+                let (to_x, to_y) = (frame.at.0 - hazard.at.0, frame.at.1 - hazard.at.1);
+                let pace = step_x * step_x + step_y * step_y;
+                let nearest_on = match pace > 0.0 {
+                    true => {
+                        ((to_x * step_x + to_y * step_y) / pace).clamp(0.0, THE_FRAMES_AHEAD as f32)
+                    }
+                    false => 0.0,
+                };
+                (to_x - step_x * nearest_on).hypot(to_y - step_y * nearest_on)
+                    <= hazard.half.0.max(hazard.half.1) + ON_THE_PATH_WITHIN
+            }
+    })
+}
+
 /// The way the rules were told to dodge the card that is up.
 fn the_dodge() -> Option<Dodge> {
     *DODGE
@@ -2080,6 +2307,115 @@ const LEFT_OF_THE_MIDDLE_BY: f32 = 77.0;
 /// and told `96` eight times at `127.3,432.0` and `103.7,428.0`, the densest fifth.
 const RIGHT_OF_THE_MIDDLE_BY: f32 = 96.0;
 
+/// **Where [`Dodge::OnTheFloorByTheMiddle`] waits, and how far across from it a dodge may take the run**: `25`
+/// right of the middle on the floor, and `40` either side of that — the user's own through th10's stage 4 midboss
+/// (th10\replay\th10_16.rpy, Normal, ReimuA, stage frames 3,600 to 4,500 played back by watch-replay-03.yaml and
+/// read by `stage-path.py`), who stood on the floor between `5.5` and `51.5` across the whole of it, a tap of `10`
+/// or so at a time, and was never hit.
+///
+/// **A dodge held to it and not only a place wanted**, because a place wanted is only the nearest of the moves left
+/// clear: every hit of the rules' own ways through her was in a bottom corner — `under_the_boss` at `-184.0,427.5`
+/// and `-179.5,432.0`, `where_there_will_be_room` at `-179.5,432.0`, `-184.0,432.0` and `171.8,427.5`,
+/// `a_third_of_the_way_up` at `-180.8,432.0` and twice `-184.0,432.0` (p4m2, p4m5, practice-4-mid-<way>.yaml) —
+/// each carried there a clear move at a time. So a move landing further than this from the place, and further than
+/// the run is now, is judged hit, the way [`keeps_to_the_middle`] judges one off the middle.
+const ON_THE_FLOOR_BY_THE_MIDDLE_BY: f32 = 25.0;
+const ON_THE_FLOOR_BY_THE_MIDDLE_WITHIN: f32 = 40.0;
+
+/// **How far below a third of the way up [`Dodge::AThirdOfTheWayUpAndNoLower`] dodges**: `32`, less than a whole
+/// step's `36` over a landing, so that a step down from the height is taken only as the move hit least.
+///
+/// **A dodge held to the height and not only a height wanted**, for [`ON_THE_FLOOR_BY_THE_MIDDLE_BY`]'s reason: th10's
+/// stage 6 nonspell after card 82 is fire aimed at the run, and waited for a third of the way up — the user's own
+/// height through it in th10_16.rpy — the rules' dodging carried the run down to the floor and it was hit there on
+/// three whole runs of four (stage frames 8,426, 8,450 and 8,775); along the floor, side to side, a practice was hit
+/// at `-116.8,432.0` 650 frames in on all ten of its retries (2026-10-04 04:56), the user's word watching it being to
+/// dodge it higher up.
+const NO_LOWER_THAN_A_THIRD_OF_THE_WAY_UP_BY: f32 = 32.0;
+
+/// **How far across from the middle the ways held by it dodge** — see [`held_by_the_middle`]: `40`, as
+/// [`ON_THE_FLOOR_BY_THE_MIDDLE_WITHIN`] is from its place.
+///
+/// **Held to the middle and not only to the height**: [`Dodge::AThirdOfTheWayUpAndNoLower`] held to the height
+/// alone, a stage 6 practice kept between `y = 293` and `336` from the nonspell's start and was led along it into the
+/// left wall by stage frame 8,250, at some `0.35` a frame from `7,800`, then pushed down the wall to the floor and hit
+/// there at `-139.8,432.0` (8,825, traces\20261004-051636-practice-6-a82-a_third_of_the_way_up_and_no_lower.msgpack)
+/// — where the user's own th10_16.rpy took it at `0,285`, by the middle.
+const HELD_BY_THE_MIDDLE_WITHIN: f32 = 40.0;
+
+/// **How far above the floor [`Dodge::LowInTheMiddle`] waits**: `27`, where the user's own Extra (th10's
+/// watch-replay-02, traces\20261003-124713-watch-replay-02-17000.msgpack) stood through the nonspell after
+/// `土着神「手長足長さま」`, at `y = 405.4` from its 180th frame to its end and within `36` of the middle, a tap to one
+/// side and back at a time against fire leading it left.
+const LOW_IN_THE_MIDDLE_ABOVE_THE_FLOOR: f32 = 27.0;
+
+/// **Where across [`Dodge::LowInTheMiddle`] waits on the stage's frame**: [`LOW_IN_THE_MIDDLE_SWAYS_BY`] to one side
+/// of the middle and then the other, turning each [`LOW_IN_THE_MIDDLE_SWAYS_EACH`] frames — and the middle off a run.
+///
+/// **Swaying and not standing at the middle**, which the user's own took the nonspell after `土着神「手長足長さま」`
+/// by, a tap to one side and back each 30 to 60 frames between `-36` and `18`: stood at the middle itself, a whole
+/// legacy Extra (traces\20261004-082810-engine-extra.msgpack) stood at `1.1,405.4` for 200 frames, the fire it drew
+/// there took it down to the floor 220 frames in and kept it there, hit at `-21.0,432.0` 459 frames in — the frame and
+/// the place another had been hit at under the same way (c108x, `-31.9,432.0` at 459).
+fn low_in_the_middle_across(field: (f32, f32, f32, f32), stage_frames: i64) -> f32 {
+    let middle = field.0 + field.2 / 2.0;
+    if stage_frames < 0 {
+        return middle;
+    }
+    match (stage_frames / LOW_IN_THE_MIDDLE_SWAYS_EACH) % 2 == 0 {
+        true => middle - LOW_IN_THE_MIDDLE_SWAYS_BY,
+        false => middle + LOW_IN_THE_MIDDLE_SWAYS_BY,
+    }
+}
+
+/// **How far either side of the middle [`low_in_the_middle_across`] goes**: `16`, four of the run's whole steps.
+const LOW_IN_THE_MIDDLE_SWAYS_BY: f32 = 16.0;
+
+/// **How many of the stage's frames it holds a side for**: `30`, the user's quickest turns.
+const LOW_IN_THE_MIDDLE_SWAYS_EACH: i64 = 30;
+
+/// **Whether a way holds the run within [`HELD_BY_THE_MIDDLE_WITHIN`] of the middle across**: a move landing, at
+/// [`A_LANDING_NEAR_AN_EDGE_AT`], further from the middle than that and than the run is now is judged hit there, as
+/// [`keeps_to_the_middle`]'s is.
+///
+/// **Not [`Dodge::TenagaAshinaga`], though its way is up and down the middle**, which was tried after u35's Pointdevice
+/// Extra was carried to `-94` and hit there 1,286 and 1,288 frames into card 101: held so, six of eight kept chapters
+/// went through, u35's and u32's among them, and keep\b2-1 and keep\b2-3 were hit at the middle's foot, `-0.9,361.6`
+/// 1,319 frames in and `0.6,361.7` 959 in, stood under the slow ring with no way along to its gap — where left to the
+/// rules across, seven of seven went through (c101-mid.sh against c101-gap4.sh, 2026-10-04).
+///
+/// **[`Dodge::TheSnakeEatsTheCroakingFrog`] held so, beside its knots' fear**: left to the rules across, the run was
+/// swept from the middle to the right wall in some 50 frames 1,620 frames into card 104 and shut in there as that
+/// wall's box filled, hit at `184.0,432.0` 1,774 frames in (u42) and `173.1,378.2` 1,776 in (u41); held, keep\at-104
+/// and keep\hits-u12-extra-clear-pd-1, hit on every pickup before at 1,355 and 936 frames in, both went through
+/// (c104-mid.sh, 2026-10-04).
+fn held_by_the_middle(dodge: Dodge) -> bool {
+    matches!(
+        dodge,
+        Dodge::AThirdOfTheWayUpAndNoLower
+            | Dodge::LowInTheMiddle
+            | Dodge::TheSnakeEatsTheCroakingFrog
+    )
+}
+
+/// **How far out from the left wall [`Dodge::GreatSuwaWar`] dodges**: `72`, two of the run's whole steps over a
+/// landing, as far out as the user's own Extra (watch-replay-02, traces\20261003-125026-watch-replay-02-19500.msgpack)
+/// went from the wall all but twice through `「諏訪大戦　～ 土着神話 vs 中央神話」` — at `x = -184` for most of the card,
+/// up and down it between `y = 110` and `362`, out to `-116` and back — where the engine's way before it, a third of
+/// the way up with the x left to the rules, stood about the middle and was carried down to the floor and hit there
+/// 4,969 frames in on a whole legacy Extra (u26).
+///
+/// **And no lower than the low line**, the user's lowest there being `362`: held to the wall alone, a whole legacy
+/// Extra (traces\20261004-065230-engine-extra-108-by_the_left_wall.msgpack) was carried down it to the floor and hit
+/// at its foot twice, `-156.6,432.0` and `-133.7,432.0`, 4,255 and 4,990 frames into the card.
+///
+/// **And a height told and not the height the rules choose** — see [`the_great_suwa_war`]: held above the low
+/// line with the height left to the rules, the next whole Extra
+/// (traces\20261004-065651-engine-extra-108-by_the_left_wall.msgpack) stood at the wall at `y = 357`, just above the
+/// line, from 37,980 to 38,940, was pushed through it to the floor and hit at `-133.9,432.0` 5,027 frames in — the
+/// card's slow bullets piling at the floor in its last frames.
+const BY_THE_LEFT_WALL_WITHIN: f32 = 72.0;
+
 /// **The place a way of dodging waits at**, for the ways that are one — and nothing for the ways that are not,
 /// whose place is the rules' own errand.
 ///
@@ -2092,6 +2428,11 @@ const RIGHT_OF_THE_MIDDLE_BY: f32 = 96.0;
 /// sides have been tried and each ended at the place told, and the middle is the one place with room either
 /// side of it.
 ///
+/// **Not th10's `神具「洩矢の鉄の輪」`, which it was once named for**: the middle stepped off each ring as it came, had
+/// the next ones sent at where it stepped to, and was walked up a wall into the top of the field — hit twice in
+/// three attempts from keep\hits-xpd8\s7-c15-f19277, at `-57.9,32.0` and `184.0,141.6`. That card has a way of its
+/// own, `crate::cards::moriyas_iron_rings`.
+///
 /// **[`Dodge::BehindTheLaser`] waits in the middle too, between its lasers** — the place behind one being
 /// wanted while it is drawn, see [`where_to_be`]. The lasers come from either side by turns and the side one
 /// comes from is the side the run steps to: the strategy wiki's `奇数回目のレーザーは右から … 偶数回目のレーザー
@@ -2100,9 +2441,19 @@ const RIGHT_OF_THE_MIDDLE_BY: f32 = 96.0;
 /// five times and at `376` three, the place behind each laser clamped to the wall it came in from; and an Extra
 /// that wanted the middle through the rule under a boss overhead flipped between it and the boxes beside it and
 /// was pushed to the walls all the same. So the middle is a place the way holds, and not the boxes' answer.
+///
+/// **[`Dodge::UnderTheBoss`] is the boss's own x, the height left to the rules**: th10's stage 4 midboss fills
+/// the field with arcs that thin out towards the floor, and a launch the rules kept under her shot her down a
+/// thousand frames into it with no hit, where one carried off to the bottom-left corner was hit there with her
+/// life at `9272` of `10000`, three hundred frames in.
+///
+/// **[`Dodge::AThirdOfTheWayUp`] is a height and not a place**, the strategy wiki's for th10's Suwako's sixth
+/// nonspell (wikiwiki.jp/thk, 風/EX, `通常3に準ずる`): `画面下に行くほど弾が広がる為、1/3程上で避ける。上下移動は必要
+/// なく、左右移動で楽勝` — and the rules' own errand along the floor carried a whole Extra into the bottom-left
+/// corner through it, hit at `-184.0,432.0` 759 frames in.
 fn the_place_it_holds(dodge: Dodge, field: (f32, f32, f32, f32)) -> Option<Standing> {
-    let middle = field.0 + field.2 / 2.0;
-    let (x, y) = match dodge {
+    let middle = Some(Across::At(field.0 + field.2 / 2.0));
+    let (across, y) = match dodge {
         Dodge::BehindTheLaser => (middle, None),
         Dodge::OutOfTheFollowingLaser
         | Dodge::RoundTheField
@@ -2113,19 +2464,151 @@ fn the_place_it_holds(dodge: Dodge, field: (f32, f32, f32, f32)) -> Option<Stand
         | Dodge::ImperishableShooting
         | Dodge::Laevateinn
         | Dodge::Clock
-        | Dodge::AndThenThereWereNone => return None,
+        | Dodge::AndThenThereWereNone
+        | Dodge::WhereverItIsEmptiest
+        | Dodge::WhereThereWillBeRoom
+        | Dodge::AwayFromWhereTheFallLands
+        | Dodge::AwayFromTheFire
+        | Dodge::TwoBowsTwoClapsOneBow
+        | Dodge::JadeOfTheLoathsomeRiver
+        | Dodge::OldTiesBoundByCedars
+        | Dodge::MoriyasIronRings
+        | Dodge::TheRedFrogOfHoeiFour
+        | Dodge::TheSnakeEatsTheCroakingFrog
+        | Dodge::OmiwatariThatGodWalked
+        | Dodge::TheMiracleOfOtensui => return None,
         Dodge::InTheMiddle => (middle, None),
         Dodge::VisionaryTuning => (
             middle,
             Some(field.1 + field.3 - crate::cards::VISIONARY_TUNING_ABOVE_THE_FLOOR),
         ),
-        Dodge::LeftOfTheMiddle => (middle - LEFT_OF_THE_MIDDLE_BY, None),
-        Dodge::RightOfTheMiddle => (middle + RIGHT_OF_THE_MIDDLE_BY, None),
+        Dodge::LeftOfTheMiddle => (
+            Some(Across::At(field.0 + field.2 / 2.0 - LEFT_OF_THE_MIDDLE_BY)),
+            None,
+        ),
+        Dodge::RightOfTheMiddle => (
+            Some(Across::At(field.0 + field.2 / 2.0 + RIGHT_OF_THE_MIDDLE_BY)),
+            None,
+        ),
+        Dodge::OnTheFloorByTheMiddle => (
+            Some(Across::At(
+                field.0 + field.2 / 2.0 + ON_THE_FLOOR_BY_THE_MIDDLE_BY,
+            )),
+            Some(field.1 + field.3),
+        ),
+        Dodge::AThirdOfTheWayUp => (None, Some(a_third_of_the_way_up(field))),
+        Dodge::AThirdOfTheWayUpAndNoLower => (middle, Some(a_third_of_the_way_up(field))),
+        Dodge::LowInTheMiddle => (
+            Some(Across::At(low_in_the_middle_across(
+                field,
+                STAGE_FRAMES.load(Ordering::Relaxed),
+            ))),
+            Some(field.1 + field.3 - LOW_IN_THE_MIDDLE_ABOVE_THE_FLOOR),
+        ),
+        Dodge::GreatSuwaWar => {
+            let (x, y) = the_great_suwa_war(field, the_cards_frames());
+            (Some(Across::At(x)), Some(y))
+        }
+        Dodge::TenagaAshinaga => (
+            middle,
+            Some(tenaga_ashinagas_height(field, the_cards_frames())),
+        ),
+        Dodge::UnderTheBoss => (Some(Across::AwayFromTheBoss(0.0)), None),
     };
-    Some(Standing {
-        across: Some(Across::At(x)),
-        y,
-    })
+    Some(Standing { across, y })
+}
+
+/// **Where [`Dodge::GreatSuwaWar`] waits on the card's frame**: at the left wall, down it from
+/// [`UP_AND_DOWN_THE_LEFT_WALL_BETWEEN`]'s top to its foot and back up, a sweep each
+/// [`UP_AND_DOWN_THE_LEFT_WALL_EACH`] frames, and from [`GREAT_SUWA_WAR_UP_THE_MIDDLE_FROM`] on up the middle at
+/// [`GREAT_SUWA_WAR_UP_THE_MIDDLE_AT`] — and at the wall half way between the two heights between cards.
+///
+/// **Going up and down it and not waiting at one height on it**, which is what the user's own Extra did through
+/// `「諏訪大戦　～ 土着神話 vs 中央神話」` (watch-replay-02, traces\20261003-125026-watch-replay-02-19500.msgpack): from
+/// `y = 132` at its start down to `325` by 600 frames in, up to `174` by 1,000, down to `362` by 1,600, a sweep each
+/// 400 to 600 frames between about `170` and `360`. Waited for at the wall half way up, a whole legacy Extra
+/// (traces\20261004-071354-engine-extra.msgpack) stood at `-184,232` for 600 to 900 frames at a time, and each time
+/// was moved off it by the fire it had drawn there; the last of them took it down to the floor, hit at
+/// `-180.8,432.0` 4,332 frames in.
+///
+/// **And off the wall and up the middle for the card's last thousand frames**, where the user's left the wall at
+/// 3,980 frames in and stood at `-39` to `5`, `y = 50` to `127`, from 4,340 to 4,620: every hit of the card on the
+/// whole legacy Extras of 2026-10-04 was in its last 700 frames, at the floor — 4,255 to 5,027 frames in, nine of
+/// them, by the wall or under a third of the way up alike (u26, c108x, c108y, c108z, u27, u28) — the wall's foot
+/// being where the last of its fire gathers.
+fn the_great_suwa_war(field: (f32, f32, f32, f32), card_frames: Option<i32>) -> (f32, f32) {
+    let (top, foot) = UP_AND_DOWN_THE_LEFT_WALL_BETWEEN;
+    let Some(frames) = card_frames else {
+        return (field.0, field.1 + (top + foot) / 2.0);
+    };
+    if frames >= GREAT_SUWA_WAR_UP_THE_MIDDLE_FROM {
+        return (
+            field.0 + field.2 / 2.0,
+            field.1 + GREAT_SUWA_WAR_UP_THE_MIDDLE_AT,
+        );
+    }
+    let along = (frames.rem_euclid(2 * UP_AND_DOWN_THE_LEFT_WALL_EACH)) as f32
+        / UP_AND_DOWN_THE_LEFT_WALL_EACH as f32;
+    let down = match along <= 1.0 {
+        true => along,
+        false => 2.0 - along,
+    };
+    (field.0, field.1 + top + (foot - top) * down)
+}
+
+/// **The height [`Dodge::TenagaAshinaga`] waits at in the middle on the card's frame**: at the foot of
+/// [`TENAGA_ASHINAGA_BETWEEN`] on frame [`TENAGA_ASHINAGA_LOW_ON`] and each [`TENAGA_ASHINAGA_EACH`] after, at its
+/// top half way between, and going between the two — and at the foot between cards.
+///
+/// **Up and down the middle and off the foot as the ring comes**, which is what the user's own Extra did through
+/// `土着神「手長足長さま」` (watch-replay-02, traces\20261003-124713-watch-replay-02-17000.msgpack): at `x = 0` to `13`
+/// throughout, at `y = 357` on card frames 501, 861 and 1,221 and up at `235` to `245` by 300, 700, 1,060 and 1,400.
+/// The card's slow ring comes down through the middle's foot a hundred frames after each of those: the whole Extras of
+/// 2026-10-04 were hit at `0.3` to `2.5` across and `353` to `365` down on frames 601, 602, 603, 962 (three times),
+/// 1,319 and 1,322 — by side_to_side crossing the middle there and in_the_middle standing at it alike.
+fn tenaga_ashinagas_height(field: (f32, f32, f32, f32), card_frames: Option<i32>) -> f32 {
+    let (top, foot) = TENAGA_ASHINAGA_BETWEEN;
+    let Some(frames) = card_frames else {
+        return field.1 + foot;
+    };
+    let half = TENAGA_ASHINAGA_EACH / 2;
+    let along = (frames - TENAGA_ASHINAGA_LOW_ON).rem_euclid(TENAGA_ASHINAGA_EACH);
+    let up = match along <= half {
+        true => along as f32 / half as f32,
+        false => (TENAGA_ASHINAGA_EACH - along) as f32 / half as f32,
+    };
+    field.1 + foot + (top - foot) * up
+}
+
+/// **Between which heights down from the field's top [`tenaga_ashinagas_height`] goes**: `204` and `325`, `236` and
+/// `357` on th10's field, the user's own.
+const TENAGA_ASHINAGA_BETWEEN: (f32, f32) = (204.0, 325.0);
+
+/// **The card's frame it is at the foot on, and how often again**: `141` and each `360`, the user's `501`, `861` and
+/// `1,221` less 360s, and the ring's own period.
+const TENAGA_ASHINAGA_LOW_ON: i32 = 141;
+const TENAGA_ASHINAGA_EACH: i32 = 360;
+
+/// **The card's frame [`the_great_suwa_war`] leaves the wall on**: `4000`, the user's `3,980`.
+const GREAT_SUWA_WAR_UP_THE_MIDDLE_FROM: i32 = 4000;
+
+/// **How far down from the field's top it waits up the middle**: `80`, `y = 112` on th10's field, the user's `99` to
+/// `127`.
+const GREAT_SUWA_WAR_UP_THE_MIDDLE_AT: f32 = 80.0;
+
+/// **Between which heights down from the field's top [`the_great_suwa_war`] goes**: `128` and `308`, `160`
+/// and `340` on th10's field, inside the user's own `170` to `360` by a little at each end. **Not down to `300`
+/// only**, further off the low line, which was tried for keep\hits-u41\s7-c26-f36837's hit at the wall's foot 3,763
+/// frames in: that chapter was hit sooner, at `-184.0,432.0` 1,007 in (n66-mid.sh, 2026-10-04).
+const UP_AND_DOWN_THE_LEFT_WALL_BETWEEN: (f32, f32) = (128.0, 308.0);
+
+/// **How many of the card's frames one sweep of it takes**: `400`, the user's own sweeps being 400 to 600 frames.
+const UP_AND_DOWN_THE_LEFT_WALL_EACH: i32 = 400;
+
+/// **The height a third of the way up the field from its floor**, which [`Dodge::AThirdOfTheWayUp`] waits at, and
+/// [`Dodge::AThirdOfTheWayUpAndNoLower`] in the field's middle.
+fn a_third_of_the_way_up(field: (f32, f32, f32, f32)) -> f32 {
+    field.1 + field.3 - field.3 / 3.0
 }
 
 /// **How wide a beam is to be kept out of**: its own half-width, save for one aimed and not yet firing while
@@ -2228,6 +2711,11 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
     // More than the next frame, because one frame of warning is not enough to be anywhere: a bullet three
     // frames off where the player stands is one to be somewhere else for, and it is *this* frame's move that
     // gets it there.
+    // **Or held for a tap and then let go, for a way that dodges by tapping** — see [`dodges_by_tapping`].
+    let held_for = match the_dodge().is_some_and(dodges_by_tapping) {
+        true => A_TAPS_FRAMES,
+        false => THE_NEXT_FRAME_AND_LOOK_AHEAD,
+    };
     let lands = WAYS.map(|(dx, dy)| {
         let (across, down) = if dx != 0.0 && dy != 0.0 {
             the_diagonal
@@ -2252,7 +2740,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         // model that will not follow a move upward has three fewer of them on the frames that need them
         // most, and upward is where a pattern that comes from above is left.
         std::array::from_fn::<_, THE_NEXT_FRAME_AND_LOOK_AHEAD, _>(|step| {
-            let frames = (step + 1) as f32;
+            let frames = (step + 1).min(held_for) as f32;
             (
                 (at.0 + dx * across * frames).clamp(field.0, field.0 + field.2),
                 (at.1 + dy * down * frames).clamp(field.1, field.1 + field.3),
@@ -2307,12 +2795,12 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                        (wx, wy): (f32, f32),
                        grows: (f32, f32),
                        (tx, ty): (f32, f32),
-                       // **Whether what this box is takes a life yet**, which is a warning where it does
-                       // not: a move is not shut by it, and a place to wait is not chosen inside it. See
+                       // **How many of a move's frames this box takes no life on yet**, which are a warning:
+                       // a move is not shut by it there, and a place to wait is not chosen inside it. See
                        // the harmless bullet's own arm — a mesh a game turns solid is ground to cross and
                        // no ground to stand on, and a run that stood on one died eleven times at
                        // `207.6,384.9` with `a bullet at 208.0,384.0 stepping 0.0,0.0` under it.
-                       warning: bool| {
+                       warned_for: usize| {
         // Held before it is judged, and by where it is rather than by where it is projected: what a hit is read
         // against is what the model had, and a projection is the thing being called into question.
         if (hx - at.0).abs() < NEAR_ENOUGH_TO_BE_IT + wx
@@ -2329,8 +2817,53 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 });
             }
         }
+        // **Each [`A_STRETCH`] of a move's frames left unjudged where the hazard cannot come as near the move over
+        // it as the move has been come near already** — the boxes the two paths keep to over the stretch, against
+        // the least room the move has: judged, it would lower no room, hit no frame and be no nearest, so the move
+        // comes out of the stretch as it went in. **Not a hazard left out by its distance from the run**, which is
+        // the cheaper test and a different judgement: the room is what moves that are all hit are chosen between,
+        // and a bullet too far off to hit is still the nearest of a move nothing else is near. **Nor one bound
+        // over the whole forty frames for all nine moves**, which was tried first: the places reachable in forty
+        // frames span `360` of a field `384` across, so hardly any hazard was further than that from them, and
+        // the steering of a stage 6 practice went on at some `10` microseconds a bullet.
+        let along = |at: f32, step: f32, turn: f32, from: f32, to: f32| {
+            let place = |ahead: f32| at + step * ahead + turn * ahead * (ahead - 1.0) / 2.0;
+            let (ends, turned) = ((place(from), place(to)), 0.5 - step / turn);
+            let (mut least, mut most) = (ends.0.min(ends.1), ends.0.max(ends.1));
+            if turn != 0.0 && turned > from && turned < to {
+                least = least.min(place(turned));
+                most = most.max(place(turned));
+            }
+            (least, most)
+        };
+        let apart = |(a0, a1): (f32, f32), (b0, b1): (f32, f32)| (b0 - a1).max(a0 - b1).max(0.0);
+        let between = |a: f32, b: f32| (a.min(b), a.max(b));
         for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
-            for (step, (x, y)) in path.iter().enumerate() {
+            let mut passed_over = false;
+            for (step, &(x, y)) in path.iter().enumerate() {
+                if step % A_STRETCH == 0 {
+                    let last = (step + A_STRETCH).min(THE_NEXT_FRAME_AND_LOOK_AHEAD) - 1;
+                    let (from, to) = ((step + 1) as f32, (last + 1) as f32);
+                    let (mut across, mut down) =
+                        (along(hx, sx, tx, from, to), along(hy, sy, ty, from, to));
+                    // The move's own first landing is judged against where the hazard is now as well.
+                    if step == 0 {
+                        across = (across.0.min(hx), across.1.max(hx));
+                        down = (down.0.min(hy), down.1.max(hy));
+                    }
+                    let least = (apart(across, between(path[step].0, path[last].0))
+                        - (mine_x + wx + grows.0 * to))
+                        .max(
+                            apart(down, between(path[step].1, path[last].1))
+                                - (mine_y + wy + grows.1 * to),
+                        );
+                    passed_over = least >= ROOM_TO_SPARE
+                        && least >= judged.room
+                        && (step > 0 || least >= judged.next_frame);
+                }
+                if passed_over {
+                    continue;
+                }
                 let ahead = (step + 1) as f32;
                 let read = (wx, wy);
                 let (wx, wy) = (wx + grows.0 * ahead, wy + grows.1 * ahead);
@@ -2390,7 +2923,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 // **[`ROOM_TO_SPARE`] and not nought**: a frame the move only just clears is a frame it is
                 // treated as losing, which is what keeps it out of the choice as well as out of the test.
                 if room < ROOM_TO_SPARE {
-                    match warning {
+                    match step < warned_for {
                         true => judged.warn(step),
                         false => judged.hit(step),
                     }
@@ -2409,10 +2942,9 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         } = *hazard;
         match kind {
             // **And one out of its hitting state left out where the game says it is harmless** — see
-            // `Frame::a_bullet_not_hitting_is_harmless`, which is th08 and no other game: there a bullet
-            // coming out cannot take a life and one that comes out over the run is turned harmless for
-            // good, so a mesh of them is ground to stand in rather than a wall. Kept as a hazard
-            // everywhere else, a bullet that will hit in a moment being one to be gone from.
+            // `Frame::a_bullet_not_hitting_is_harmless`, which is th08's and th10's: there a bullet
+            // coming out cannot take a life, so a mesh of them is ground to cross rather than a wall. Kept
+            // as a hazard everywhere else, a bullet that will hit in a moment being one to be gone from.
             Kind::Bullet { hitting: false, .. } if frame.a_bullet_not_hitting_is_harmless => {
                 counted.another_state += 1;
                 note(
@@ -2426,6 +2958,15 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 // place to wait may not be inside it. **A run that treated them as nothing stood in one
                 // and died eleven times at `207.6,384.9`**, the dump naming `a bullet at 208.0,384.0
                 // stepping 0.0,0.0` — a bullet the card had placed there and then made solid.
+                //
+                // **And a warning only until the age it turns solid at, where the game has one** — the move's
+                // frame `step` reads the bullet `step + 1` frames older. Warned for good, th10's Extra was hit at
+                // `158.3,373.7` on card 99 under `a bullet not hitting yet at 157.6,372.0`, the move chosen
+                // being the wait inside it with every other one hit a few frames on.
+                let warned_for = match (frame.a_bullet_comes_out_for, frames) {
+                    (Some(solid_at), Some(age)) => usize::try_from(solid_at - 1 - age).unwrap_or(0),
+                    _ => usize::MAX,
+                };
                 against(
                     "a bullet not hitting yet",
                     slot,
@@ -2434,10 +2975,10 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                     half,
                     (0.0, 0.0),
                     (0.0, 0.0),
-                    true,
+                    warned_for,
                 );
             }
-            Kind::Bullet { hitting, state } => {
+            Kind::Bullet { hitting, state, .. } => {
                 if !hitting {
                     counted.another_state += 1;
                 }
@@ -2466,6 +3007,11 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                     }
                 };
                 note(&mut now.bullets, slot, (place, step, frames));
+                // How its motion changed since the frame before, where the slot held it then and it moved then.
+                let swung = what_a_slot_held(&last.bullets_went, slot)
+                    .filter(|(_, _, was)| the_same_thing(frames, *was))
+                    .map(|(_, went_was, _)| (moved.0 - went_was.0, moved.1 - went_was.1));
+                note(&mut now.bullets_went, slot, (place, moved, frames));
                 let scripted = (moved.0 - step.0).abs() > A_STEP_OF_ITS_OWN
                     || (moved.1 - step.1).abs() > A_STEP_OF_ITS_OWN
                     || turn.0.abs() > A_STEP_OF_ITS_OWN
@@ -2483,25 +3029,66 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                         counted.out_by = Some(OutBy { moved, step, state });
                     }
                 }
-                against(
-                    "a bullet",
-                    slot,
-                    place,
-                    if scripted { (0.0, 0.0) } else { step },
-                    half,
-                    // **Feared and not projected.** Where a script is moving it there is nothing to project, so
-                    // what is kept away from is everywhere it could reach: its box spread by the speed it just
-                    // showed, for every frame looked at.
-                    if scripted {
-                        (moved.0.abs(), moved.1.abs())
-                    } else {
-                        (0.0, 0.0)
-                    },
-                    // **And the turn it is carrying, where its own step is what moves it.** A scripted one is
-                    // feared over the box above instead, there being nothing to carry.
-                    if scripted { (0.0, 0.0) } else { turn },
-                    false,
-                );
+                // **Where a script is moving it, projected along the motion it showed with the change in that
+                // motion carried, and feared over the change** — the way a body is, and for the reason a body's
+                // own note gives. Feared over the speed instead, for every frame looked at, a script's bullet
+                // going anywhere was a box that shut every move: th10's `開宴「二拝二拍一拝」` gathers 120 of them
+                // at two to four a frame into the mass it throws, and a run wanting the side it had to reach
+                // stood at `-119,432` with two of the nine clear and both of them away from it, until the mass
+                // came down on it — card 100 hit three times in one launch, every one at the floor. Where the
+                // motion before is not known the speed is still what is feared, there being no change to read.
+                //
+                // **Not where it turned back in a frame**, which is a bounce and not a curve: th10's
+                // `源符「厭い川の翡翠」` sends its knot down a river its bullets turn back off the banks of, one
+                // bullet in four frames reaching a bank, and the change of a turn back — `1.2` to `2.6` across in
+                // one frame — carried for forty frames swept the bullet over the whole field: standing still was
+                // shut on each of those frames by a bullet a hundred off, the nine with it, and the run pressed
+                // down on each was walked to the floor and hit there on every attempt. What it does after a
+                // bounce is go straight the new way, which is the motion it showed.
+                //
+                // **Nor where it set off from rest in a frame**, for the same reason: the same card lets its
+                // banks go, two bullets every four frames each going from `0.01` to `1.4` in one frame
+                // (slot 1827, `0.010,0.000` to `-0.434,1.331`, the age following on throughout), and that change
+                // carried swept them over the field just the same.
+                let turned_back = |now: f32, swung: f32| {
+                    now * (now - swung) < 0.0 && swung.abs() > A_STEP_OF_ITS_OWN
+                };
+                let set_off = |swung: (f32, f32)| {
+                    let was = (moved.0 - swung.0, moved.1 - swung.1);
+                    was.0.abs().max(was.1.abs()) < A_STEP_OF_ITS_OWN
+                        && swung.0.abs().max(swung.1.abs()) > A_STEP_OF_ITS_OWN
+                };
+                let (projected, grows, carried) = match (scripted, swung) {
+                    (false, _) => (step, (0.0, 0.0), turn),
+                    (true, Some(swung))
+                        if turned_back(moved.0, swung.0)
+                            || turned_back(moved.1, swung.1)
+                            || set_off(swung) =>
+                    {
+                        (moved, (0.0, 0.0), (0.0, 0.0))
+                    }
+                    (true, Some(swung)) => (moved, (swung.0.abs(), swung.1.abs()), swung),
+                    (true, None) => ((0.0, 0.0), (moved.0.abs(), moved.1.abs()), (0.0, 0.0)),
+                };
+                // **And a knot of `蛙狩「蛙は口ゆえ蛇に呑まるる」` about to burst, feared over its burst from now**,
+                // for a card dodged [`Dodge::TheSnakeEatsTheCroakingFrog`]: it stands at `0.00` until the age every
+                // knot of the card goes off at, `4` a frame on headings no reading gives before — see
+                // `crate::cards::SNAKE_KNOTS_BURST_AT`. Projected standing, the run stood `7` under one with
+                // `3.6 of room` and was hit there as it went, 1,211 and 1,214 frames into the card in three whole
+                // Extras of four.
+                let grows = match frames {
+                    Some(age)
+                        if the_dodge() == Some(Dodge::TheSnakeEatsTheCroakingFrog)
+                            && projected.0.hypot(projected.1) < A_STEP_OF_ITS_OWN
+                            && (1..=A_KNOT_IS_FEARED_FROM)
+                                .contains(&(crate::cards::SNAKE_KNOTS_BURST_AT - age)) =>
+                    {
+                        let pace = crate::cards::SNAKE_KNOTS_BURST_PACE;
+                        (grows.0.max(pace), grows.1.max(pace))
+                    }
+                    _ => grows,
+                };
+                against("a bullet", slot, place, projected, half, grows, carried, 0);
             }
             // **And the bodies, which are as solid as a bullet.** Which is what a run on its way to an item
             // walks into: the item was dropped by something, and that something is still standing over it.
@@ -2515,6 +3102,12 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
             // enemy is solid, so one with that down cannot touch the player at all — which th07's stage 6 boss
             // relies on: it fires an aimed shot off an enemy its script keeps *at* the player, and a model that made
             // that solid had a hazard nothing could get away from.
+            // **Left out for th10's `土着神「宝永四年の赤蛙」` as well, though its clones lay their rice where they
+            // go** — each goes straight at the run, so where it stops is where the run stood, and read off the card's
+            // field (`--trace-the-field-in=107`, 2026-10-02, keep\hits-xpd6\s7-c25-f33026) one laid three grains
+            // `1.7` off a run standing there, which came out nine frames later and hit it 1,658 frames in. Kept away
+            // from as though solid, the clones pushed the run into the rice instead: fourteen hits from that
+            // chapter, thirteen at `80.7,361.1` with nowhere open, 403 frames into the card.
             Kind::Body { solid: false } => {
                 counted.no_body += 1;
                 // **The nearest of them kept for the hit line**, this being the one rule here that leaves a
@@ -2575,7 +3168,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                     half,
                     (swung.0.abs(), swung.1.abs()),
                     swung,
-                    false,
+                    0,
                 );
             }
             // **And every place a body has been, each its own box, with [`CLEAR_OF_A_BEAM`] kept round it.** A
@@ -2596,7 +3189,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                     (half.0 + CLEAR_OF_A_BEAM, half.1 + CLEAR_OF_A_BEAM),
                     (0.0, 0.0),
                     (0.0, 0.0),
-                    false,
+                    0,
                 );
             }
         }
@@ -2717,6 +3310,11 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 (angle + turn * ahead).sin_cos(),
             );
             let end = far + grows * ahead;
+            // **None of it sampled where neither end comes down to the band**, its height going one way along it:
+            // a sample between the two is no lower than the lower of them.
+            if (at.1 + sin * near).max(at.1 + sin * end) < band - across {
+                continue;
+            }
             let mut span = [(f32::MAX, f32::MIN); BOXES_ACROSS];
             let mut along = near;
             while along <= end {
@@ -2735,17 +3333,22 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
             }
         }
         note(&mut now.beams, slot, ((ox, oy), angle, frames));
-        for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
-            for (step, (x, y)) in path.iter().enumerate() {
-                // Where the beam will be pointing by then, which is where it points now plus as many of its own
-                // turns as there are frames to look — and where it will be fired from, which is the same
-                // arithmetic on the origin.
-                let ahead = angle + turn * (step + 1) as f32;
-                let (cos, sin) = (ahead.cos(), ahead.sin());
-                let (ox, oy) = (
+        // Where the beam will be pointing by each frame, which is where it points now plus as many of its own turns
+        // as there are frames to look — and where it will be fired from, which is the same arithmetic on the
+        // origin. **Once a frame for all nine moves**, the nine asking the same of it.
+        let pointed: [_; THE_NEXT_FRAME_AND_LOOK_AHEAD] = std::array::from_fn(|step| {
+            let ahead = angle + turn * (step + 1) as f32;
+            (
+                (ahead.cos(), ahead.sin()),
+                (
                     ox + went.0 * (step + 1) as f32,
                     oy + went.1 * (step + 1) as f32,
-                );
+                ),
+            )
+        });
+        for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
+            for (step, (x, y)) in path.iter().enumerate() {
+                let ((cos, sin), (ox, oy)) = pointed[step];
                 let (dx, dy) = (x - ox, y - oy);
                 let along = dx * cos + dy * sin;
                 let off = -dx * sin + dy * cos;
@@ -2871,10 +3474,122 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         (Hazards::GoneTo, Some(near)) => (near.at, Settled::SomethingThatCanHitIt),
         _ => where_to_be(frame, sweeping, goes_live),
     };
+    // **And a move that lands at the floor or a wall warned of, for a way that keeps off them** — see
+    // [`keeps_off_the_edges`].
+    if the_dodge().is_some_and(keeps_off_the_edges) {
+        let (left, top, width, height) = field;
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let (x, y) = path[A_LANDING_NEAR_AN_EDGE_AT];
+            if y > top + height - OFF_THE_EDGES_BY
+                || x < left + OFF_THE_EDGES_BY
+                || x > left + width - OFF_THE_EDGES_BY
+            {
+                judged.warn(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And a move that lands off the middle across, for a way dodged up and down it** — see
+    // [`keeps_to_the_middle`].
+    if the_dodge().is_some_and(keeps_to_the_middle) {
+        let middle = field.0 + field.2 / 2.0;
+        let (top, bottom) = crate::cards::cedars_band(field);
+        let off = |x: f32| (x - middle).abs();
+        let outside = |y: f32| (top - y).max(y - bottom);
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let (x, y) = path[A_LANDING_NEAR_AN_EDGE_AT];
+            if (off(x) > OFF_THE_MIDDLE_BY && off(x) > off(at.0))
+                || (outside(y) > 0.0 && outside(y) > outside(at.1))
+            {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And a move that lands too far across from the floor's place, for the way that waits there** — see
+    // [`ON_THE_FLOOR_BY_THE_MIDDLE_WITHIN`].
+    if the_dodge() == Some(Dodge::OnTheFloorByTheMiddle) {
+        let place = field.0 + field.2 / 2.0 + ON_THE_FLOOR_BY_THE_MIDDLE_BY;
+        let off = |x: f32| (x - place).abs();
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let x = path[A_LANDING_NEAR_AN_EDGE_AT].0;
+            if off(x) > ON_THE_FLOOR_BY_THE_MIDDLE_WITHIN && off(x) > off(at.0) {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And a move that lands lower than a step below a third of the way up, for the way that holds that height** —
+    // see [`NO_LOWER_THAN_A_THIRD_OF_THE_WAY_UP_BY`].
+    if the_dodge() == Some(Dodge::AThirdOfTheWayUpAndNoLower) {
+        let lowest = a_third_of_the_way_up(field) + NO_LOWER_THAN_A_THIRD_OF_THE_WAY_UP_BY;
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let y = path[A_LANDING_NEAR_AN_EDGE_AT].1;
+            if y > lowest && y > at.1 {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And one that lands lower than the run is, for card 101 just up through its slow ring** — see
+    // `crate::cards::tenaga_ashinagas_ring_just_below`.
+    if the_dodge() == Some(Dodge::TenagaAshinaga)
+        && crate::cards::tenaga_ashinagas_ring_just_below(frame)
+    {
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            if path[A_LANDING_NEAR_AN_EDGE_AT].1 > at.1 {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And one that lands too far across from the middle, for the ways held by it** — see [`held_by_the_middle`].
+    if the_dodge().is_some_and(held_by_the_middle) {
+        let middle = field.0 + field.2 / 2.0;
+        let off = |x: f32| (x - middle).abs();
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let x = path[A_LANDING_NEAR_AN_EDGE_AT].0;
+            if off(x) > HELD_BY_THE_MIDDLE_WITHIN && off(x) > off(at.0) {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And one that lands too far out from the left wall or below the low line, for the way held by that wall while
+    // it is** — see [`BY_THE_LEFT_WALL_WITHIN`] and [`the_great_suwa_war`].
+    if the_dodge() == Some(Dodge::GreatSuwaWar)
+        && the_cards_frames().is_none_or(|frames| frames < GREAT_SUWA_WAR_UP_THE_MIDDLE_FROM)
+    {
+        let out = |x: f32| x - field.0;
+        let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let (x, y) = path[A_LANDING_NEAR_AN_EDGE_AT];
+            if (out(x) > BY_THE_LEFT_WALL_WITHIN && out(x) > out(at.0)) || (y > low && y > at.1) {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And one that lands too far across from the middle or more than a step below the height, for that way once up
+    // the middle**, as a third of the way up and no lower is held: left to the rules there, the run that came up to
+    // `-3,113` 4,380 frames into card 108 was pushed down from 4,420 to the floor by 4,900 and hit at `-64.9,428.8`
+    // 4,993 in on every pickup of keep\hits-u43\s7-c26-f38104 — the card's slow bullets piling at the floor in its
+    // last frames, where its hits on the day's whole Extras were.
+    if the_dodge() == Some(Dodge::GreatSuwaWar)
+        && the_cards_frames().is_some_and(|frames| frames >= GREAT_SUWA_WAR_UP_THE_MIDDLE_FROM)
+    {
+        let middle = field.0 + field.2 / 2.0;
+        let off = |x: f32| (x - middle).abs();
+        let lowest =
+            field.1 + GREAT_SUWA_WAR_UP_THE_MIDDLE_AT + NO_LOWER_THAN_A_THIRD_OF_THE_WAY_UP_BY;
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let (x, y) = path[A_LANDING_NEAR_AN_EDGE_AT];
+            if (off(x) > HELD_BY_THE_MIDDLE_WITHIN && off(x) > off(at.0))
+                || (y > lowest && y > at.1)
+            {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
     let mut best: Option<(usize, Judged, f32, f32)> = None;
     let crossing = settled == Settled::TheWayItWasToldToDodge
         && match the_dodge() {
-            Some(Dodge::Laevateinn) => (wanted.0 - at.0).abs() > the_straight.0,
+            Some(
+                Dodge::Laevateinn | Dodge::TheMiracleOfOtensui | Dodge::AwayFromWhereTheFallLands,
+            ) => (wanted.0 - at.0).abs() > the_straight.0,
             Some(Dodge::AndThenThereWereNone) => true,
             _ => false,
         };
@@ -3181,6 +3896,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         wanted,
         settled,
         nearest: nearest[chosen],
+        nearest_still: nearest[0],
         counted,
         held,
         held_all,
@@ -3431,6 +4147,505 @@ fn round_a_small_square(frame: &Frame) -> (f32, f32) {
 /// `48` — the bullets its card fires from on the run being `24` across, so a side is two of them.
 const A_SMALL_SQUARES_HALF: f32 = 24.0;
 
+/// **On the other side of the field's middle from where a fall of fire lands** — what
+/// [`Dodge::AwayFromWhereTheFallLands`] walks to, at the low line: where it lands is the mean x of the bullets
+/// going down through the lowest quarter of the field, and the side is turned only once that is
+/// [`A_FALL_LANDS_ASIDE_BY`] off the middle, so that a fall landing at the middle does not have the run turning.
+///
+/// **For a fall of fire that swings from side to side**, th10's stage 4 after its midboss: read off a traced
+/// practice (`flow.py` in the session's scratchpad, 2026-10-01), the bullets falling through the lower half drift
+/// across at `-0.66`, `+0.45`, `-0.54` and `+0.69` a frame by turns, some 240 frames a swing, and the band they
+/// fall in lies across the field from a top corner to the bottom one opposite. Its foot is the corner the runs were
+/// hit in, the bottom-left at 4,946 and 4,947 and the bottom-right at 5,078, 5,081 and 5,085.
+///
+/// **Not under the middle of the fall**, which was tried: the mean x of everything falling through the lower half
+/// is the middle of a band lying corner to corner, at `12` to `20` while its foot was at the right wall, and two
+/// launches of four wanting it there were walked along the floor by the band into the bottom-right corner,
+/// `0 of the nine clear` from `106,432` on, and hit at `184.0,432.0` 5,085 frames in.
+fn away_from_where_the_fall_lands(frame: &Frame) -> (f32, f32) {
+    let (left, top, width, height) = frame.field;
+    let middle = left + width / 2.0;
+    let (sum, drift, count) = frame
+        .hazards
+        .iter()
+        .filter(|hazard| matches!(hazard.kind, Kind::Bullet { .. }))
+        .filter_map(|hazard| {
+            let step = hazard.step?;
+            (hazard.at.1 > top + height * 0.75 && step.1 > A_FALL_IS_GOING_DOWN_AT)
+                .then_some((hazard.at.0, step.0))
+        })
+        .fold((0.0, 0.0, 0), |(sum, drift, count), (x, across)| {
+            (sum + x, drift + across, count + 1)
+        });
+    let low = top + height - ABOVE_THE_BOTTOM;
+    // **And by the fall's own frames once it has begun** — see [`A_FALL_IS_CROSSED_FROM`].
+    let stage = STAGE_FRAMES.load(Ordering::Relaxed);
+    let mut fall = FALL_BEGAN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if fall.is_some_and(|(began, _)| stage < began) {
+        *fall = None;
+    }
+    if fall.is_none() && stage >= 0 && frame.boss.is_none() && count > 0 {
+        *fall = Some((stage, None));
+    }
+    if let Some((began, sweeps_right_first)) = fall.as_mut() {
+        let since = stage - *began;
+        if sweeps_right_first.is_none() && since >= A_FALL_SHOWS_ITS_SWEEP_BY && count > 0 {
+            *sweeps_right_first = Some(drift > 0.0);
+        }
+        match *sweeps_right_first {
+            Some(true) if since < A_FALL_IS_WAITED_BEHIND_UNTIL - A_FALL_IS_CROSSED_UNTIL => {
+                return (middle - A_FALL_IS_WAITED_OFF_THE_MIDDLE_BY, low);
+            }
+            Some(false) if (A_FALL_IS_CROSSED_FROM..A_FALL_IS_CROSSED_UNTIL).contains(&since) => {
+                return (middle + A_FALL_IS_WAITED_OFF_THE_MIDDLE_BY, low);
+            }
+            Some(false)
+                if (A_FALL_IS_CROSSED_UNTIL..A_FALL_IS_WAITED_BEHIND_UNTIL).contains(&since) =>
+            {
+                return (middle - A_FALL_IS_WAITED_OFF_THE_MIDDLE_BY, low);
+            }
+            _ => {}
+        }
+    }
+    drop(fall);
+    let mut side = FALL_SIDE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if count > 0 {
+        let lands = sum / count as f32;
+        if (lands - middle).abs() > A_FALL_LANDS_ASIDE_BY {
+            *side = if lands > middle { -1.0 } else { 1.0 };
+        }
+    }
+    (middle + *side * AWAY_FROM_WHERE_THE_FALL_LANDS_BY, low)
+}
+
+/// **Whether a way has the rules keep off the floor and the side walls**: a move landing within
+/// [`OFF_THE_EDGES_BY`] of one, [`A_LANDING_NEAR_AN_EDGE_AT`] frames on, is warned of — so of the moves nothing
+/// will be at, one that stays off the edges is taken over one that goes to them, and a move to an edge still
+/// beats a move that is hit.
+///
+/// **For th10's fire that carries the run off its place**: a whole Normal run with a way for every attack it
+/// had been hit in was hit four times, every one with the run at the floor or a wall and the place it wanted
+/// well inside the field — `-37.3,432.0` wanting `136,368`, `-184.0,432.0` wanting `-32,368`, `184.0,425.6`
+/// wanting `96,368` and `184.0,328.3` wanting `-136,368` — `0 of the nine clear` for the frames before each. The
+/// ways out of an edge go before the run is on it, while there are clear moves to choose between.
+///
+/// **A warning and not a ranking of its own, and for these ways alone**, because the two ways tried of keeping
+/// every run off the floor each cost a test: the projection held off the bottom (see the clamp in [`steer`])
+/// and the ways out of each landing as a tie-break (see the ranking's own note). This reorders nothing but the
+/// moves nothing will be at, and only where a recipe named one of these.
+///
+/// **Not for th10's `開宴「二拝二拍一拝」`**, though every whole Extra of 2026-10-02 lost its run at the floor or a
+/// bottom corner with nothing open: with the edges warned of, keep\hits-x16-pd\s7-c11-f15707 took the card on its
+/// first attempt where it had been hit 1,851 frames in, but keep\chain100c was hit on all ten attempts of all seven
+/// ways and keep\at-100b on its first six, 1,374 to 1,600 frames in — both chapters the card had been taken from
+/// without the warning.
+fn keeps_off_the_edges(dodge: Dodge) -> bool {
+    matches!(
+        dodge,
+        Dodge::UnderTheBoss
+            | Dodge::AwayFromWhereTheFallLands
+            | Dodge::AThirdOfTheWayUp
+            | Dodge::AThirdOfTheWayUpAndNoLower
+    )
+}
+
+/// **Whether a way has the rules keep to the middle of the field across and to its band up and down**: a move
+/// landing, [`A_LANDING_NEAR_AN_EDGE_AT`] frames on, more than [`OFF_THE_MIDDLE_BY`] off the middle or outside
+/// `crate::cards::cedars_band` — and further off either than the run is now — is judged hit there. So the moves
+/// left are standing and the taps up and down the middle, and one across or out of the band is taken only where
+/// those are all hit, as the move hit least.
+///
+/// **For th10's `神符「杉で結ぶ古き縁」`, dodged up and down the middle** (`X軸中央で上下に大きく避ける`, the
+/// strategy wiki's): the place the way wanted was the middle on every frame, and the rules took the moves across
+/// that were clear of the fire coming at the run, one at a time, until it was at a wall — from keep\at-98 seven
+/// hits and the card never got through, at `-182.7,432` 737 frames in and at `180.8,421.7` 1,164 frames in on
+/// each of six retries after it.
+///
+/// **Hit and not warned**, because a warning reorders only the moves nothing will be at: warned of the middle
+/// and of the floor and walls, the run still went to the floor at `432`, a wall at `-180.8`, and above the band,
+/// hit at `1.6,147.9` 1,273 frames into the card from keep\at-98 on all five attempts — every one of them a frame
+/// where no move was clear of everything and the warned ones were taken.
+fn keeps_to_the_middle(dodge: Dodge) -> bool {
+    dodge == Dodge::OldTiesBoundByCedars
+}
+
+/// **How far off the middle across a landing is too far**: less than a diagonal tap goes across, so that a tap
+/// off the middle counts and a tap back to it does not. At `12` a diagonal tap down, `11.3` across, went through
+/// it and was taken over the tap straight down.
+const OFF_THE_MIDDLE_BY: f32 = 6.0;
+
+/// **Whether a way has the rules dodge by tapping** (`ちょん避け`): each of the nine moves is judged as held for
+/// [`A_TAPS_FRAMES`] and then let go, the run standing where the tap left it for the rest of the frames looked
+/// at — and not as held for all of them.
+///
+/// **Because a move held for every frame looked at is a run that never stops**, and aimed fire is dodged by
+/// standing still until it is aimed and stepping off by a little once it has been. Judged held, standing still
+/// and a short step up were both hit under fire aimed at the run, and the moves clear were the ones that went on
+/// — down to the floor 340 frames into th10's `神符「杉で結ぶ古き縁」` from keep\hits-xpd3\s7-c6-f7513, along it
+/// wall to wall, and up the right wall to the top of the field, with the place the way wanted the middle all
+/// along.
+///
+/// **Not for th10's `源符「厭い川の翡翠」` or `土着神「宝永四年の赤蛙」`**, whose taps are the steps their own ways take
+/// at a pace slower than one — see `crate::cards::jade_of_the_loathsome_river` and
+/// `crate::cards::the_red_frog_of_hoei_four`. Tapped with the way before it, the river's run was hit twice from
+/// keep\hits-xpd2\s7-c17-f24245, at `0.6,91.9` and `-46.9,73.5`; the red frog's, tapped walking the low line, on
+/// every attempt from keep\xpd10-fresh.
+fn dodges_by_tapping(dodge: Dodge) -> bool {
+    dodge == Dodge::OldTiesBoundByCedars
+}
+
+/// **How many frames a tap is held**: four of the run's whole steps, `18` — past a bullet's box and the run's
+/// together several times over.
+const A_TAPS_FRAMES: usize = 4;
+
+/// **How near the floor or a side wall a landing warns**: four of the run's whole steps.
+const OFF_THE_EDGES_BY: f32 = 18.0;
+/// **Which frame of a move's path is the landing looked at**: eight frames on, the whole step's `36` — near
+/// enough to be the move's own, where a move held the whole [`THE_FRAMES_AHEAD`] reaches a wall from anywhere.
+const A_LANDING_NEAR_AN_EDGE_AT: usize = 7;
+
+/// **How fast a bullet has to be going down to be one of the fall**, and not one standing or rising.
+const A_FALL_IS_GOING_DOWN_AT: f32 = 0.2;
+/// **How far off the middle a fall has to land before the run goes to the other side**: two of the run's steps
+/// either side of it.
+const A_FALL_LANDS_ASIDE_BY: f32 = 24.0;
+/// **How far the other side of the middle the run waits**: a quarter of the field across, in from the wall as
+/// far again, the foot of the band being at the wall itself.
+const AWAY_FROM_WHERE_THE_FALL_LANDS_BY: f32 = 96.0;
+/// The side of the middle [`away_from_where_the_fall_lands`] last answered, `-1` the left and `1` the right.
+static FALL_SIDE: Mutex<f32> = Mutex::new(0.0);
+/// **The stage's frame the fall began on**: the first with nothing of a boss up and a bullet of it going down
+/// through the field's lowest quarter — and nothing once the stage is back before it, a chapter taken again; and
+/// whether its first band sweeps to the right, read [`A_FALL_SHOWS_ITS_SWEEP_BY`] frames into it.
+static FALL_BEGAN: Mutex<Option<(i64, Option<bool>)>> = Mutex::new(None);
+/// **How many of the fall's frames its first band's drift is read after**: by then it is `-0.43` in the four runs
+/// whose band sweeps left first and `+0.48` in the one whose sweeps right (`drift4.py`).
+const A_FALL_SHOWS_ITS_SWEEP_BY: i64 = 8;
+/// **The frames of the fall [`away_from_where_the_fall_lands`] waits through by the fall's own clock**: across
+/// the middle to [`A_FALL_IS_WAITED_OFF_THE_MIDDLE_BY`] on the right from the fall's frame 62, and as far on the
+/// left from its frame 100 to its frame 302, the place across the middle from where the fall lands otherwise.
+///
+/// **The fall's two sweeps, and the gap the second leaves**, read off five kept chapters of it (`band-chart.py`,
+/// `drift4.py`, `fallstart.py`, 2026-10-03): from its first bullets low — stage frame 4,817 to 4,819 in four runs,
+/// 4,743 in a fifth, the fall starting with the midboss's end — a band sweeps from the right to the left wall, its
+/// bullets drifting `-0.7` a frame, and then two fall, one standing at the left and one sweeping from the middle to
+/// the right at `+0.45`. Ahead of the band sweeping right, the run was carried into the bottom-right corner and hit
+/// at `184.0,432.0`; to its left, in the gap between the two, it went through. **Across to the left from the
+/// fall's frame 100 and not 162**, as the stands of the stage's frames 4,880 to 4,980 and 4,980 to 5,120 a recipe
+/// held before had it: from 162 the band sweeping right has formed between the run and the gap, and the run held
+/// on the right until then was carried into the corner from keep\hits-u1-normal-pd-1\s4-c4-f5077 under the stands
+/// and without them, and from 4,940 too; turned at 100 it went through there and from keep\hits-pd2\s4-c3-f4955 and
+/// keep\n4-4, three of three. **And by the fall's frames and not the stage's**, the fall of
+/// keep\hits-u2-normal-pd-1\s4-c4-f4877 beginning 75 frames before the others' and hit at 4,877, before either of
+/// the stands on the stage's frames. **And on the left from the start where the first band sweeps right**, as that
+/// fall's does (see [`A_FALL_SHOWS_ITS_SWEEP_BY`]): timed as the others, its run waited at `95` ahead of that band
+/// and was carried into the corner all the same, hit at `184.0,432.0` 134 frames into the fall.
+const A_FALL_IS_CROSSED_FROM: i64 = 62;
+const A_FALL_IS_CROSSED_UNTIL: i64 = 100;
+const A_FALL_IS_WAITED_BEHIND_UNTIL: i64 = 302;
+const A_FALL_IS_WAITED_OFF_THE_MIDDLE_BY: f32 = 60.0;
+
+/// **The place of the lower field that will have the most room once the run is there** — what
+/// [`Dodge::WhereThereWillBeRoom`] walks to: every bullet carried on along its own step, every place of a grid
+/// weighed by the least room it will have from the frame the run could reach it to [`ROOM_LOOKED_AHEAD`] after,
+/// less what the walk there costs.
+///
+/// **For fire that streams across the field and carries the run with it.** The rules dodge what is about to
+/// reach them, and a stream stepping `-1.4,1.4` steps away from the run as fast as the run steps away from it:
+/// th10's stage 4 midboss walked Normal runs into the bottom-left corner four launches of seven, each wanting the
+/// middle as the emptiest box at `0,368` and hit at `-180.6,432.0`, `-176.3,432.0` and `-184.0,432.0` with nothing
+/// open to them — one of them with the stretch dodged `focused`. The way out of a stream is across it, to where it
+/// has already been, and only a place weighed by the frames to come says that is where the room will be.
+///
+/// **The place held** while it weighs within [`ROOM_HELD_WITHIN`] of the best, so that the run walks to one
+/// place and not to whichever of two near ones the latest frame favours: unheld, one launch wanted `128,320`
+/// and `-136,224` by turns while the run sat on the floor at `-143,432` with `0 of the nine clear`, until it was
+/// hit at `-184.0,432.0`.
+///
+/// **The place and not a way to it searched some moves ahead**, which was tried: six moves of four frames, the
+/// first of the way with the most room handed over. Twenty-four frames of fire carried on along its steps read
+/// the corner as the roomiest ground there was, the stream not yet in it, and three launches of three walked into
+/// the bottom-left corner of stage 4's midboss and were hit there at `-184.0,432.0` some 315 frames into its
+/// attack, every retry of it the same.
+fn where_there_will_be_room(frame: &Frame) -> (f32, f32) {
+    let fire: Vec<crate::cards::Moving> = frame
+        .hazards
+        .iter()
+        .filter(|hazard| !matches!(hazard.kind, Kind::Body { solid: false }))
+        .map(|hazard| (hazard.at, hazard.step.unwrap_or((0.0, 0.0)), hazard.half))
+        .collect();
+    let room_at = |(x, y): (f32, f32), ahead: f32| {
+        fire.iter()
+            .map(|(at, step, half)| {
+                let (fx, fy) = (at.0 + step.0 * ahead, at.1 + step.1 * ahead);
+                ((x - fx).abs() - half.0).max((y - fy).abs() - half.1)
+            })
+            .fold(f32::INFINITY, f32::min)
+    };
+    let now = FRAMES.load(Ordering::Relaxed);
+    let mut held = ROOM_HELD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((since, there)) = *held
+        && (since..since + ROOM_HELD_FOR).contains(&now)
+    {
+        return there;
+    }
+    let weigh = |there: (f32, f32)| {
+        let reached = (there.0 - frame.at.0).hypot(there.1 - frame.at.1) / ROOM_A_FRAME_COVERS;
+        let mut room = f32::INFINITY;
+        let mut ahead = reached.ceil();
+        while ahead <= reached + ROOM_LOOKED_AHEAD {
+            room = room.min(room_at(there, ahead));
+            ahead += ROOM_LOOKED_AT_EVERY;
+        }
+        room.min(ROOM_ENOUGH) - reached * ROOM_A_FRAMES_WALK_COSTS
+    };
+    let (left, top, width, height) = frame.field;
+    let floor = top + height;
+    let mut best: Option<((f32, f32), f32)> = None;
+    let mut y = floor - ROOM_ABOVE_THE_FLOOR;
+    while y >= top + height * ROOM_NO_HIGHER_THAN {
+        let mut x = left + IN_FROM_THE_SIDE;
+        while x <= left + width - IN_FROM_THE_SIDE {
+            let score = weigh((x, y));
+            if best.is_none_or(|(_, was)| score > was) {
+                best = Some(((x, y), score));
+            }
+            x += ROOM_A_COLUMN;
+        }
+        y -= ROOM_A_ROW;
+    }
+    let there = match (*held, best) {
+        (Some((_, was)), Some((_, score))) if weigh(was) >= score - ROOM_HELD_WITHIN => was,
+        (_, Some((there, _))) => there,
+        (_, None) => frame.at,
+    };
+    *held = Some((now, there));
+    there
+}
+
+/// **How much better a place has to weigh than the one held** before the run is turned to it.
+const ROOM_HELD_WITHIN: f32 = 4.0;
+
+/// **How far ahead the room of a place is weighed**, from the frame the run could be there: a second.
+const ROOM_LOOKED_AHEAD: f32 = 60.0;
+/// And every how many frames of it.
+const ROOM_LOOKED_AT_EVERY: f32 = 4.0;
+/// **How far the run is taken to walk a frame**: short of the whole step's `4.5`, a walk through fire being no
+/// straight line.
+const ROOM_A_FRAME_COVERS: f32 = 3.0;
+/// **The room past which a place is no better for more**: the run's own box is `1.0` either side, and a bullet
+/// `24` off is one the rules step round.
+const ROOM_ENOUGH: f32 = 24.0;
+/// **What a frame of walking costs, in room**: a place a second's walk away has to have `6` more than the one the
+/// run is at.
+const ROOM_A_FRAMES_WALK_COSTS: f32 = 0.1;
+/// **The grid the places are on**: from above the floor up to the upper part of the field's middle, a row and a
+/// column of the run's own steps apart, and in from the walls as far as the low line's ends are.
+const ROOM_ABOVE_THE_FLOOR: f32 = 16.0;
+const ROOM_NO_HIGHER_THAN: f32 = 0.4;
+const ROOM_A_ROW: f32 = 24.0;
+const ROOM_A_COLUMN: f32 = 24.0;
+/// **How many frames one place is walked to before the field is weighed again.**
+const ROOM_HELD_FOR: u32 = 8;
+/// The place [`where_there_will_be_room`] last answered, and the ask it was weighed on.
+static ROOM_HELD: Mutex<Option<(u32, (f32, f32))>> = Mutex::new(None);
+
+/// **The middle of the cell of the whole field whose fire is thinnest** — what [`Dodge::WhereverItIsEmptiest`]
+/// walks to.
+///
+/// **For a card whose fire fills the band the rules wait in** and leaves some other part of the field empty,
+/// which the rules' own boxes cannot see: they count the band alone, so under such a card every box reads full,
+/// the errand stays the low line, and the dodging carries the run out of the band and up a wall. th10's
+/// `神具「洩矢の鉄の輪」` did that on two launches of three, its rings rolling across the bottom of the field
+/// with a thousand bullets up, the run climbing the left wall from `y = 171` to `32` and hit in the top corner
+/// with nothing open to it, both times with the field above the rings empty.
+///
+/// **A cell against a wall or the top is never the answer**, those being where a dodge runs out of moves; and a
+/// cell is weighed with half of each of its eight neighbours, so that a gap one cell wide inside a mass of fire is
+/// not wanted over a clear stretch. **And what the run walks to is held** while the cell it held is within
+/// [`EMPTIEST_HELD_WITHIN`] of the thinnest, so that two cells equally empty do not have the run turning between
+/// them.
+fn wherever_it_is_emptiest(frame: &Frame) -> (f32, f32) {
+    let (left, top, width, height) = frame.field;
+    let (cell_across, cell_down) = (
+        width / EMPTIEST_ACROSS as f32,
+        height / EMPTIEST_DOWN as f32,
+    );
+    let mut fire = [[0.0f32; EMPTIEST_ACROSS]; EMPTIEST_DOWN];
+    let mut count = |(x, y): (f32, f32)| {
+        let (column, row) = (
+            ((x - left) / cell_across).floor(),
+            ((y - top) / cell_down).floor(),
+        );
+        if column >= 0.0
+            && row >= 0.0
+            && (column as usize) < EMPTIEST_ACROSS
+            && (row as usize) < EMPTIEST_DOWN
+        {
+            fire[row as usize][column as usize] += 1.0;
+        }
+    };
+    for hazard in &frame.hazards {
+        if matches!(hazard.kind, Kind::Body { solid: false }) {
+            continue;
+        }
+        let step = hazard.step.unwrap_or((0.0, 0.0));
+        for ahead in EMPTIEST_LOOKS_AT {
+            count((hazard.at.0 + step.0 * ahead, hazard.at.1 + step.1 * ahead));
+        }
+    }
+    for beam in &frame.beams {
+        // **The beams that fire inside the frames the fire is counted over**, and those aimed with no frame
+        // said: one warning for longer than that is ground it will be off before it matters.
+        if beam.fires_in > EMPTIEST_LOOKS_AT[EMPTIEST_LOOKS_AT.len() - 1] as i32
+            && beam.fires_in != FIRES_WHEN_NOTHING_SAYS
+        {
+            continue;
+        }
+        let (sin, cos) = beam.angle.sin_cos();
+        let mut along = beam.near;
+        while along <= beam.far {
+            count((beam.origin.0 + cos * along, beam.origin.1 + sin * along));
+            along += cell_across / 2.0;
+        }
+    }
+    let middle_of = |column: usize, row: usize| {
+        (
+            left + (column as f32 + 0.5) * cell_across,
+            top + (row as f32 + 0.5) * cell_down,
+        )
+    };
+    let weigh = |column: usize, row: usize| {
+        let mut weight = 0.0;
+        for (dc, dr) in (-1i32..=1).flat_map(|dc| (-1i32..=1).map(move |dr| (dc, dr))) {
+            let (c, r) = (column as i32 + dc, row as i32 + dr);
+            if c < 0 || r < 0 || c >= EMPTIEST_ACROSS as i32 || r >= EMPTIEST_DOWN as i32 {
+                continue;
+            }
+            let share = if dc == 0 && dr == 0 { 1.0 } else { 0.5 };
+            weight += fire[r as usize][c as usize] * share;
+        }
+        let (x, y) = middle_of(column, row);
+        let far = ((x - frame.at.0).powi(2) + (y - frame.at.1).powi(2)).sqrt();
+        weight + far / EMPTIEST_A_BULLET_IS_WORTH + (top + height - y) / EMPTIEST_A_BULLET_IS_HIGH
+    };
+    let mut best: Option<((usize, usize), f32)> = None;
+    for row in 1..EMPTIEST_DOWN {
+        for column in 1..EMPTIEST_ACROSS - 1 {
+            let weight = weigh(column, row);
+            if best.is_none_or(|(_, was)| weight < was) {
+                best = Some(((column, row), weight));
+            }
+        }
+    }
+    let Some(((column, row), weight)) = best else {
+        return frame.at;
+    };
+    let mut held = EMPTIEST_HELD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (column, row) = match *held {
+        Some((was_column, was_row))
+            if weigh(was_column, was_row) <= weight + EMPTIEST_HELD_WITHIN =>
+        {
+            (was_column, was_row)
+        }
+        _ => (column, row),
+    };
+    *held = Some((column, row));
+    middle_of(column, row)
+}
+
+/// **The place on the low line aside from where the falling fire comes down** — what [`Dodge::AwayFromTheFire`]
+/// walks to: where the fire's median reaches the low line on its own step, and [`AWAY_FROM_THE_FIRE_BY`] across from
+/// it towards the field's middle once that is within as much of the run; held there while the fire comes down, and
+/// the field's middle while none does.
+///
+/// **Because th10's `開宴「二拝二拍一拝」` throws its fire at where the run is.** Its 120 bullets come out strewn
+/// over the top of the field and gather into a mass that falls where the run stood as it gathered, which on
+/// four launches of four put the run under it at the floor about 1,590 and 2,320 frames into the card — walked
+/// from side to side, the run had stood out the end of its line on the side the boss had moved to, and turned
+/// back with the mass already over it and every step towards the far end closed.
+///
+/// **Aside once it comes down, and not away beforehand**: sent to whichever end the fire's middle was not over —
+/// as it stood, or where it was going to land — the run was waiting at an end as the mass gathered, and the mass
+/// is thrown at wherever the run waits. Those two launches were hit three times and four.
+fn away_from_the_fire(frame: &Frame) -> (f32, f32) {
+    let field = frame.field;
+    let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
+    let middle = field.0 + field.2 / 2.0;
+    let (inside, outside) = (
+        field.0 + IN_FROM_THE_SIDE,
+        field.0 + field.2 - IN_FROM_THE_SIDE,
+    );
+    let mut lands: Vec<f32> = frame
+        .hazards
+        .iter()
+        .filter(|hazard| !matches!(hazard.kind, Kind::Body { .. }) && hazard.at.1 < low)
+        .filter_map(|hazard| {
+            let (across, down) = hazard.step?;
+            // Held inside the field, where a bullet barely falling would otherwise land far enough off it to
+            // outweigh every other.
+            (down >= AWAY_FROM_THE_FIRE_FALLING).then(|| {
+                (hazard.at.0 + across * (low - hazard.at.1) / down)
+                    .clamp(field.0, field.0 + field.2)
+            })
+        })
+        .collect();
+    let mut aside = AWAY_FROM_THE_FIRE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if lands.len() < AWAY_FROM_THE_FIRE_ONCE_THERE_ARE {
+        *aside = None;
+    } else {
+        lands.sort_by(f32::total_cmp);
+        let comes_down_at = lands[lands.len() / 2];
+        if (comes_down_at - frame.at.0).abs() < AWAY_FROM_THE_FIRE_BY {
+            let to = match comes_down_at < middle {
+                true => comes_down_at + AWAY_FROM_THE_FIRE_BY,
+                false => comes_down_at - AWAY_FROM_THE_FIRE_BY,
+            };
+            *aside = Some(to.clamp(inside, outside));
+        }
+    }
+    (aside.unwrap_or(middle), low)
+}
+
+/// Where [`away_from_the_fire`] sent the run aside to, while fire is coming down.
+static AWAY_FROM_THE_FIRE: Mutex<Option<f32>> = Mutex::new(None);
+
+/// **How far aside from where the fire comes down the run is sent**: the mass `開宴「二拝二拍一拝」` throws is some
+/// 150 across, so this is half of it and 65 to spare.
+const AWAY_FROM_THE_FIRE_BY: f32 = 140.0;
+/// **What falling is**, a unit a frame down its own step: the strewn fire drifting as it gathers is slower.
+const AWAY_FROM_THE_FIRE_FALLING: f32 = 1.0;
+/// **How many bullets have to be falling before any of it is a mass coming down**: a sixth of the card's 120.
+const AWAY_FROM_THE_FIRE_ONCE_THERE_ARE: usize = 20;
+
+/// The cells [`wherever_it_is_emptiest`] cuts the field into, across and down: about forty units each on a field
+/// 368 by 400, which is a few bullets' own boxes and ten of the player's whole steps.
+const EMPTIEST_ACROSS: usize = 9;
+const EMPTIEST_DOWN: usize = 10;
+/// **Where each hazard is counted**: where it is and where its own step puts it ten and twenty frames on, the
+/// fire that is coming being as much the question as the fire that is there.
+const EMPTIEST_LOOKS_AT: [f32; 3] = [0.0, 10.0, 20.0];
+/// **How far a cell of the same fire is worth walking**, as the distance one bullet is worth: a cell a whole
+/// field away is worth five bullets fewer than the one beside the run to be walked to.
+const EMPTIEST_A_BULLET_IS_WORTH: f32 = 80.0;
+/// **And how high**: the top of the field counts two bullets against the floor, fire coming down from the boss
+/// giving a run less time to see it the higher it stands.
+const EMPTIEST_A_BULLET_IS_HIGH: f32 = 200.0;
+/// How much thinner another cell has to be before the one held is given up for it, in bullets.
+const EMPTIEST_HELD_WITHIN: f32 = 2.0;
+/// The cell [`wherever_it_is_emptiest`] last answered.
+static EMPTIEST_HELD: Mutex<Option<(usize, usize)>> = Mutex::new(None);
+
 /// **The end of the low line the run is going to** — what [`Dodge::SideToSide`] walks to: from as far in as a
 /// way's place is held on one side to as far in on the other, and back once there.
 ///
@@ -3580,6 +4795,11 @@ fn where_to_be(
     let field = frame.field;
     let at = frame.at;
     let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
+    // **A player's own path through the card that is up, over everything**, a recipe's `follow` being a player's
+    // whole way through the card — the items they went for among it.
+    if let Some((place, _)) = the_cards_frames().and_then(on_the_path_at) {
+        return (place, Settled::APlayersPath);
+    }
     // The item worth going for, at the place it is; under a boss with nothing to collect the boss's own x with
     // the y low, a fight being a thing to stand under rather than to reach; and with neither the middle, low,
     // which is the shortest way to wherever the next item falls.
@@ -3600,6 +4820,16 @@ fn where_to_be(
         return (
             (x.clamp(left, right), at.1),
             Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or a 1up or a bomb, over every place a recipe told and every way's own**: what a run is worth the walk for
+    // wherever it falls, and a place told or a way taken up is what a stretch of fire is dodged by, not a reason to
+    // watch one fall out of the field. Below every told place and every way, the one th10's Extra midboss drops fell
+    // through the stretch of midstage 2 its recipe dodges `without_the_items` and was never taken.
+    if let Some((worth @ (Worth::Life | Worth::Bomb), (x, y))) = the_item_worth_going_for(frame) {
+        return (
+            (x.clamp(left, right), y.clamp(field.1, field.1 + field.3)),
+            Settled::AnItem(worth),
         );
     }
     // **Or the place the way the card is dodged is**, where the recipe told the rules no place of its own.
@@ -3635,13 +4865,22 @@ fn where_to_be(
                 (false, true) => false,
                 _ => at.0 < boss_x,
             };
-            if to_the_left {
+            let away = if to_the_left {
                 boss_x - distance
             } else {
                 boss_x + distance
-            }
+            };
+            away + aside
         }),
         None => None,
+    };
+    // **Under the gap the slow ring leaves above the run, for card 101 as the ring comes down on it** — see
+    // `crate::cards::through_tenaga_ashinagas_ring`.
+    let told_x = match settled_there {
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::TenagaAshinaga) => {
+            crate::cards::through_tenaga_ashinagas_ring(frame).or(told_x)
+        }
+        _ => told_x,
     };
     if let Some(x) = told_x {
         // Held inside the field and not [`IN_FROM_THE_SIDE`] of it: a recipe that names the edge means
@@ -3677,6 +4916,17 @@ fn where_to_be(
     if the_dodge() == Some(Dodge::RoundTheField) {
         return (round_the_field(frame), Settled::TheWayItWasToldToDodge);
     }
+    // **Or under the boss, round her rings and above her by the round** — see `crate::cards::moriyas_iron_rings`.
+    if the_dodge() == Some(Dodge::MoriyasIronRings) {
+        return (
+            crate::cards::moriyas_iron_rings(
+                frame,
+                the_cards_frames(),
+                aside_on(ATTEMPT.load(Ordering::Relaxed)),
+            ),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
     // **Or on round a small square under the boss** — see [`round_a_small_square`].
     if the_dodge() == Some(Dodge::RoundASmallSquare) {
         return (round_a_small_square(frame), Settled::TheWayItWasToldToDodge);
@@ -3685,12 +4935,92 @@ fn where_to_be(
     if the_dodge() == Some(Dodge::SideToSide) {
         return (side_to_side(frame), Settled::TheWayItWasToldToDodge);
     }
+    // **Or on at the pace the rice played on leaves unhit** — see `crate::cards::the_red_frog_of_hoei_four`.
+    if the_dodge() == Some(Dodge::TheRedFrogOfHoeiFour) {
+        return (
+            crate::cards::the_red_frog_of_hoei_four(
+                frame,
+                the_cards_frames(),
+                aside_on(ATTEMPT.load(Ordering::Relaxed)),
+            ),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or wherever on the whole field the fire is thinnest** — see [`wherever_it_is_emptiest`].
+    if the_dodge() == Some(Dodge::WhereverItIsEmptiest) {
+        return (
+            wherever_it_is_emptiest(frame),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or across the middle from where a fall of fire lands** — see [`away_from_where_the_fall_lands`]. **Moved
+    // aside on a retry** as a way's held place is, for the reason [`aside_on`] gives: th10's stage 4 waterfall was
+    // retried six times from its chapter and hit at `184.0,432.0` on the same frame every time.
+    if the_dodge() == Some(Dodge::AwayFromWhereTheFallLands) {
+        let (x, y) = away_from_where_the_fall_lands(frame);
+        let x = x + aside_on(ATTEMPT.load(Ordering::Relaxed));
+        return ((x.clamp(left, right), y), Settled::TheWayItWasToldToDodge);
+    }
+    // **Or wherever the room will be once the run is there** — see [`where_there_will_be_room`].
+    if the_dodge() == Some(Dodge::WhereThereWillBeRoom) {
+        return (
+            where_there_will_be_room(frame),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or at the end of the low line the fire is not over** — see [`away_from_the_fire`].
+    if the_dodge() == Some(Dodge::AwayFromTheFire) {
+        return (away_from_the_fire(frame), Settled::TheWayItWasToldToDodge);
+    }
+    // **Or where the card's fire and lasers come least near** — see `crate::cards::two_bows_two_claps_one_bow`.
+    if the_dodge() == Some(Dodge::TwoBowsTwoClapsOneBow) {
+        return (
+            crate::cards::two_bows_two_claps_one_bow(frame, the_cards_frames()),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or up and down the middle of the field** — see `crate::cards::old_ties_bound_by_cedars`.
+    if the_dodge() == Some(Dodge::OldTiesBoundByCedars) {
+        return (
+            crate::cards::old_ties_bound_by_cedars(frame, the_cards_frames()),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or on at the pace the river's fire played on leaves unhit** — see `crate::cards::jade_of_the_loathsome_river`.
+    if the_dodge() == Some(Dodge::JadeOfTheLoathsomeRiver) {
+        return (
+            crate::cards::jade_of_the_loathsome_river(
+                frame,
+                the_cards_frames(),
+                aside_on(ATTEMPT.load(Ordering::Relaxed)),
+            ),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
     // **Or where one card's own schedule has the run at this frame of it** — see `crate::cards`.
     if the_dodge() == Some(Dodge::ImperishableShooting)
         && let Some(frames) = the_cards_frames()
         && let Some(there) = crate::cards::imperishable_shooting(frame, frames)
     {
         return (there, Settled::TheWayItWasToldToDodge);
+    }
+    // **Or aside of a pillar being laid down to the run** — see `crate::cards::omiwatari_that_god_walked`.
+    if the_dodge() == Some(Dodge::OmiwatariThatGodWalked)
+        && let Some(there) = crate::cards::omiwatari_that_god_walked(frame)
+    {
+        return (there, Settled::TheWayItWasToldToDodge);
+    }
+    // **Or wherever the dodging has carried the run along the low line, and back across before a wall** — see
+    // `crate::cards::the_miracle_of_otensui`.
+    if the_dodge() == Some(Dodge::TheMiracleOfOtensui) {
+        return (
+            crate::cards::the_miracle_of_otensui(
+                frame,
+                the_cards_frames(),
+                aside_on(ATTEMPT.load(Ordering::Relaxed)),
+            ),
+            Settled::TheWayItWasToldToDodge,
+        );
     }
     // **Or at the edge the sword's swing across ends at** — see `crate::cards::laevateinn`.
     if the_dodge() == Some(Dodge::Laevateinn)
@@ -4337,7 +5667,8 @@ const fn worth(kind: Worth) -> u8 {
 }
 
 /// **The item the rules go for**: [`the_item_worth_going_for`], and none at all through a card dodged
-/// [`Dodge::WithoutTheItems`], whose boss lets them fall down the column her fire is thickest in.
+/// [`Dodge::WithoutTheItems`], whose boss lets them fall down the column her fire is thickest in — a 1up and a bomb
+/// being gone for before this is asked, in [`where_to_be`].
 ///
 /// th08's `禁薬「蓬莱の薬」` was hit on eighteen of the twenty-three whole runs that reached it, seventeen of them in
 /// its last stretch and sixteen at the floor between `x = 143` and `212`; a Normal clear through that stretch wanted
@@ -4404,4 +5735,146 @@ fn the_item_worth_going_for(frame: &Frame) -> Option<(Worth, (f32, f32))> {
                 .then(theirm.total_cmp(ourm))
         })
         .map(|(kind, _, at)| (kind, at))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **Card 101's run goes up and down the middle by the card's frames**: th10's field, at the foot, `357`, on frame
+    /// 141 and 501, at the top, `236`, on 321 and 681, half way on 231 — and at the foot between cards.
+    #[test]
+    fn card_101s_run_goes_up_and_down_the_middle_by_the_cards_frames() {
+        let field = (-184.0, 32.0, 368.0, 400.0);
+        assert_eq!(tenaga_ashinagas_height(field, Some(141)), 357.0);
+        assert_eq!(tenaga_ashinagas_height(field, Some(501)), 357.0);
+        assert_eq!(tenaga_ashinagas_height(field, Some(321)), 236.0);
+        assert_eq!(tenaga_ashinagas_height(field, Some(681)), 236.0);
+        assert_eq!(tenaga_ashinagas_height(field, Some(231)), 296.5);
+        assert_eq!(tenaga_ashinagas_height(field, None), 357.0);
+    }
+
+    /// **Low in the middle the run sways `16` either side of it by the stage's frames**: left for 30 frames, right for
+    /// the next 30, and the middle itself off a run.
+    #[test]
+    fn low_in_the_middle_the_run_sways_either_side_of_it_by_the_stages_frames() {
+        let field = (-184.0, 32.0, 368.0, 400.0);
+        assert_eq!(low_in_the_middle_across(field, 0), -16.0);
+        assert_eq!(low_in_the_middle_across(field, 29), -16.0);
+        assert_eq!(low_in_the_middle_across(field, 30), 16.0);
+        assert_eq!(low_in_the_middle_across(field, 60), -16.0);
+        assert_eq!(low_in_the_middle_across(field, -1), 0.0);
+    }
+
+    /// **Card 108's run goes up and down the left wall by the card's frames, then up the middle**: th10's field, `160`
+    /// at the card's start, `250` a quarter of the way down, `340` at its foot 400 frames in, back to `160` at 800,
+    /// then `0,112` from frame 4,000 on — and the wall half way between cards.
+    #[test]
+    fn card_108s_run_goes_up_and_down_the_left_wall_and_then_up_the_middle() {
+        let field = (-184.0, 32.0, 368.0, 400.0);
+        assert_eq!(the_great_suwa_war(field, Some(0)), (-184.0, 160.0));
+        assert_eq!(the_great_suwa_war(field, Some(200)), (-184.0, 250.0));
+        assert_eq!(the_great_suwa_war(field, Some(400)), (-184.0, 340.0));
+        assert_eq!(the_great_suwa_war(field, Some(600)), (-184.0, 250.0));
+        assert_eq!(the_great_suwa_war(field, Some(800)), (-184.0, 160.0));
+        assert_eq!(the_great_suwa_war(field, Some(3999)).0, -184.0);
+        assert_eq!(the_great_suwa_war(field, Some(4000)), (0.0, 112.0));
+        assert_eq!(the_great_suwa_war(field, None), (-184.0, 250.0));
+    }
+
+    /// **What the steering costs a frame, played over a field a launch traced** — the records of a trace written with
+    /// `--trace-the-field-in`, each frame's bullets and lasers handed to [`steer`] as th10's sight hands them over, and
+    /// the microseconds the whole of a frame's steering took against how many bullets were up: the steering's own
+    /// share of the game's update, with none of the game or of its reading.
+    ///
+    /// `TRACE` names the trace, the way `orb-real` reads one.
+    #[test]
+    #[ignore = "a measurement: TRACE=<trace.msgpack> cargo xtask test --release -- --ignored the_steering_played_over_a_traced_field"]
+    fn the_steering_played_over_a_traced_field() {
+        let path = std::env::var("TRACE").expect("TRACE names the trace to play the steering over");
+        let bytes = std::fs::read(&path).expect("the trace reads");
+        let records = orb_core::trace::read(&bytes).expect("the trace decodes");
+        let keys = Keys {
+            shot: 0x001,
+            bomb: 0x002,
+            focus: 0x004,
+            skip: 0x100,
+            up: 0x010,
+            down: 0x020,
+            left: 0x040,
+            right: 0x080,
+        };
+        let mut spent: Vec<(usize, u128)> = Vec::new();
+        for field in records
+            .iter()
+            .filter_map(|record| record.the_field.as_ref())
+        {
+            let frame = Frame {
+                field: (-184.0, 32.0, 368.0, 400.0),
+                at: field.at,
+                half: (1.0, 1.0),
+                straight: (4.5, 4.5),
+                diagonal: (3.18, 3.18),
+                focused_straight: (2.0, 2.0),
+                focused_diagonal: (1.41, 1.41),
+                hazards: field
+                    .bullets
+                    .iter()
+                    .filter(|bullet| bullet.kind == 1 || bullet.kind == 2)
+                    .map(|bullet| Hazard {
+                        kind: Kind::Bullet {
+                            hitting: bullet.kind == 1,
+                            state: bullet.kind,
+                            next_change: None,
+                        },
+                        slot: bullet.slot as usize,
+                        frames: bullet.age,
+                        at: bullet.at,
+                        step: bullet.step,
+                        half: (bullet.size.0.abs() / 2.0, bullet.size.1.abs() / 2.0),
+                    })
+                    .collect(),
+                beams: field
+                    .beams
+                    .iter()
+                    .map(|beam| Beam {
+                        slot: beam.slot as usize,
+                        origin: beam.origin,
+                        angle: beam.angle,
+                        frames: beam.frames,
+                        near: beam.near,
+                        far: beam.far,
+                        grows: 0.0,
+                        half_across: beam.half_across,
+                        fires_in: beam.fires_in,
+                        fading: beam.fading,
+                    })
+                    .collect(),
+                ..Frame::default()
+            };
+            let started = std::time::Instant::now();
+            let steered = steer(&frame, &keys, Hazards::Dodged, false, THE_FRAMES_OWN);
+            if holds_the_focus(&frame, Hazards::Dodged, &steered) {
+                let _ = steer(&frame, &keys, Hazards::Dodged, true, ASKED_AGAIN);
+            }
+            spent.push((frame.hazards.len(), started.elapsed().as_micros()));
+        }
+        let mut bands: std::collections::BTreeMap<usize, Vec<u128>> =
+            std::collections::BTreeMap::new();
+        for (bullets, us) in &spent {
+            bands
+                .entry((bullets / 250 * 250).min(1500))
+                .or_default()
+                .push(*us);
+        }
+        for (band, mut us) in bands {
+            us.sort_unstable();
+            println!(
+                "bullets {band:>4}+: {:>5} frames, median {:>6}us, 90th {:>6}us",
+                us.len(),
+                us[us.len() / 2],
+                us[us.len() * 9 / 10],
+            );
+        }
+    }
 }

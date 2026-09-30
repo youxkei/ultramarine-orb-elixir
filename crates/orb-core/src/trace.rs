@@ -99,6 +99,42 @@ pub struct Record {
     /// Defaulted for the reason [`Record::picture`] is.
     #[serde(default)]
     pub at: Option<(f32, f32)>,
+    /// **The game's own world as the update left it**, where the launch asked for it — see [`TheWorld`].
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub the_world: Option<TheWorld>,
+    /// **What the frame before spent, in microseconds, in the spans the pacing marks a frame by** — the gap
+    /// since the frame before it was handed over, the wait, the game's update, its sound, the draw, the hold
+    /// and the present — and empty where that frame was not paced.
+    ///
+    /// **Every frame and not the late ones alone**, which is what the log's `frame:` line is rationed to: a
+    /// run that held its pace for a minute and lost it for ten seconds is read here by its stage frames, and
+    /// the log has said nothing of the minute and three lines of the ten seconds.
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub spans: Vec<(String, u32)>,
+    /// **And what orb's own phases spent of that frame**, in microseconds — the phases of the log's `perf:` line,
+    /// the rules' steering among them, each one the frame entered.
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub phases: Vec<(String, u32)>,
+}
+
+/// **What a game holds of a run's world, as its own fields hold it**: its numbers by name, and its tables —
+/// the player's shots, the enemies, the items — a row per thing with the numbers in the order the game names
+/// them. Which numbers and which tables is each game's own, a game's world being laid out as that game lays it
+/// out, and nothing here reads them.
+///
+/// **As the fields are and not folded**, so that two traces of one stretch held against each other say which
+/// thing parted first and by how much — a playback of th10's stage 4 parted from its run on the generator at
+/// frame 147 with every number of its line agreeing, and what had parted was nowhere in that line.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct TheWorld {
+    pub numbers: Vec<(String, f64)>,
+    pub tables: Vec<(String, Vec<Vec<f64>>)>,
 }
 
 /// **Every bullet on the field on one frame of the card a launch named**, with the player beside them — which
@@ -159,6 +195,8 @@ impl TheField {
                     size: (hazard.half.0 * 2.0, hazard.half.1 * 2.0),
                     kind: state,
                     hidden: 0,
+                    age: hazard.frames,
+                    step: hazard.step,
                 }),
                 _ => None,
             })
@@ -260,6 +298,14 @@ pub struct ABulletOverAHit {
     pub kind: u16,
     /// The byte that takes it out of the player's tests while its script hides it.
     pub hidden: u8,
+    /// **And the count and the step a bot is handed for it**, where the game keeps them — what the steer's
+    /// telling one frame's bullet from the next and its projection are read off, and which a field of places
+    /// alone could not say: th10's `源符「厭い川の翡翠」` had bullets going dead straight feared as if nothing
+    /// was known of their motion, and the trace had no word on why.
+    #[serde(default)]
+    pub age: Option<i32>,
+    #[serde(default)]
+    pub step: Option<(f32, f32)>,
 }
 
 /// How many encoded bytes are held before they are appended to the file: about a few seconds of frames.
@@ -278,7 +324,17 @@ struct Tracing {
     the_field: Option<TheField>,
     /// Where the player was when the rules last read, since the last record — see [`the_player_at`].
     at: Option<(f32, f32)>,
+    /// The world read for the next record, where the launch asked for it — see [`the_world`].
+    the_world: Option<TheWorld>,
+    /// What the frame before spent, for the next record — see [`spans`].
+    spans: Vec<(String, u32)>,
+    /// What orb's own phases spent of it, for the next record — see [`phases`].
+    phases: Vec<(String, u32)>,
 }
+
+/// **Whether a launch wants the world in every record**, `Config::trace_the_world` — set once as the trace
+/// opens, and read on every update, which is why it is not behind [`TRACING`]'s lock.
+static THE_WORLD_WANTED: AtomicBool = AtomicBool::new(false);
 
 /// **The card a launch wants the field of**, `Config::trace_the_field_in`, and -1 for none — set once as the
 /// trace opens, and read on every frame a bot sees, which is why it is not behind [`TRACING`]'s lock.
@@ -328,6 +384,9 @@ pub fn open(path: &Path) {
         over_a_hit: None,
         the_field: None,
         at: None,
+        the_world: None,
+        spans: Vec::new(),
+        phases: Vec::new(),
     });
     ON.store(true, Ordering::Release);
     crate::log!("trace: every frame written to {}", path.display());
@@ -387,11 +446,16 @@ pub fn wants_the_field_in(card: Option<u32>) {
 /// recipe held it at. `--trace-the-field-in=none`'s.
 pub const NO_CARD: u32 = orb_config::args::NO_CARD;
 
+/// **The number that names every frame whatever is up**, for a launch that reads a whole replay in one playing —
+/// `--trace-the-field-in=all`'s.
+pub const EVERY_FRAME: u32 = orb_config::args::EVERY_FRAME;
+
 /// **Whether the field is wanted on a frame `card` is up on**, which is what a game asks before it walks its
 /// bullets for it: nothing is wanted where no trace is being written. `None` is a frame no card is up on,
-/// wanted where [`NO_CARD`] was named.
+/// wanted where [`NO_CARD`] was named; and every frame is wanted where [`EVERY_FRAME`] was.
 pub fn the_field_is_wanted_in(card: Option<u32>) -> bool {
-    on() && i64::from(card.unwrap_or(NO_CARD)) == THE_FIELD_IN.load(Ordering::Relaxed)
+    let wanted = THE_FIELD_IN.load(Ordering::Relaxed);
+    on() && (wanted == i64::from(EVERY_FRAME) || i64::from(card.unwrap_or(NO_CARD)) == wanted)
 }
 
 /// **Keeps the field for the next record** — see [`TheField`] — and drops it where no trace is being written.
@@ -404,6 +468,35 @@ pub fn the_field(what: TheField) {
     }
 }
 
+/// Says whether every record wants the game's world — see [`TheWorld`].
+pub fn wants_the_world(wanted: bool) {
+    THE_WORLD_WANTED.store(wanted, Ordering::Relaxed);
+}
+
+/// **Whether the next record wants the game's world**: a trace being written, a launch that asked — and, where
+/// the launch named a card to want the field of as well, a record holding that card's field.
+///
+/// **Because the world is read off every slot of every array**, which is slow enough to show: a pick-up of th10's
+/// Extra played its 31,803 frames back at some 500 frames in 35 seconds with it read on each, where the card it
+/// was measured for was the last thousand of them.
+pub fn the_world_is_wanted() -> bool {
+    on() && THE_WORLD_WANTED.load(Ordering::Relaxed)
+        && (THE_FIELD_IN.load(Ordering::Relaxed) == -1
+            || tracing()
+                .as_ref()
+                .is_some_and(|tracing| tracing.the_field.is_some()))
+}
+
+/// **Keeps the world for the next record** — see [`TheWorld`] — and drops it where no trace is being written.
+pub fn the_world(what: TheWorld) {
+    if !on() {
+        return;
+    }
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.the_world = Some(what);
+    }
+}
+
 /// **Keeps where the player was for the next record** — see [`Record::at`] — and drops it where no trace is
 /// being written.
 pub fn the_player_at(at: (f32, f32)) {
@@ -413,6 +506,40 @@ pub fn the_player_at(at: (f32, f32)) {
     if let Some(tracing) = tracing().as_mut() {
         tracing.at = Some(at);
     }
+}
+
+/// **Keeps what a frame spent for the next record**, each span by its name in microseconds — see
+/// [`Record::spans`] — and drops it where no trace is being written.
+pub fn spans(spans: &[(&str, i64)]) {
+    if !on() {
+        return;
+    }
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.spans = in_microseconds(spans);
+    }
+}
+
+/// **Keeps what orb's own phases spent of a frame for the next record** — see [`Record::phases`].
+pub fn phases(phases: &[(&str, i64)]) {
+    if !on() {
+        return;
+    }
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.phases = in_microseconds(phases);
+    }
+}
+
+/// Spans as a record holds them, a span below nought — a clock read out of order — as nought.
+fn in_microseconds(spans: &[(&str, i64)]) -> Vec<(String, u32)> {
+    spans
+        .iter()
+        .map(|(name, us)| {
+            (
+                (*name).to_owned(),
+                u32::try_from((*us).max(0)).unwrap_or(u32::MAX),
+            )
+        })
+        .collect()
 }
 
 pub fn the_word(word: u16) {
@@ -453,6 +580,9 @@ pub fn frame(
             over_a_hit: tracing.over_a_hit.take(),
             the_field: tracing.the_field.take(),
             at: tracing.at.take(),
+            the_world: tracing.the_world.take(),
+            spans: std::mem::take(&mut tracing.spans),
+            phases: std::mem::take(&mut tracing.phases),
         };
         // Named, so that any MessagePack reader prints a record back without being told the shape —
         // the same choice `resume` made for the file a run is left in.
@@ -544,6 +674,15 @@ mod tests {
             over_a_hit: None,
             the_field: None,
             at: Some((192.0, 384.0)),
+            the_world: Some(TheWorld {
+                numbers: vec![("shot".to_owned(), f64::from(frame))],
+                tables: vec![(
+                    "shots".to_owned(),
+                    vec![vec![1.0, 2.5], vec![f64::from(frame), -3.0]],
+                )],
+            }),
+            spans: vec![("gap".to_owned(), 8333), ("update".to_owned(), frame)],
+            phases: vec![("steering".to_owned(), 2100)],
         }
     }
 

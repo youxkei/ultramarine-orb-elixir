@@ -38,15 +38,8 @@
 - press: [decide]
   frames: 12
 - wait_until: { frames: 300 }
-# **The seven cards the no-bomb clear has a way for**, which a run with the bomb allowed loses fewer lives on
-# as well: see `a_run_played_to_its_clear_without_a_bomb.yaml` for why each card wants its way.
-- dodge: { with: in_the_middle, spell: 94 }
-- dodge: { with: out_of_the_following_laser, spell: 97 }
-- dodge: { with: visionary_tuning, spell: 105 }
-- dodge: { with: focused, spell: 113 }
-- dodge: { with: left_of_the_middle, spell: 120 }
-- dodge: { with: right_of_the_middle, spell: 128 }
-- dodge: { with: without_the_items, spell: 144 }
+# The cards the rules lost a run on are dodged the ways `orb_bot`'s own table for th08's Normal names —
+# `orb_bot::ways` — which a run with the bomb allowed loses fewer lives on as well.
 # **The whole run in one step**, which a `play` ends the frame the run is over: the launch of this game that
 # cleared Final A in its own mode took 137,000 frames of its own play step.
 - play_until: { frames: 250000 }

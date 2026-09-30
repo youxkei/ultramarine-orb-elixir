@@ -412,7 +412,27 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     config.apply(&launch.options);
+    // **No game at all rather than a game nobody plays**: started with the recipe unread, the launch
+    // is one somebody sits at — the window the settings' size and place on the primary monitor, and no
+    // dialog frame, so a window manager takes it over — and a title screen standing until somebody
+    // closes it. Stopped here, before the game, because the DLL reads the same file again inside it and
+    // has no launch left to refuse by then.
+    if launch.options.plays_itself() && config.autoplay.is_none() {
+        return Err("the recipe --autoplay names cannot be read; no game started".into());
+    }
     let options = to_hand_on(std::env::args().skip(1));
+    // The DLL reads these back out of the game's command line split at whitespace (see
+    // `Options::from_command_line`), so one holding a space reaches it cut in two: a recipe named that
+    // way is a recipe the game never plays, while the launcher read it whole.
+    if let Some(cut) = options
+        .iter()
+        .find(|option| option.contains(char::is_whitespace))
+    {
+        return Err(format!(
+            "{cut:?} holds a space, which the game reads as two words; no game started"
+        )
+        .into());
+    }
 
     let game_exe = config.game_dir.join(known.exe);
     let build = verify_game_exe(&game_exe, known, language)?;

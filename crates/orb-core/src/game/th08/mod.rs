@@ -70,8 +70,8 @@ use orb_api::{Device, Viewport};
 use crate::audio::Music;
 use crate::game::song::{name_at, same_song};
 use crate::game::{
-    Boundary, Call, Entered, FileOpen, FrameCalls, Game, Hooks, Memory, Menu, Pad, PanelTile,
-    Patch, Read, Reading, Rect, RunStart, State, Threads,
+    Boundary, Building, Call, Entered, FileOpen, FrameCalls, FrameEntered, Game, Hooks, Memory,
+    Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads,
 };
 use crate::log;
 
@@ -2577,6 +2577,8 @@ impl Game for Th08 {
             // orb's loop reaches them.
             walks: None,
             // Nothing: this game runs its frame from its own message pump, and [`RENDER`] is that frame.
+            // `__thiscall`s, all three — see [`RUN_CALC_CHAIN`] and [`RENDER`].
+            frame_entered: FrameEntered::InEcx,
             runs_its_frame: None,
             // orb's own cadence, and a frame of input lag gone with it. What this replaces is
             // [`RENDER`], and what the two seams either side of the draw chain are for is the rest of
@@ -2598,10 +2600,10 @@ impl Game for Th08 {
             // The job the build calls three instructions past the seed's copy — see [`STAGE_SEEDED`],
             // which has why the seed's seam is inside the build and not in front of it. On the loader's
             // thread, which is where the seed has to go in and where nothing else of orb's runs.
-            stage_building: Some(Patch {
+            stage_building: Some(Building::Cdecl(Patch {
                 target: STAGE_SEEDED,
                 prologue: STAGE_SEEDED_PROLOGUE,
-            }),
+            })),
             // **The one read of the score file that is not the mode's**: what the title lights its items from
             // and what the save at every run's start writes back, so it comes out of the game's own file
             // whichever mode a launch is in — see [`FRONT_END_ADDED`], whose doc has the clears that were lost

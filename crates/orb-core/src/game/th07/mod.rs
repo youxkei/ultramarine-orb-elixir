@@ -122,8 +122,8 @@ use orb_api::{Device, SoundBuffer, Texture, Viewport};
 use crate::audio::{Music, Track};
 use crate::game::song::{name_at, same_song};
 use crate::game::{
-    Boundary, Call, Entered, Face, FileOpen, FrameCalls, Game, Hooks, Memory, Menu, Pad, PanelTile,
-    Patch, Read, Reading, Rect, RunStart, State, Threads,
+    Boundary, Building, Call, Entered, Face, FileOpen, FrameCalls, FrameEntered, Game, Hooks,
+    Memory, Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads,
 };
 use crate::{detail, log};
 
@@ -2853,6 +2853,8 @@ impl Game for Th07 {
             // how orb's loop reaches them.
             walks: None,
             // Nothing: orb is inside this game's frame, and the two above are it.
+            // `__thiscall`s, all three, as th06's are.
+            frame_entered: FrameEntered::InEcx,
             runs_its_frame: None,
             // orb's own cadence, and a frame of input lag gone with it. What this replaces is
             // [`RENDER`], and what the two seams either side of the draw chain are for is the rest of
@@ -2892,10 +2894,10 @@ impl Game for Th07 {
             // first frame all the same: the numbers go in at the *end* of the build, which is after the
             // build's own draws. See [`STAGE_BUILD`], and [`crate::resume::stage_building`] for what is
             // written there.
-            stage_building: Some(Patch {
+            stage_building: Some(Building::Cdecl(Patch {
                 target: STAGE_BUILD,
                 prologue: STAGE_BUILD_PROLOGUE,
-            }),
+            })),
             // The one read of the score file that is not the mode's: what the front end offers is not a
             // record of a run, so it comes out of the game's own file whichever mode a launch is in — see
             // [`FRONT_END_ADDED`]. Entered in `ecx`, this game's chain calling every callback that way.

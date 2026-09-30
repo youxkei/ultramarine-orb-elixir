@@ -11,8 +11,9 @@ else — that is also the name of its crates and of the files it installs.
   `target/i686-pc-windows-gnu/release/orb.exe`. Have `mingw-w64-i686-gcc` from MSYS2's MINGW32
   environment on `PATH` — `.cargo/config.toml` names it as the linker.
 - Point the editor at the target: set `rust-analyzer.cargo.target` to `i686-pc-windows-gnu`.
-- Test on the real game with `cargo xtask real <copy of the install>`, on a copy made for it, after the
-  same cases pass in `orb-e2e`.
+- Test on the real game with `cargo xtask real <the game's development environment>` — `th10_dev` and its
+  siblings — after the same cases pass in `orb-e2e`. Never a copy made
+  for it: the development environments are the exes muted in Windows' volume mixer, and a copy plays out loud.
 - Run `cargo xtask seam` after touching a crate above the seam: it builds those crates for a target with no
   Windows, which is what says no call went past the seam.
 - Run `cargo xtask check` by hand before calling a change finished: it is the four checks in the order

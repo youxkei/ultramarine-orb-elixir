@@ -1,0 +1,79 @@
+# **One stage of th10 practised on its own, rewound like any other run and written down for like none** — the
+# main menu's item 2, whose run the game marks with the run's flag `0x10` (`State::practice`).
+#
+# **Its walk is the run's with one screen more**: 6 the difficulty, 7 the character and 8 the shot, whose
+# `decide` puts up 9, the practice's stage, its cursor the stage counted from nought, and whose own `decide`
+# asks for the run. A launch of this walk with the mode off, 2026-10-01, played stage 1 from that screen's
+# cursor 0 — over the copy's own records, where `cargo xtask real` takes them aside. To a score file with
+# nothing in it the practice offers no stage (2026-10-02: that screen stood and `decide` did nothing), nor to
+# the files a Pointdevice run left that reached stage 1 and was quit there: a stage is offered once a run of
+# the shot type and the difficulty has cleared it (0x416c08, 0x4314be). So this case continues
+# `a_normal_mode_run_played_without_a_bomb.yaml`, whose run of the game's own mode clears stages 1 and 2.
+#
+# **With orb's own mode question over the item, answered with the pointdevice mode**, which is what makes the
+# chapter taken again below a chapter orb put back.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [down]
+  frames: 10
+  until: { screen: 2, cursor: 2 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 9 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **Played into the stage's second chapter**, the midboss's first attack at frame 2521 of the stage, and the
+# chapter asked to be taken again there.
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

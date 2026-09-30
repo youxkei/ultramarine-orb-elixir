@@ -2,21 +2,8 @@
 # hit and no bomb — its walk to the run the_extra_a_cleared_run_unlocked's, the item there only where the game's
 # own records hold the Normal clear a_normal_mode_run_played_to_its_clear left in them.
 #
-# **Every stretch the rules could not take on their own is given its way here**, each measured off a pick-up of
-# its own chapter (2026-09-27): chapter 7's first 300 frames left to the rules, which is where the midboss's drop
-# and its 1up are gathered, and the floor held from there through chapter 8, the x the rules' own, whose fairies
-# fire fans of three at the run — the strategy wiki's 最下部から素直に弾に集中してちょん避けし続ける — and walk it
-# into a corner anywhere higher; and the three cards their dodges — 禁忌「レーヴァテイン」 (55),
-# 禁弾「過去を刻む時計」 (61) and 秘弾「そして誰もいなくなるか？」 (62), see `orb_bot::cards`.
-#
-# **The floor with the x left to the rules**, which is where every other hold of chapters 7 and 8 lost recordings:
-# picked up at chapter 7 of the runs kept (`kept-no-hit-1` to `-8`), x 192 on the low line lost two of five, x 280
-# three into the bottom-right corner, a walk from side to side along it one or two, the same about the middle two of
-# three and focused at x 192 the first two played; on the floor x 192 lost two of the three recordings made after
-# those five, and x 96, 144, 240 and 288 each lost one of the two x 192 lost. What those runs lost to is one moment
-# of the stage, script frames 5384 to 5441, where two columns of fairies fly in from outside both walls, taken on
-# whichever wall the fire had pushed the run to; with the x the rules' own, all eight reached chapter 9 with no
-# death (2026-09-27).
+# **Every stretch the rules could not take on their own is dodged the way `orb_bot`'s own table for th06c's Extra
+# names** — `orb_bot::ways`: the floor held through chapters 7 and 8, and the three cards their dodges.
 #
 # **The last step is bounded by a chapter the stage never reaches**, so that it ends where the run does: a `play`
 # step ends on the run being over, which the Extra's clear is.
@@ -51,22 +38,12 @@
   give_up_after: 1800
 - wait_until: { frames: 120 }
 - bombs: false
-- dodge: { with: laevateinn, spell: 55 }
-- dodge: { with: clock, spell: 61 }
-- dodge: { with: and_then_there_were_none, spell: 62 }
 - press: [decide]
   frames: 6
   until: { stage: 7, chapter: 1 }
   give_up_after: 3600
-- play_until: { stage: 7, chapter: 7 }
-  give_up_after: 20000
-- play_until: { frames: 300 }
-- stand_at: { y: 432 }
-- play_until: { stage: 7, chapter: 9 }
-  give_up_after: 6000
-- stand_at: {}
 - play_until: { stage: 7, chapter: 40 }
-  give_up_after: 60000
+  give_up_after: 86000
 - leave: true
 - wait_until: { frames: 300 }
 - quit: true

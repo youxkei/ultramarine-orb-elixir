@@ -147,6 +147,9 @@ pub struct Windows {
     /// Every window this host has been asked to show, in the order it was asked — see
     /// [`show`](Windows::show).
     shown: Mutex<Vec<Hwnd>>,
+    /// Every window this host has been asked to bring forward, in the order it was asked — see
+    /// [`bring_forward`](Windows::bring_forward).
+    brought_forward: Mutex<Vec<Hwnd>>,
     /// The handle the next window gets. Any number that is not zero; what it is for is that orb hands
     /// back what it was given.
     next: Mutex<usize>,
@@ -182,6 +185,7 @@ impl Windows {
             refuse_dpi: Mutex::new(false),
             made: Mutex::new(Vec::new()),
             shown: Mutex::new(Vec::new()),
+            brought_forward: Mutex::new(Vec::new()),
             next: Mutex::new(0x1_0000),
             reads: Mutex::new(Vec::new()),
             written: Mutex::new(Vec::new()),
@@ -330,6 +334,19 @@ impl Windows {
     /// Every window this host was asked to show, in the order it was asked.
     pub fn shown(&self) -> Vec<Hwnd> {
         self.shown.lock().unwrap().clone()
+    }
+
+    /// **A window brought to the front and made the one the keyboard goes to** — `SetForegroundWindow`, written
+    /// down rather than done, so that an e2e test can ask whether a window orb plays in took the focus off
+    /// whatever somebody was working in. `pub` for [`Windows::show`]'s reason: the laid-out game's host calls it.
+    pub fn bring_forward(&self, window: Hwnd) -> bool {
+        self.brought_forward.lock().unwrap().push(window);
+        true
+    }
+
+    /// Every window this host was asked to bring forward, in the order it was asked.
+    pub fn brought_forward(&self) -> Vec<Hwnd> {
+        self.brought_forward.lock().unwrap().clone()
     }
 
     /// **Bits added to a window's extended style**, and whether there was a window to add them to —

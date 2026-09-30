@@ -12,7 +12,7 @@ use windows_sys::Win32::System::Memory::{
     PAGE_PROTECTION_FLAGS, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY, PROCESS_HEAP_ENTRY,
     VirtualAlloc, VirtualProtect, VirtualQuery,
 };
-use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
+use windows_sys::Win32::System::SystemServices::{PROCESS_HEAP_ENTRY_BUSY, PROCESS_HEAP_REGION};
 
 use crate::mem::Source;
 
@@ -403,14 +403,23 @@ fn collect_heap(heap: usize, which: usize, out: &mut Vec<(usize, usize, Source)>
     }
     let mut entry: PROCESS_HEAP_ENTRY = unsafe { std::mem::zeroed() };
     let mut regions = 0;
+    let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut outside = Vec::new();
     while unsafe { HeapWalk(heap, &mut entry) } != 0 {
+        let base = entry.lpData as usize;
         if entry.wFlags & PROCESS_HEAP_REGION as u16 == 0 {
+            // **A busy block outside every region is one the heap put in pages of its own** — see
+            // `Source::HeapBlock`. Kept to the end of the walk, a block being listed after the regions that
+            // could hold it would be no different to one listed before them.
+            if entry.wFlags & PROCESS_HEAP_ENTRY_BUSY as u16 != 0 {
+                outside.push(base..base + entry.cbData as usize);
+            }
             continue;
         }
         regions += 1;
         let region = unsafe { entry.Anonymous.Region };
-        let base = entry.lpData as usize;
         let span = base..base + region.dwCommittedSize as usize + region.dwUnCommittedSize as usize;
+        spans.push(span.clone());
         collect_committed(
             span,
             Source::Heap {
@@ -421,6 +430,19 @@ fn collect_heap(heap: usize, which: usize, out: &mut Vec<(usize, usize, Source)>
         );
     }
     unsafe { HeapUnlock(heap) };
+    let blocks = outside
+        .into_iter()
+        .filter(|block| !spans.iter().any(|span| span.contains(&block.start)));
+    for (block, span) in blocks.enumerate() {
+        collect_committed(
+            span,
+            Source::HeapBlock {
+                which,
+                block: block + 1,
+            },
+            out,
+        );
+    }
 }
 
 /// Splits `span` into the parts that are committed and readable. Heap regions contain uncommitted holes

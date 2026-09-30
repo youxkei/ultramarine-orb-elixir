@@ -1,0 +1,75 @@
+# **The Extra, played out by the rules and the ways its cards are taken by, with the bomb forbidden, in
+# Pointdevice mode, after the run that lit it** — a death answered by the chapter again, so that what has to be
+# got through is each attack once and not the stage on its lives.
+#
+# **Item 1 of the main menu, the Extra, which the menu leaves out on records with no clear in them** (0x42d442
+# through 0x42d45c), and the records that light it are the case before this one's, in the same directory. Its
+# walk is the run's own three selects: the Extra's item puts the difficulty at 4 (0x42d790) and the shot select
+# writes the stage as 7 (0x430f16 through 0x430f4f).
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [down]
+  frames: 10
+  until: { screen: 2, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+# The cards the rules cannot get through with no hit are dodged the ways `orb_bot`'s own table for th10's Extra
+# names — `orb_bot::ways` — so nothing here names one.
+- press: [decide]
+  frames: 10
+  until: { stage: 7, chapter: 0 }
+  give_up_after: 900
+# **The whole Extra in one step**, which a `play` ends the frame the run is over.
+- play_until: { frames: 400000 }
+  give_up_after: 420000
+# **And the screen the run ends at**: the ranking's name typed into its entry where the run ranks, and the
+# replay of a run nobody will add to again kept — orb taking the game's own menu off that screen (state 8 of the
+# end of the run, sent to the title) and putting up its own question in its place. **No decide reaches that
+# menu**: after a cleared Extra its first item starts the run over from a stage that has no file (asm.md, *The
+# pause and the end of a run*).
+# The end of the run's own screen pressed on to the ranking's name entry: its first state takes a decide past
+# ten frames (0x42371c), and the tally after it opens the entry where the score ranks (0x42386d).
+- press: [decide]
+  frames: 6
+  until: { name: true }
+  give_up_after: 1800
+- name: ORB
+  give_up_after: 1800
+# One decide, which leaves the entry from the cell the name step puts its grid on, past the ten frames the entry
+# ignores keys for (0x423f93): the menu reads a decide as it goes down (`[0x474e36]`), so a press held on into
+# the menu is no second one.
+- wait_until: { frames: 12 }
+- press: [decide]
+  frames: 2
+- wait_until: { question: keep_replay }
+  give_up_after: 7200
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

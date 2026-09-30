@@ -9,7 +9,7 @@
 //! something added to its step every frame before the step is added to its position, so the step read after
 //! a frame is one addition short of the one about to be taken.
 
-use crate::fake::th08::{BOMBS, FIRST_STAGE, Fake, LIVES};
+use crate::fake::th08::{BOMBS, FIRST_STAGE, Fake, LIVES, THE_FIGHTS_TRACK};
 use crate::fake::{Display, Launched, Work, in_its_own_process};
 use orb_config::LogLevel;
 
@@ -1141,6 +1141,340 @@ fn the_rules_of_th08_wait_where_the_way_a_card_is_dodged_puts_them() {
     });
 }
 
+/// **And a way of dodging that is a height is waited at at that height, the x the rules' own**: a third of the
+/// way up from its floor of the rectangle the player is held in, `16` to `432` here, under the boss as the
+/// rules' own errand puts them.
+#[test]
+fn the_rules_of_th08_wait_a_third_of_the_way_up_where_a_dodge_says_so() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-wait-a-third-of-the-way-up",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- dodge: { with: a_third_of_the_way_up, spell: 94 }\n\
+                     - play_until: { frames: 400 }\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.is_in_a_run();
+        game.image().the_player_is_at((MIDDLE, LOW));
+        game.image().a_boss_is_fighting(0, (MIDDLE, 100.0), 1000);
+        game.image().a_card_is_up(94);
+        game.frames(2);
+        assert!(
+            game.log().said("a boss at 192,293"),
+            "the rules did not want the boss's x a third of the way up:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a way that weighs where the room will be walks to a place a stream will not cross**: a row of bullets
+/// coming along the low line from the left wall at `3` a frame sweeps the run's own place inside a second, so
+/// the place wanted is one at least two rows of the grid off that row.
+#[test]
+fn the_rules_of_th08_walk_out_of_the_way_of_a_stream_where_a_dodge_weighs_the_room_to_come() {
+    in_its_own_process(|| {
+        const A_STREAM: usize = 400;
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-walk-where-there-will-be-room",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- dodge: { with: where_there_will_be_room, spell: 94 }\n\
+                     - play_until: { frames: 400 }\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.is_in_a_run();
+        game.image().the_player_is_at((MIDDLE, LOW));
+        game.image().a_boss_is_fighting(0, (MIDDLE, 100.0), 1000);
+        for bullet in 0..16 {
+            game.image().a_bullet_is_at(
+                A_STREAM + bullet,
+                (40.0 + 8.0 * bullet as f32, LOW),
+                (3.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        game.image().a_card_is_up(94);
+        game.frames(2);
+        let wanted = game
+            .log()
+            .lines()
+            .iter()
+            .find_map(|line| {
+                let (_, at) =
+                    line.split_once("wanted the place the card's own dodge puts it at ")?;
+                let (x, rest) = at.split_once(',')?;
+                let y = rest.split(' ').next()?;
+                Some((x.parse::<f32>().ok()?, y.parse::<f32>().ok()?))
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "the rules wanted no place of the way's:\n  {}",
+                    game.log().lines().join("\n  ")
+                )
+            });
+        assert!(
+            (wanted.1 - LOW).abs() >= 48.0,
+            "the rules wanted {wanted:?}, on the stream's row:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a way that keeps off the edges does not walk into a wall to reach its place**: under a boss at the
+/// left wall itself, `8`, the place wanted is at the wall, and a run `22` off it — where eight frames of any
+/// step left, the focused one's included, land within `18` of the wall — stays where it is rather than step
+/// left onto the wall with nothing at all to dodge.
+#[test]
+fn the_rules_of_th08_keep_off_a_wall_where_a_dodge_keeps_off_the_edges() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-keep-off-the-wall",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- dodge: { with: under_the_boss, spell: 94 }\n\
+                     - play_until: { frames: 400 }\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.is_in_a_run();
+        game.image().the_player_is_at((30.0, LOW));
+        game.image().a_boss_is_fighting(0, (8.0, 100.0), 1000);
+        game.image().a_card_is_up(94);
+        game.frames(2);
+        game.image().the_player_is_at((30.0, LOW));
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_keys_read() & LEFT,
+            0,
+            "the rules stepped left onto the wall:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a way dodged up and down the middle does not leave the middle to reach its place**: the run stood `10`
+/// below the place it wants with a bullet standing `20` over it, so the taps up are hit and the diagonal taps up
+/// come nearer that place than standing or a tap down — and the move taken is not across, every diagonal tap
+/// landing more than `6` off the middle.
+#[test]
+fn the_rules_of_th08_keep_to_the_middle_where_a_dodge_keeps_to_it() {
+    in_its_own_process(|| {
+        const ABOVE: usize = 400;
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-keep-to-the-middle",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- dodge: { with: old_ties_bound_by_cedars, spell: 94 }\n\
+                     - play_until: { frames: 400 }\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.is_in_a_run();
+        game.image().the_player_is_at((MIDDLE, 300.0));
+        game.image().a_boss_is_fighting(0, (MIDDLE, 100.0), 1000);
+        game.image().a_card_is_up(94);
+        game.frames(2);
+        game.image().the_player_is_at((MIDDLE, 310.0));
+        game.image()
+            .a_bullet_is_at(ABOVE, (MIDDLE, 290.0), (0.0, 0.0), (4.0, 4.0));
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_keys_read() & (LEFT | RIGHT),
+            0,
+            "the rules stepped across the middle:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a way that dodges by tapping taps off fire aimed at the run, where a move held would run into
+/// something**: a bullet coming at the run across the field from `30` left of it at `2` a frame, and one standing
+/// `50` over it and one `50` under it. Held, the moves up and down reach those within the frames looked at and
+/// the move right outruns the fire; tapped and let go, the move right is caught by it, and a tap up or down is
+/// clear of all three and is the one taken.
+#[test]
+fn the_rules_of_th08_tap_off_fire_aimed_at_the_run_where_a_dodge_dodges_by_tapping() {
+    in_its_own_process(|| {
+        const ACROSS: usize = 400;
+        const ABOVE: usize = 401;
+        const UNDER: usize = 402;
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-tap",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- dodge: { with: old_ties_bound_by_cedars, spell: 94 }\n\
+                     - play_until: { frames: 400 }\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.is_in_a_run();
+        game.image().the_player_is_at((MIDDLE, 300.0));
+        game.image().a_boss_is_fighting(0, (MIDDLE, 100.0), 1000);
+        game.image().a_card_is_up(94);
+        game.frames(2);
+        game.image().the_player_is_at((MIDDLE, 300.0));
+        game.image()
+            .a_bullet_is_at(ACROSS, (MIDDLE - 30.0, 300.0), (2.0, 0.0), (4.0, 4.0));
+        game.image()
+            .a_bullet_is_at(ABOVE, (MIDDLE, 250.0), (0.0, 0.0), (4.0, 4.0));
+        game.image()
+            .a_bullet_is_at(UNDER, (MIDDLE, 350.0), (0.0, 0.0), (4.0, 4.0));
+        game.frames(1);
+        let word = game.image().the_word_the_keys_read();
+        assert_eq!(
+            word & (LEFT | RIGHT),
+            0,
+            "the rules went across the fire's way:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_ne!(
+            word & (UP | DOWN),
+            0,
+            "the rules did not tap off the fire:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a way that keeps away from where a fall of fire lands waits across the middle from it**: bullets
+/// falling through the lowest quarter of the field from `232` to `272` across land right of the middle, `192`, so
+/// the place wanted is `96` left of it at the low line — and bullets higher up or going up are no part of the
+/// fall, though they are left of the middle.
+#[test]
+fn the_rules_of_th08_wait_across_the_middle_from_where_a_fall_lands() {
+    in_its_own_process(|| {
+        const A_FALL: usize = 400;
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-keep-away-from-where-the-fall-lands",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- dodge: { with: away_from_where_the_fall_lands, spell: 94 }\n\
+                     - play_until: { frames: 400 }\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.is_in_a_run();
+        game.image().the_player_is_at((MIDDLE, LOW));
+        game.image().a_boss_is_fighting(0, (MIDDLE, 100.0), 1000);
+        for bullet in 0..6 {
+            game.image().a_bullet_is_at(
+                A_FALL + bullet,
+                (232.0 + 8.0 * bullet as f32, 360.0),
+                (0.5, 2.0),
+                (4.0, 4.0),
+            );
+        }
+        // **And none of these**: four high up, four going up, all of them left of the middle.
+        for bullet in 6..10 {
+            game.image().a_bullet_is_at(
+                A_FALL + bullet,
+                (40.0, 120.0 + 8.0 * bullet as f32),
+                (0.0, 2.0),
+                (4.0, 4.0),
+            );
+        }
+        for bullet in 10..14 {
+            game.image().a_bullet_is_at(
+                A_FALL + bullet,
+                (40.0, 300.0 + 8.0 * bullet as f32),
+                (0.0, -2.0),
+                (4.0, 4.0),
+            );
+        }
+        game.image().a_card_is_up(94);
+        game.frames(2);
+        assert!(
+            game.log()
+                .said("wanted the place the card's own dodge puts it at 96,368"),
+            "the rules did not want the other side of the middle:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a way named for the fire after a card is taken up once that card has ended with the stage's boss still
+/// up**, and put down as the next card starts — the fire between two cards having no number of its own to be
+/// named by. **Cards 95 and 96**, which the autoplay engine names no way for: its own for card 94 is the middle as
+/// well, and a way the same as the one before it is no way taken up.
+#[test]
+fn the_rules_of_th08_dodge_the_fire_after_a_card_the_way_named_for_it() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-dodge-the-fire-after-a-card",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- dodge: { with: in_the_middle, after_spell: 95 }\n\
+                     - play_until: { frames: 400 }\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.is_in_a_run();
+        game.image().the_player_is_at((MIDDLE, LOW));
+        game.image().a_boss_is_fighting(0, (MIDDLE, 100.0), 1000);
+        game.image().the_stream_reads_the_track(THE_FIGHTS_TRACK);
+        game.image().a_card_is_up(95);
+        game.frames(2);
+        assert!(
+            !game.log().said("the fire after card 95 is up"),
+            "the way was taken up while card 95 ran:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        game.image().no_card_is_up();
+        game.frames(2);
+        assert!(
+            game.log()
+                .said("the fire after card 95 is up, and the rules dodge it in_the_middle"),
+            "the way was not taken up after card 95:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert!(
+            game.log()
+                .said("wanted the place the card's own dodge puts it at 192,368"),
+            "the rules did not want the middle after card 95:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        game.image().a_card_is_up(96);
+        game.frames(2);
+        assert!(
+            game.log()
+                .said("the rules dodge the way their own rules do"),
+            "the way was not put down as card 96 started:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **And that place moved on a retry of the chapter the card is in**, by as much as the rules said they would
 /// wait aside, the way the boss's own x and the middle are: held still, a retry is the attempt before it over
 /// again — one Extra was hit at `198.3,428.0` attempt after attempt with the middle a card's way holds held
@@ -1206,6 +1540,164 @@ fn the_rules_of_th08_wait_aside_of_the_place_a_cards_way_holds_on_a_retry() {
         // What the chapter put back is a stage with no card up in it, so the card again.
         let from = log.written();
         the_card_is_up();
+        game.frames_until("the retry's aside said", 8, || {
+            log.said("retry 1 of this chapter, and the rules wait ")
+        });
+        let aside: f32 = log
+            .lines()
+            .iter()
+            .find_map(|line| {
+                let (_, after) = line.split_once("retry 1 of this chapter, and the rules wait ")?;
+                after.split_once(" to the side")?.0.parse().ok()
+            })
+            .expect("the retry said how far aside the rules wait");
+        assert_ne!(aside, 0.0, "the retry waits where the first attempt did");
+        let wanted = format!(
+            "wanted the place the card's own dodge puts it at {:.0},368",
+            MIDDLE + aside
+        );
+        game.frames_until("the retry waiting aside of the middle", 8, || {
+            log.said_since(from, &wanted)
+        });
+    });
+}
+
+/// **And a way that stands under the boss moved aside of her on a retry** the same: held under her, the nonspell
+/// after th10's card 78 was retried six times on a stage practice and hit at `-177.6,432.0` 879 frames in on every
+/// one of them.
+#[test]
+fn the_rules_of_th08_wait_aside_of_the_boss_a_cards_way_stands_under_on_a_retry() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-wait-aside-of-the-boss-on-a-retry",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(format!(
+                    "{WALKED_INTO_A_RUN}\
+                     - dodge: {{ with: under_the_boss, spell: 94 }}\n\
+                     - play_until: {{ frames: 6000 }}\n"
+                ));
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let log = game.log();
+        game.stages_last(100_000);
+        game.plays_its_own_stage();
+        game.frames_until("the run", 6000, || game.state().playing);
+        game.frames_until(
+            "the stage's first chapter and the way handed over",
+            600,
+            || {
+                log.said("stage 1 chapter 1 (stage start)")
+                    && log.said("has the rules dodge card 94")
+            },
+        );
+
+        let boss_x = MIDDLE + 40.0;
+        let the_card_is_up = || {
+            game.image().a_boss_is_fighting(0, (boss_x, 100.0), 1000);
+            game.image().a_card_is_up(94);
+        };
+        the_card_is_up();
+        game.frames(8);
+        let under_her = format!("wanted the place the card's own dodge puts it at {boss_x:.0},368");
+        assert!(
+            log.said(&under_her),
+            "the first attempt did not wait under the boss:\n  {}",
+            log.lines().join("\n  "),
+        );
+
+        game.image().has_died(1.0);
+        game.image().has_lives_and_bombs(LIVES - 1.0, BOMBS);
+        game.image().the_player_has_been_hit();
+        game.frames(8);
+        assert!(
+            log.said("died in chapter 1"),
+            "the death was not seen:\n  {}",
+            log.lines().join("\n  "),
+        );
+        game.frames_until("the chapter taken again", 240, || {
+            log.said("retry: the chapter again")
+        });
+
+        let from = log.written();
+        the_card_is_up();
+        game.frames_until("the retry's aside said", 8, || {
+            log.said("retry 1 of this chapter, and the rules wait ")
+        });
+        let aside: f32 = log
+            .lines()
+            .iter()
+            .find_map(|line| {
+                let (_, after) = line.split_once("retry 1 of this chapter, and the rules wait ")?;
+                after.split_once(" to the side")?.0.parse().ok()
+            })
+            .expect("the retry said how far aside the rules wait");
+        assert_ne!(aside, 0.0, "the retry waits where the first attempt did");
+        let wanted = format!(
+            "wanted the place the card's own dodge puts it at {:.0},368",
+            boss_x + aside
+        );
+        game.frames_until("the retry waiting aside of the boss", 8, || {
+            log.said_since(from, &wanted)
+        });
+    });
+}
+
+/// **And the place a way that finds its own answers moved on a retry** the same — the way across the middle from
+/// where a fall of fire lands, which with nothing falling is the middle: held still, th10's stage 4 waterfall was
+/// retried six times from its chapter and hit at `184.0,432.0` on the same frame, stage frame 4,874, every one of them.
+#[test]
+fn the_rules_of_th08_wait_aside_of_the_place_a_stretchs_way_finds_on_a_retry() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-wait-aside-of-a-stretchs-place-on-a-retry",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(format!(
+                    "{WALKED_INTO_A_RUN}\
+                     - dodge: {{ with: away_from_where_the_fall_lands, stage: 1, from: 0, to: 60000 }}\n\
+                     - play_until: {{ frames: 6000 }}\n"
+                ));
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let log = game.log();
+        game.stages_last(100_000);
+        game.plays_its_own_stage();
+        game.frames_until("the run", 6000, || game.state().playing);
+        game.frames_until("the stage's first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+
+        let a_boss_is_up = || game.image().a_boss_is_fighting(0, (MIDDLE, 100.0), 1000);
+        a_boss_is_up();
+        game.frames(8);
+        assert!(
+            log.said(&format!(
+                "wanted the place the card's own dodge puts it at {MIDDLE:.0},368"
+            )),
+            "the first attempt did not wait at the middle:\n  {}",
+            log.lines().join("\n  "),
+        );
+
+        game.image().has_died(1.0);
+        game.image().has_lives_and_bombs(LIVES - 1.0, BOMBS);
+        game.image().the_player_has_been_hit();
+        game.frames(8);
+        assert!(
+            log.said("died in chapter 1"),
+            "the death was not seen:\n  {}",
+            log.lines().join("\n  "),
+        );
+        game.frames_until("the chapter taken again", 240, || {
+            log.said("retry: the chapter again")
+        });
+
+        let from = log.written();
+        a_boss_is_up();
         game.frames_until("the retry's aside said", 8, || {
             log.said("retry 1 of this chapter, and the rules wait ")
         });
@@ -2238,6 +2730,42 @@ fn the_rules_of_th08_go_for_no_item_through_the_hourai_elixir() {
                 && game.image().the_word_the_keys_read() & RIGHT == 0,
             "the rules went for a point item through the card:\n  {}",
             since.join("\n  "),
+        );
+    });
+}
+
+/// **And a 1up gone for all the same**: a way that goes for no item is a way that keeps the run off the column the
+/// points fall down, and a 1up is worth the walk wherever it falls — th10's Extra lost the one its midboss drops,
+/// which falls into the stretch of midstage 2 its recipe dodges `without_the_items`.
+#[test]
+fn the_rules_of_th08_go_for_a_1up_through_the_hourai_elixir_dodged_without_the_items() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-rules-go-for-a-1up-without-the-items",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(format!(
+                    "- dodge: {{ with: without_the_items, spell: {HOURAI_ELIXIR} }}\n\
+                     - play_until: {{ frames: 400 }}\n"
+                ));
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.is_in_a_run();
+        game.image().a_boss_is_fighting(0, (MIDDLE, 100.0), 1000);
+        game.image().a_card_is_up(HOURAI_ELIXIR);
+        game.image().an_item_is_at((MIDDLE + 100.0, LOW));
+        game.image().the_item_is_of_class(A_1UP);
+        game.frames(3);
+        let log = game.log();
+        assert!(
+            log.said(&format!(
+                "card {HOURAI_ELIXIR} is up, and the rules dodge it without_the_items"
+            )) && log.said("autoplay: wanted a 1up at 292,368")
+                && game.image().the_word_the_keys_read() & RIGHT != 0,
+            "the rules did not go for a 1up through the card:\n  {}",
+            log.lines().join("\n  "),
         );
     });
 }

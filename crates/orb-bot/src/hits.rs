@@ -282,6 +282,7 @@ mod tests {
             spell: None,
             card_frames: None,
             stage_frames: None,
+            difficulty: None,
         }
     }
 

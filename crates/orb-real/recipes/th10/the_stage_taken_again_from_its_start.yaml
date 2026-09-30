@@ -1,0 +1,76 @@
+# **th10's stage taken again from its own start**, which is the third of the ways orb's own question of where
+# to start again offers: the snapshot the stage's first chapter is, rather than the chapter the run is
+# standing in.
+#
+# **Asked in the stage's first chapter, where nothing is behind it.** `RetryMenu::new` leaves
+# 更に前からやり直す out of the ways where the chapters behind the lost one are none, so the items here are the
+# chapter, the stage and the run given up — and the stage is **item 1**. A recipe that asked deeper would have
+# four items and the stage would be 2.
+#
+# **The front end is walked by this game's own screen numbers** — see `a_run_started_and_given_up.yaml`,
+# which walks the same four — with orb's own mode question over the main menu's first item, answered with the
+# pointdevice mode: the chapters are the mode's.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# Three seconds, so that the run is in its first chapter and no further, and past the frame that chapter is
+# taken on: the first stage's build takes 55 frames of this game's (the stage's frames read at nought through
+# all of them), and the chapter is taken on the stage's frame 8 — so 60 frames asked on that frame, with no
+# stage behind the ask for the stage again to go back over.
+- play_until: { frames: 180 }
+  give_up_after: 7200
+# **The ask, the stage named, and the screen that naming raises answered with yes.**
+- start_over: true
+- answer: { question: retry, item: 1 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# **And the run playing on from the stage's own start into its second chapter**, which is what says the
+# snapshot landed and what the check holds it to: the midboss's first attack, at frame 2521 of the stage.
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

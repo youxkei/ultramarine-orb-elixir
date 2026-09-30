@@ -12,9 +12,9 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRect, DispatchMessageW, GWL_EXSTYLE, GetClientRect, GetForegroundWindow,
     GetWindowLongPtrW, GetWindowRect, IsWindowVisible, MB_ICONERROR, MB_OK, MB_SETFOREGROUND,
-    MB_SYSTEMMODAL, MSG, MessageBoxW, PM_REMOVE, PeekMessageW, SW_SHOW, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetProcessDPIAware, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, TranslateMessage, WM_QUIT,
+    MB_SYSTEMMODAL, MSG, MessageBoxW, PM_REMOVE, PeekMessageW, SW_SHOWNA, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetProcessDPIAware,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WM_QUIT,
 };
 
 use crate::real::gdi;
@@ -34,6 +34,10 @@ const TEXT: u32 = 0x00ff_ffff;
 
 pub fn foreground() -> Hwnd {
     Hwnd(unsafe { GetForegroundWindow() } as usize)
+}
+
+pub fn bring_forward(window: Hwnd) -> bool {
+    unsafe { SetForegroundWindow(window.0 as _) != 0 }
 }
 
 pub fn set_process_dpi_aware() -> bool {
@@ -125,11 +129,11 @@ pub fn add_ex_style(window: Hwnd, ex_style: u32) -> bool {
     }
 }
 
-pub fn show(window: Hwnd) -> bool {
+pub fn show_without_activating(window: Hwnd) -> bool {
     // `ShowWindow` answers whether the window *was* visible, which is nought for the one this is for —
     // it was made hidden. So the answer is thrown away and the call is what there is; a window that
     // refuses to show has no other sign to give.
-    unsafe { ShowWindow(window.0 as _, SW_SHOW) };
+    unsafe { ShowWindow(window.0 as _, SW_SHOWNA) };
     true
 }
 

@@ -64,28 +64,12 @@
 - wait_until: { screen: 25 }
   give_up_after: 1800
 - wait_until: { frames: 30 }
-# **The ways th06c's Extra was cleared with no hit by, under this game's numbers for the same cards**:
-# 禁忌「レーヴァテイン」 is 122 here where it is 55 there, 禁弾「過去を刻む時計」 128 for 61 and
-# 秘弾「そして誰もいなくなるか？」 129 for 62, each read off this game's traced Extra by the stage frame the card
-# came up on — 14818 against th06c's 15184, 29177 against 29541, 30655 against 31551.
-- dodge: { with: laevateinn, spell: 122 }
-- dodge: { with: clock, spell: 128 }
-- dodge: { with: and_then_there_were_none, spell: 129 }
+# The ways th06c's Extra was cleared with no hit by are `orb_bot`'s own table for this game's Extra —
+# `orb_bot::ways` — under this game's numbers for the same cards, the floor held after the midboss among them.
 - press: [decide]
   frames: 6
-# **And the floor held after the midboss, the x the rules' own**, as th06c's Extra holds it — see that recipe for
-# the holds it lost with. The stretch is chapters 7 and 8 here as there, this game's script running 100 behind
-# th06c's — 4643 where th06c's resumes at 4743, and `game/th06nc/chapters.rs`'s Extra rows each 100 below
-# th06c's — so the hold is bounded by the frames th06c's is: from 300 into chapter 7, for 2313 more, where
-# chapter 9 begins.
-- play_until: { stage: 7, chapter: 7 }
-  give_up_after: 12000
-- play_until: { frames: 300 }
-- stand_at: { y: 432 }
-- play_until: { frames: 2313 }
-- stand_at: {}
-# **The rest of the stage in one step**, the bomb the rules' to spend: it ends at the entry the game asks a name
-# into, which the Extra reaches without an ending, cleared or lost.
+# **The whole stage in one step**, the bomb the rules' to spend: it ends at the entry the game asks a name into,
+# which the Extra reaches without an ending, cleared or lost.
 - play_until: { name: true }
   give_up_after: 216000
 # The name written into that entry rather than pressed for — see the Normal run's recipe.

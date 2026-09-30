@@ -23,9 +23,11 @@ const MONITOR: (i32, i32) = (3840, 2160);
 /// And the client the bot's window is given inside its frame: half of th08's own 640x480.
 const BOT_CLIENT: (i32, i32) = (320, 240);
 
-/// `WS_EX_DLGMODALFRAME` and `WS_EX_TOOLWINDOW`, written out the way `orb_core::window`'s own styles are.
+/// `WS_EX_DLGMODALFRAME`, `WS_EX_TOOLWINDOW` and `WS_EX_NOACTIVATE`, written out the way `orb_core::window`'s own
+/// styles are.
 const DIALOG: u32 = 0x0000_0001;
 const TOOL: u32 = 0x0000_0080;
+const NO_ACTIVATE: u32 = 0x0800_0000;
 
 /// The one window the host was asked for.
 ///
@@ -76,6 +78,11 @@ fn a_bots_window_over_th08_is_small_in_the_corner_and_framed_as_a_dialog() {
             DIALOG | TOOL,
             "the bot's window was not framed as a dialog kept off the taskbar",
         );
+        assert_eq!(
+            made.ex_style & NO_ACTIVATE,
+            NO_ACTIVATE,
+            "the bot's window can be activated, taking the focus off whatever somebody is working in",
+        );
     });
 }
 
@@ -102,9 +109,54 @@ fn a_window_somebody_plays_th08_in_is_the_settings_own() {
             "a launch nobody asked to play itself did not get the fullscreen it asked for",
         );
         assert_eq!(
-            made.ex_style & (DIALOG | TOOL),
+            made.ex_style & (DIALOG | TOOL | NO_ACTIVATE),
             0,
-            "a window somebody plays in was framed as a dialog",
+            "a window somebody plays in was framed as a dialog or kept from being activated",
+        );
+    });
+}
+
+/// **And the window the bot plays in left where it is when the game activates it**, as th10's is when that game
+/// brings its window forward: th08 activates its own window straight after making it, its input attached to the
+/// foreground window's thread, which took the focus off the user's own program for 579 milliseconds a launch; and
+/// activated as the game asks where somebody plays.
+#[test]
+fn the_window_a_bot_plays_th08_in_is_not_activated_by_the_game() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-the-bots-window-not-active",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some("[]".to_owned());
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let window = game.creates_its_window();
+        game.activates_its_window(window);
+        assert_eq!(
+            game.sim().windows().brought_forward(),
+            Vec::new(),
+            "the game's own SetActiveWindow brought the bot's window to the front",
+        );
+    });
+}
+
+#[test]
+fn the_window_somebody_plays_th08_in_is_activated_by_the_game() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-not-the-bots-window-active",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let window = game.creates_its_window();
+        game.activates_its_window(window);
+        assert_eq!(
+            game.sim().windows().brought_forward(),
+            vec![window],
+            "the game's own SetActiveWindow did not reach the host for a window somebody plays in",
         );
     });
 }

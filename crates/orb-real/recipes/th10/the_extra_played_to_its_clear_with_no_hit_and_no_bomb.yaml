@@ -1,0 +1,61 @@
+# **The Extra, played to its clear with no hit and no bomb, in Pointdevice mode** — th06c's and th06nc's case of
+# this name over this game's Extra. The rules and the ways `orb_bot`'s own table for th10's Extra names play it,
+# so nothing here names one; a death the mode answers is still a hit, and the case fails on it.
+#
+# **The Extra's item, which the records of the chain before it light**, and the walk and the screen after the run
+# are `the_extra_played_to_its_clear.yaml`'s — see it for the addresses.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [down]
+  frames: 10
+  until: { screen: 2, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 7, chapter: 0 }
+  give_up_after: 900
+# **The whole Extra in one step**, which a `play` ends the frame the run is over.
+- play_until: { frames: 400000 }
+  give_up_after: 420000
+- press: [decide]
+  frames: 6
+  until: { name: true }
+  give_up_after: 1800
+- name: ORB
+  give_up_after: 1800
+- wait_until: { frames: 12 }
+- press: [decide]
+  frames: 2
+- wait_until: { question: keep_replay }
+  give_up_after: 7200
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

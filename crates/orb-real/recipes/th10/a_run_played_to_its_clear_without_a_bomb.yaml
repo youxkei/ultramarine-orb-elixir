@@ -1,0 +1,71 @@
+# **A Normal run of th10 played to its clear by the rules with the bomb forbidden, in Pointdevice mode**, a
+# death answered by the chapter again.
+#
+# **The rules have cleared this game's six stages with no bomb before**, in the game's own mode: three whole
+# runs of Reimu A on Normal, 2026-10-01, each read `ending skipped` some 85,000 frames in with one death or
+# none. What this case adds is the mode over the same run, and the screen it ends at.
+#
+# **The front end is walked by this game's own screen numbers** — see `a_run_started_and_given_up.yaml`,
+# which walks the same four — with orb's own mode question over the main menu's first item answered with the
+# pointdevice mode.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **The whole run in one step**, which a `play` ends the frame the run is over.
+- play_until: { frames: 400000 }
+  give_up_after: 420000
+# **And the screen the run ends at**, which is what a clear of the rewinding games is held to as well: the
+# name the ranking is registered under typed into its entry, and the replay of a run nobody will add to again
+# kept — orb taking the game's own offer of one off that screen and putting up its own question in its place.
+- name: ORB
+  give_up_after: 9000
+- press: [decide]
+  frames: 6
+  until: { question: keep_replay }
+  give_up_after: 7200
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

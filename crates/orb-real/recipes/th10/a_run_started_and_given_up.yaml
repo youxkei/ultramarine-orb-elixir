@@ -1,0 +1,72 @@
+# **A run of th10 started by a recipe and handed back to the game's own title**, which is what
+# `Th10::leave_run` writes: the scene wanted put at the title, the one the pause menu's own item for the title
+# writes.
+#
+# **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the
+# title's `+0x1c`: the title's `decide` presses reach 2, the main menu, whose item 0 starts a run; 6 is the
+# difficulty, 7 the character and 8 the shot, whose `decide` asks for the run. `orb-core`'s `game/th10/asm.md`
+# has where each was read.
+#
+# **The difficulty remembers the last one**, so the cursor is taken to 0 and then down to 1, Normal, rather
+# than pressed at wherever it came up; the character and the shot are taken to 0, Reimu and her A.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+# **And orb's own question over that item, answered with the pointdevice mode** — item 0. `Th10::rewinds`
+# answers true, so the main menu's first item is asked about before the flow behind it runs: without this
+# step the menu stands behind a question nobody answers and screen 6 never comes. The mode is orb's own here
+# because what this case is about is the way *out* of a run, which is the same write either way.
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **Long enough for there to be something to take down**: ten seconds of the stage, its first enemies on the
+# field.
+- play_until: { frames: 600 }
+  give_up_after: 7200
+- leave: true
+# **And the main menu waited for**, which the title reaches on its own: a launch that gave a run up in its
+# third chapter, 2026-10-01, read `front end: screen 0` on orb's frame after the give-up and `screen 2` three
+# frames after that, nothing pressed.
+- wait_until: { screen: 2 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- quit: true

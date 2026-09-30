@@ -2138,9 +2138,11 @@ fn the_bot_shoots_a_boss_slowed_down() {
         );
 
         // **And one that reaches the move being made takes it off, hit or not**: a dodge at half a step is half
-        // a dodge, and by the frame a bullet is a hit the halving has already been paid for.
+        // a dodge, and by the frame a bullet is a hit the halving has already been paid for. A bullet of its own
+        // and not the one before put somewhere else: one slot holding a bullet at rest and then one moving
+        // elsewhere is a bullet that set off from rest, projected along the motion it showed.
         game.image()
-            .a_bullet_is_at(500, MIDDLE, LOW - A_STEP * 6.0, (0.0, A_STEP));
+            .a_bullet_is_at(501, MIDDLE, LOW - A_STEP * 6.0, (0.0, A_STEP));
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & FOCUS,

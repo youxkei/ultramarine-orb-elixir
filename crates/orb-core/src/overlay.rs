@@ -61,12 +61,75 @@ const FVF: u32 = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
 /// them and not the other, and which it is, is what `Game::d3d_device` answers against a swapchain being
 /// there — see `runtime::draw_overlay`.
 enum Backend {
-    /// The game's own `IDirect3DDevice8`, and the state block that puts its render states back.
-    TheDevice { device: Device, state_block: u32 },
+    /// The game's own device, which of the two versions it is, and the state block that puts its render
+    /// states back.
+    TheDevice {
+        device: Device,
+        state_block: u32,
+        version: Version,
+    },
     /// A canvas over the game's own swapchain, for a game that presents its frames through Direct3D 11 and
     /// has no Direct3D 8 device at all — see [`crate::canvas`], which is where every decision about that
     /// drawing is.
     TheCanvas(Canvas),
+}
+
+/// **Which Direct3D a game's own device is**: th06, th07 and th08 draw through Direct3D 8 and th10 through
+/// Direct3D 9.
+///
+/// **One backend for the two and not two backends**, because what the overlay asks of either is the same one
+/// alpha-blended textured quad with the same render states round it — the two versions put the same calls
+/// in different slots, and Direct3D 9 takes a texture's addressing and filtering out of its stage and into a
+/// sampler. So each call below goes to the version the device is, and nothing above them knows which.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Version {
+    Eight,
+    Nine,
+}
+
+/// `CreateTexture` of whichever version the device is.
+fn create_texture_of(
+    version: Version,
+    device: Device,
+    width: u32,
+    height: u32,
+) -> (orb_api::Hresult, Option<Texture>) {
+    match version {
+        Version::Eight => create_texture(
+            device,
+            width,
+            height,
+            1,
+            0,
+            D3DFMT_A8R8G8B8,
+            D3DPOOL_MANAGED,
+        ),
+        Version::Nine => orb_api::d3d9::create_texture(
+            device,
+            width,
+            height,
+            1,
+            0,
+            D3DFMT_A8R8G8B8,
+            D3DPOOL_MANAGED,
+        ),
+    }
+}
+
+/// `LockRect` of a texture of whichever version.
+fn lock_rect_of(version: Version, texture: Texture) -> Option<orb_api::Locked> {
+    match version {
+        Version::Eight => lock_rect(texture, 0, 0),
+        Version::Nine => orb_api::d3d9::lock_rect(texture, 0, 0),
+    }
+}
+
+/// `UnlockRect` of a texture of whichever version.
+fn unlock_rect_of(version: Version, texture: Texture) {
+    match version {
+        Version::Eight => unlock_rect(texture, 0),
+        Version::Nine => orb_api::d3d9::unlock_rect(texture, 0),
+    }
 }
 
 /// **A picture uploaded to whatever the overlay draws through**, which is the one thing that has a value
@@ -109,13 +172,15 @@ impl Backend {
     /// Must run on the thread that owns this backend.
     unsafe fn upload(&self, mask: &Mask) -> Option<Uploaded> {
         match self {
-            Self::TheDevice { device, .. } => {
+            Self::TheDevice {
+                device, version, ..
+            } => {
                 let (width, height) = (
                     mask.width.next_power_of_two(),
                     mask.height.next_power_of_two(),
                 );
-                let texture = made(*device, width, height)?;
-                upload(texture, mask, width, height);
+                let texture = made(*version, *device, width, height)?;
+                upload(*version, texture, mask, width, height);
                 Some(Uploaded::OnTheDevice {
                     texture,
                     u: mask.width as f32 / width as f32,
@@ -172,6 +237,7 @@ impl Overlay {
         let backend = Backend::TheDevice {
             device,
             state_block,
+            version: Version::Eight,
         };
         let Some(white) = (unsafe { backend.upload(&one_white_pixel()) }) else {
             // Deleted, not abandoned in the device: the block is the device's to hold and
@@ -181,6 +247,45 @@ impl Overlay {
             return None;
         };
 
+        Some(Self {
+            backend,
+            font,
+            mark_font,
+            white: Some(white),
+        })
+    }
+
+    /// **The same overlay on a game's own `IDirect3DDevice9`**, for th10 — see [`Version`].
+    ///
+    /// # Safety
+    /// `device` must be the game's live `IDirect3DDevice9`, and this must run on the thread that owns it.
+    pub unsafe fn on_a_direct3d_9_device(
+        device: Device,
+        font_path: &Path,
+        own_face: Option<Face>,
+        font_height: i32,
+        mark_height: i32,
+    ) -> Option<Self> {
+        if device.is_null() {
+            return None;
+        }
+        let font = loaded(font_path, own_face, font_height)?;
+        let mark_font = loaded(font_path, own_face, mark_height)?;
+        let (created, state_block) =
+            orb_api::d3d9::create_state_block(device, orb_api::d3d9::D3DSBT_ALL);
+        if created < 0 || state_block == 0 {
+            log!("overlay: CreateStateBlock failed ({created:#x})");
+            return None;
+        }
+        let backend = Backend::TheDevice {
+            device,
+            state_block,
+            version: Version::Nine,
+        };
+        let Some(white) = (unsafe { backend.upload(&one_white_pixel()) }) else {
+            orb_api::d3d9::delete_state_block(device, state_block);
+            return None;
+        };
         Some(Self {
             backend,
             font,
@@ -257,6 +362,7 @@ impl Overlay {
         let Backend::TheDevice {
             device,
             state_block,
+            version,
         } = self.backend
         else {
             // **Nothing to take out here, the canvas doing it per quad instead.** Direct3D 11 has no
@@ -276,6 +382,9 @@ impl Overlay {
                 viewport: None,
             });
         };
+        if version == Version::Nine {
+            return unsafe { self.a_frame_of_direct3d_9(device, state_block) };
+        }
         // A device reset invalidates the block; recreating it is cheaper than
         // tracking device loss, and skipping one frame of overlay is invisible.
         if capture_state_block(device, state_block) < 0 {
@@ -333,6 +442,72 @@ impl Overlay {
             viewport: Some(viewport),
         })
     }
+
+    /// **[`Overlay::frame`] on a Direct3D 9 device**: the same states, with the texture's addressing and
+    /// filtering set on its sampler, where Direct3D 9 moved them, and the vertex format set as an FVF.
+    ///
+    /// # Safety
+    /// As [`Overlay::frame`].
+    unsafe fn a_frame_of_direct3d_9(&self, device: Device, state_block: u32) -> Option<Frame<'_>> {
+        use orb_api::d3d9;
+        if d3d9::capture_state_block(device, state_block) < 0 {
+            return None;
+        }
+        let viewport = d3d9::get_viewport(device);
+        d3d9::set_viewport(
+            device,
+            Viewport {
+                x: 0,
+                y: 0,
+                width: SCREEN_WIDTH as u32,
+                height: SCREEN_HEIGHT as u32,
+                min_z: 0.0,
+                max_z: 1.0,
+            },
+        );
+        d3d9::set_fvf(device, FVF);
+        for (state, value) in [
+            (D3DRS_ZENABLE, D3DZB_FALSE),
+            (D3DRS_ZWRITEENABLE, 0),
+            (D3DRS_ALPHATESTENABLE, 0),
+            (D3DRS_ALPHABLENDENABLE, 1),
+            (D3DRS_SRCBLEND, D3DBLEND_SRCALPHA),
+            (D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA),
+            (D3DRS_CULLMODE, D3DCULL_NONE),
+            (D3DRS_LIGHTING, 0),
+            (D3DRS_SPECULARENABLE, 0),
+            (D3DRS_FOGENABLE, 0),
+            (D3DRS_STENCILENABLE, 0),
+            (D3DRS_CLIPPING, 1),
+            (D3DRS_COLORVERTEX, 1),
+        ] {
+            d3d9::set_render_state(device, state, value);
+        }
+        for (state, value) in [
+            (D3DTSS_COLOROP, D3DTOP_MODULATE),
+            (D3DTSS_COLORARG1, D3DTA_TEXTURE),
+            (D3DTSS_COLORARG2, D3DTA_DIFFUSE),
+            (D3DTSS_ALPHAOP, D3DTOP_MODULATE),
+            (D3DTSS_ALPHAARG1, D3DTA_TEXTURE),
+            (D3DTSS_ALPHAARG2, D3DTA_DIFFUSE),
+            (D3DTSS_TEXTURETRANSFORMFLAGS, 0),
+        ] {
+            d3d9::set_texture_stage_state(device, 0, state, value);
+        }
+        for (state, value) in [
+            (d3d9::D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP),
+            (d3d9::D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP),
+            (d3d9::D3DSAMP_MAGFILTER, D3DTEXF_LINEAR),
+            (d3d9::D3DSAMP_MINFILTER, D3DTEXF_LINEAR),
+            (d3d9::D3DSAMP_MIPFILTER, D3DTEXF_NONE),
+        ] {
+            d3d9::set_sampler_state(device, 0, state, value);
+        }
+        Some(Frame {
+            overlay: self,
+            viewport: Some(viewport),
+        })
+    }
 }
 
 impl Drop for Overlay {
@@ -340,9 +515,13 @@ impl Drop for Overlay {
         if let Backend::TheDevice {
             device,
             state_block,
+            version,
         } = self.backend
         {
-            delete_state_block(device, state_block);
+            match version {
+                Version::Eight => delete_state_block(device, state_block),
+                Version::Nine => orb_api::d3d9::delete_state_block(device, state_block),
+            }
         }
         if let Some(white) = self.white.take() {
             unsafe { white.release() };
@@ -485,16 +664,19 @@ impl Frame<'_> {
         color: u32,
         uv: [f32; 4],
     ) {
-        let (device, texture) = match (&self.overlay.backend, uploaded) {
+        let (device, texture, version) = match (&self.overlay.backend, uploaded) {
             (Backend::TheCanvas(canvas), Uploaded::OnTheCanvas(sheet)) => {
                 // Safety: a `Frame` is only made inside the game's own frame on the thread that owns the
                 // backend, and the sheet came out of this canvas — see `Overlay::frame`.
                 unsafe { canvas.quad(sheet, x, y, width, height, color, uv) };
                 return;
             }
-            (Backend::TheDevice { device, .. }, Uploaded::OnTheDevice { texture, .. }) => {
-                (*device, *texture)
-            }
+            (
+                Backend::TheDevice {
+                    device, version, ..
+                },
+                Uploaded::OnTheDevice { texture, .. },
+            ) => (*device, *texture, *version),
             // A picture of the other backend, which is a `Label` drawn against an overlay that did not bake
             // it. Nothing arranges it — there is one overlay in a launch, rebuilt with everything it holds
             // — and drawing it would hand one API's handle to the other.
@@ -542,21 +724,36 @@ impl Frame<'_> {
                 v,
             },
         ];
-        set_texture(device, 0, Some(texture));
-        draw_primitive_up(
-            device,
-            D3DPT_TRIANGLESTRIP,
-            2,
-            // The vertices as the slot takes them: a run of bytes and how long one is. What is in
-            // them is this file's own layout, which is why the struct is declared here.
-            unsafe {
-                std::slice::from_raw_parts(
-                    vertices.as_ptr() as *const u8,
-                    std::mem::size_of_val(&vertices),
-                )
-            },
-            size_of::<Vertex>() as u32,
-        );
+        // The vertices as the slot takes them: a run of bytes and how long one is. What is in them is this
+        // file's own layout, which is why the struct is declared here.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                vertices.as_ptr() as *const u8,
+                std::mem::size_of_val(&vertices),
+            )
+        };
+        match version {
+            Version::Eight => {
+                set_texture(device, 0, Some(texture));
+                draw_primitive_up(
+                    device,
+                    D3DPT_TRIANGLESTRIP,
+                    2,
+                    bytes,
+                    size_of::<Vertex>() as u32,
+                );
+            }
+            Version::Nine => {
+                orb_api::d3d9::set_texture(device, 0, Some(texture));
+                orb_api::d3d9::draw_primitive_up(
+                    device,
+                    D3DPT_TRIANGLESTRIP,
+                    2,
+                    bytes,
+                    size_of::<Vertex>() as u32,
+                );
+            }
+        }
     }
 }
 
@@ -566,15 +763,25 @@ impl Drop for Frame<'_> {
             Backend::TheDevice {
                 device,
                 state_block,
+                version,
             },
             Some(viewport),
         ) = (&self.overlay.backend, self.viewport)
         else {
             return;
         };
-        set_texture(*device, 0, None);
-        set_viewport(*device, viewport);
-        apply_state_block(*device, *state_block);
+        match version {
+            Version::Eight => {
+                set_texture(*device, 0, None);
+                set_viewport(*device, viewport);
+                apply_state_block(*device, *state_block);
+            }
+            Version::Nine => {
+                orb_api::d3d9::set_texture(*device, 0, None);
+                orb_api::d3d9::set_viewport(*device, viewport);
+                orb_api::d3d9::apply_state_block(*device, *state_block);
+            }
+        }
     }
 }
 
@@ -773,16 +980,8 @@ fn loaded(path: &Path, own_face: Option<Face>, height: i32) -> Option<Font> {
 /// A texture of orb's own: one level, no usage flags, `A8R8G8B8` and managed, which is what every
 /// texture the drawing makes is. The four the slot asks for that are always these are decided here
 /// rather than behind the seam, that being where a decision belongs.
-fn made(device: Device, width: u32, height: u32) -> Option<Texture> {
-    let (created, texture) = create_texture(
-        device,
-        width,
-        height,
-        1,
-        0,
-        D3DFMT_A8R8G8B8,
-        D3DPOOL_MANAGED,
-    );
+fn made(version: Version, device: Device, width: u32, height: u32) -> Option<Texture> {
+    let (created, texture) = create_texture_of(version, device, width, height);
     if texture.is_none() {
         log!("overlay: CreateTexture {width}x{height} failed ({created:#x})");
     }
@@ -791,8 +990,8 @@ fn made(device: Device, width: u32, height: u32) -> Option<Texture> {
 
 /// Copies `mask` into the top-left of the texture, leaving the padding that
 /// rounding up to a power of two added fully transparent.
-fn upload(texture: Texture, mask: &Mask, width: u32, height: u32) {
-    let Some(locked) = lock_rect(texture, 0, 0) else {
+fn upload(version: Version, texture: Texture, mask: &Mask, width: u32, height: u32) {
+    let Some(locked) = lock_rect_of(version, texture) else {
         return;
     };
     for row in 0..height {
@@ -809,7 +1008,7 @@ fn upload(texture: Texture, mask: &Mask, width: u32, height: u32) {
             destination[..source.len()].copy_from_slice(source);
         }
     }
-    unlock_rect(texture, 0);
+    unlock_rect_of(version, texture);
 }
 
 /// An overlay drawing onto a simulated Windows, for the tests of what a menu or a mark puts on the

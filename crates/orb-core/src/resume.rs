@@ -1401,7 +1401,39 @@ pub unsafe fn write(
         said: format!("{saved} {}", game.say_run_state(&saved.state)),
         overtaken: format!("chapter {}", saved.chapter),
     });
+    unsafe { *WRITTEN_LAST.get() = Some(saved.clone()) };
     Some(saved)
+}
+
+/// **The chapter [`write`] wrote last**, held for [`keep_a_copy`]: what goes in the file is read off the game on
+/// the chapter's own first frame, and a copy wanted later — on a hit, frames into the chapter — has to be the
+/// copy of *that* reading.
+static WRITTEN_LAST: MainThread<Option<Kept>> = MainThread::new(None);
+
+/// **The chapter written last, written again under `dir`**, as a file of its own that a launch picks up with
+/// `--keep-in` naming `dir` — answering with the file's path, and `None` where no chapter has been written
+/// or the game keeps no slot for the run.
+///
+/// **For a hit**: a Pointdevice run hit in a chapter puts that chapter back and plays it again from its start,
+/// and the file written then is the chapter as it was before the hit — so a chapter hit in on a whole run is a
+/// chapter a later launch can be put straight back into, every one of them a case of its own.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn keep_a_copy(dir: &Path, game: &dyn Game) -> Option<PathBuf> {
+    let saved = unsafe { WRITTEN_LAST.get() }.clone()?;
+    let path = slot(dir, game, &saved.run)?;
+    writer::hand_over(writer::Handed {
+        about: ABOUT,
+        path: path.clone(),
+        bytes: game.encode_resume(&saved),
+        said: format!(
+            "{saved} {}, kept for the hit in it",
+            game.say_run_state(&saved.state)
+        ),
+        overtaken: format!("chapter {} kept for a hit", saved.chapter),
+    });
+    Some(path)
 }
 
 /// Where this run's chapter is kept: one file per run there can be one of, named as the game names

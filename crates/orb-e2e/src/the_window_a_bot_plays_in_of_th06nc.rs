@@ -28,9 +28,11 @@ const WORK_US: i64 = 700;
 /// says whether the window is on the screen the moment it is made.
 const VISIBLE: u32 = 0x1000_0000;
 
-/// `WS_EX_DLGMODALFRAME` and `WS_EX_TOOLWINDOW`, the frame that keeps such a window out of the way.
+/// `WS_EX_DLGMODALFRAME` and `WS_EX_TOOLWINDOW`, the frame that keeps such a window out of the way, and
+/// `WS_EX_NOACTIVATE`, which keeps it from taking the focus off whatever somebody is working in.
 const DIALOG: u32 = 0x0000_0001;
 const TOOL: u32 = 0x0000_0080;
+const NO_ACTIVATE: u32 = 0x0800_0000;
 
 /// And the style the game writes over orb's when it makes its own window over: `WS_EX_WINDOWEDGE` alone,
 /// which is what th06c's window was measured holding — `exstyle 0x00000100`.
@@ -121,8 +123,8 @@ fn a_window_orb_plays_th06nc_in_is_made_hidden_in_the_corner() {
             game.log().lines().join("\n  "),
         );
         assert_eq!(
-            made.ex_style & (DIALOG | TOOL),
-            DIALOG | TOOL,
+            made.ex_style & (DIALOG | TOOL | NO_ACTIVATE),
+            DIALOG | TOOL | NO_ACTIVATE,
             "the window orb plays in was not framed as a dialog kept off the taskbar",
         );
         assert_eq!(
@@ -219,8 +221,8 @@ fn the_dialog_frame_the_game_wrote_over_is_put_back() {
         let game = playing_it("th06nc-the-bots-window-framed-again");
         let window = game.creates_its_window();
         assert_eq!(
-            the_only_window(&game).ex_style & (DIALOG | TOOL),
-            DIALOG | TOOL,
+            the_only_window(&game).ex_style & (DIALOG | TOOL | NO_ACTIVATE),
+            DIALOG | TOOL | NO_ACTIVATE,
             "the window orb plays in was not made framed as a dialog",
         );
 
@@ -231,8 +233,8 @@ fn the_dialog_frame_the_game_wrote_over_is_put_back() {
         );
         game.frame();
         assert_eq!(
-            the_only_window(&game).ex_style & (DIALOG | TOOL),
-            DIALOG | TOOL,
+            the_only_window(&game).ex_style & (DIALOG | TOOL | NO_ACTIVATE),
+            DIALOG | TOOL | NO_ACTIVATE,
             "the dialog frame the game wrote over was not put back:\n  {}",
             game.log().lines().join("\n  "),
         );
@@ -251,8 +253,8 @@ fn the_games_own_styles_keep_the_dialog_frame_and_the_window_hidden() {
 
         game.restyles_its_window();
         assert_eq!(
-            game.sim().windows().ex_style(window) & (DIALOG | TOOL),
-            DIALOG | TOOL,
+            game.sim().windows().ex_style(window) & (DIALOG | TOOL | NO_ACTIVATE),
+            DIALOG | TOOL | NO_ACTIVATE,
             "the game's own extended style took the dialog frame off:\n  {}",
             game.log().lines().join("\n  "),
         );
@@ -269,8 +271,8 @@ fn the_games_own_styles_keep_the_dialog_frame_and_the_window_hidden() {
             game.log().lines().join("\n  "),
         );
         assert_eq!(
-            game.sim().windows().ex_style(window) & (DIALOG | TOOL),
-            DIALOG | TOOL,
+            game.sim().windows().ex_style(window) & (DIALOG | TOOL | NO_ACTIVATE),
+            DIALOG | TOOL | NO_ACTIVATE,
             "the window orb showed is not framed as a dialog",
         );
     });
@@ -292,8 +294,8 @@ fn the_games_own_styles_keep_the_dialog_frame_once_orb_has_shown_it() {
 
         game.restyles_its_window();
         assert_eq!(
-            game.sim().windows().ex_style(window) & (DIALOG | TOOL),
-            DIALOG | TOOL,
+            game.sim().windows().ex_style(window) & (DIALOG | TOOL | NO_ACTIVATE),
+            DIALOG | TOOL | NO_ACTIVATE,
             "the game's own extended style took the dialog frame off a window already shown:\n  {}",
             game.log().lines().join("\n  "),
         );
@@ -472,9 +474,9 @@ fn a_window_somebody_plays_th06nc_in_is_the_settings_own() {
             game.log().lines().join("\n  "),
         );
         assert_eq!(
-            made.ex_style & (DIALOG | TOOL),
+            made.ex_style & (DIALOG | TOOL | NO_ACTIVATE),
             0,
-            "a window somebody plays in was framed as a dialog",
+            "a window somebody plays in was framed as a dialog or kept from being activated",
         );
         let was_asked_for = made.asked;
         game.frames(AND_NO_LONGER_THAN);

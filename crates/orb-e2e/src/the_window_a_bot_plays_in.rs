@@ -24,9 +24,11 @@ const MONITOR: (i32, i32) = (3840, 2160);
 /// small enough to sit in a corner and big enough to see what the bot is doing to the run.
 const BOT_CLIENT: (i32, i32) = (320, 240);
 
-/// `WS_EX_DLGMODALFRAME` and `WS_EX_TOOLWINDOW`, written out the way `orb_core::window`'s own styles are.
+/// `WS_EX_DLGMODALFRAME`, `WS_EX_TOOLWINDOW` and `WS_EX_NOACTIVATE`, written out the way `orb_core::window`'s own
+/// styles are.
 const DIALOG: u32 = 0x0000_0001;
 const TOOL: u32 = 0x0000_0080;
+const NO_ACTIVATE: u32 = 0x0800_0000;
 
 /// The one window the host was asked for.
 ///
@@ -82,6 +84,11 @@ fn a_bots_window_over_th06_is_small_in_the_corner_and_framed_as_a_dialog() {
             DIALOG | TOOL,
             "the bot's window was not framed as a dialog kept off the taskbar",
         );
+        assert_eq!(
+            made.ex_style & NO_ACTIVATE,
+            NO_ACTIVATE,
+            "the bot's window can be activated, taking the focus off whatever somebody is working in",
+        );
     });
 }
 
@@ -109,9 +116,9 @@ fn a_window_somebody_plays_th06_in_is_the_settings_own() {
             game.log().lines().join("\n  "),
         );
         assert_eq!(
-            made.ex_style & (DIALOG | TOOL),
+            made.ex_style & (DIALOG | TOOL | NO_ACTIVATE),
             0,
-            "a window somebody plays in was framed as a dialog",
+            "a window somebody plays in was framed as a dialog or kept from being activated",
         );
     });
 }

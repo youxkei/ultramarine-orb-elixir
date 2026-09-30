@@ -87,7 +87,7 @@ fn a_window_of_th08s_that_is_not_its_own_class_is_left_as_it_was_asked_for() {
             "the monitor was read for a window that is not the game's own",
         );
         assert!(
-            !game.log().said("screen: window at"),
+            !game.log().said(" — window at "),
             "orb wrote its own window down for a window of another class:\n  {}",
             game.log().lines().join("\n  ")
         );
@@ -116,7 +116,7 @@ fn a_monitor_that_cannot_be_read_leaves_th08s_window_as_it_asked_for_it() {
         game.creates_its_window();
         is_the_games_own(&made(&game));
         assert!(
-            !game.log().said("screen: window at"),
+            !game.log().said(" — window at "),
             "orb laid a window out against a monitor it could not read:\n  {}",
             game.log().lines().join("\n  ")
         );

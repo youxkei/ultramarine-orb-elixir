@@ -307,22 +307,49 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::log;
 
-/// The game's file, as the game asks for it.
+/// **The two files a game's scores go to**: the game's own, as the game asks for it, and orb's beside it.
 ///
-/// Terminated, because one open of it is orb's own — see [`asked_for`] — and `CreateFileA` takes a
+/// Terminated, because one open of the game's is orb's own — see [`asked_for`] — and `CreateFileA` takes a
 /// terminated string.
-const THEIRS: &CStr = c"score.dat";
-/// The same name as text, for a game that reads the file itself rather than asking the game's open for
-/// it — `Game::read_what_the_modes_file_records` of a game whose one read is at startup.
-pub const THEIRS_NAME: &str = "score.dat";
-/// orb's, beside it and named for the mode whose runs are in it, so that a directory listing
-/// says which is which.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Files {
+    pub theirs: &'static CStr,
+    /// Named for the mode whose runs are in it, so that a directory listing says which is which.
+    pub ours: &'static CStr,
+}
+
+/// The names every game before th10 keeps its scores under, th10 naming its own `scoreth10.dat`.
 ///
-/// An earlier version of orb called this `orb_score.dat`, and nothing reads or renames that name now: a
+/// An earlier version of orb called orb's own `orb_score.dat`, and nothing reads or renames that name now: a
 /// directory that has one has its old pointdevice scores in a file nothing opens. Renaming it on sight
 /// would be orb writing to a file it did not create, over a name it cannot be sure of, so it is left
 /// where it is.
-const OURS: &[u8] = b"pointdevice_score.dat";
+pub const SCORE_DAT: Files = Files {
+    theirs: c"score.dat",
+    ours: c"pointdevice_score.dat",
+};
+
+/// The same name as text, for a game that reads the file itself rather than asking the game's open for
+/// it — `Game::read_what_the_modes_file_records` of a game whose one read is at startup, which th06c and
+/// th06nc are, both keeping theirs under [`SCORE_DAT`].
+pub const THEIRS_NAME: &str = "score.dat";
+
+/// The files of the game orb is attached to — see [`name_the_files`].
+static FILES: std::sync::Mutex<Files> = std::sync::Mutex::new(SCORE_DAT);
+
+/// Says which two files the game orb is attached to keeps its scores in, at the attach and before anything
+/// opens either.
+pub fn name_the_files(files: Files) {
+    *FILES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = files;
+}
+
+fn files() -> Files {
+    *FILES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// `GENERIC_WRITE`, which is Win32's own number for it.
 ///
@@ -460,12 +487,16 @@ pub fn redirected() -> bool {
 /// is kept because that is what the game's own open would have resolved against — its own
 /// directory for a relative name, wherever it says for an absolute one.
 pub fn theirs(path: &[u8]) -> Option<&[u8]> {
+    theirs_among(files(), path)
+}
+
+fn theirs_among(files: Files, path: &[u8]) -> Option<&[u8]> {
     let cut = path
         .iter()
         .rposition(|byte| *byte == b'\\' || *byte == b'/')
         .map_or(0, |at| at + 1);
     let (directory, name) = path.split_at(cut);
-    name.eq_ignore_ascii_case(THEIRS.to_bytes())
+    name.eq_ignore_ascii_case(files.theirs.to_bytes())
         .then_some(directory)
 }
 
@@ -476,7 +507,7 @@ pub fn theirs(path: &[u8]) -> Option<&[u8]> {
 /// the name and the mode by [`create_file_a`] — so an open orb makes is forked the same way the game's
 /// three are, and there is one place that decision is taken.
 pub fn asked_for() -> *const u8 {
-    THEIRS.as_ptr().cast()
+    files().theirs.as_ptr().cast()
 }
 
 /// And which of the two an open of the game's own name lands in now, by that name alone: what the fork
@@ -486,21 +517,27 @@ pub fn asked_for() -> *const u8 {
 /// The unlocks bracket is not in it: what that read lands in is decided per read and this is asked outside
 /// one.
 pub fn the_file_now_opened() -> &'static str {
-    if FORKED.load(Ordering::Relaxed) {
-        // Its own bytes rather than `OURS`, which carries no terminator to strip.
-        "pointdevice_score.dat"
-    } else {
-        "score.dat"
-    }
+    let files = files();
+    let name = match FORKED.load(Ordering::Relaxed) {
+        true => files.ours,
+        false => files.theirs,
+    };
+    // Every name a game gives is ASCII, so nothing reaches the empty answer.
+    name.to_str().unwrap_or_default()
 }
 
 /// orb's file in that directory, terminated for the open it is about to be handed to.
 pub fn forked(directory: &[u8]) -> Vec<u8> {
-    let mut ours = Vec::with_capacity(directory.len() + OURS.len() + 1);
-    ours.extend_from_slice(directory);
-    ours.extend_from_slice(OURS);
-    ours.push(0);
-    ours
+    forked_among(files(), directory)
+}
+
+fn forked_among(files: Files, directory: &[u8]) -> Vec<u8> {
+    let ours = files.ours.to_bytes();
+    let mut forked = Vec::with_capacity(directory.len() + ours.len() + 1);
+    forked.extend_from_slice(directory);
+    forked.extend_from_slice(ours);
+    forked.push(0);
+    forked
 }
 
 /// A path for the log, and the only place these bytes are read as text: they are in the
@@ -733,7 +770,7 @@ pub fn theirs_wide(path: &[u16]) -> Option<&[u16]> {
         .rposition(|unit| *unit == u16::from(b'\\') || *unit == u16::from(b'/'))
         .map_or(0, |at| at + 1);
     let (directory, name) = path.split_at(cut);
-    let wanted = THEIRS.to_bytes();
+    let wanted = files().theirs.to_bytes();
     (name.len() == wanted.len()
         && name.iter().zip(wanted).all(|(unit, byte)| {
             u8::try_from(*unit).is_ok_and(|unit| unit.eq_ignore_ascii_case(byte))
@@ -743,11 +780,12 @@ pub fn theirs_wide(path: &[u16]) -> Option<&[u16]> {
 
 /// [`forked`] in UTF-16: orb's file in that directory, terminated.
 pub fn forked_wide(directory: &[u16]) -> Vec<u16> {
-    let mut ours = Vec::with_capacity(directory.len() + OURS.len() + 1);
-    ours.extend_from_slice(directory);
-    ours.extend(OURS.iter().map(|byte| u16::from(*byte)));
-    ours.push(0);
-    ours
+    let ours = files().ours.to_bytes();
+    let mut forked = Vec::with_capacity(directory.len() + ours.len() + 1);
+    forked.extend_from_slice(directory);
+    forked.extend(ours.iter().map(|byte| u16::from(*byte)));
+    forked.push(0);
+    forked
 }
 
 /// The path the game gave, as its own bytes without the terminator, and `None` for a null
@@ -890,6 +928,24 @@ mod tests {
         ] {
             assert!(theirs(path).is_none(), "{}", text(path));
         }
+    }
+
+    /// A game that names its file its own way has it forked by that name, and the name every other game
+    /// uses is nothing of its: th10 keeps its scores in `scoreth10.dat`.
+    #[test]
+    fn a_game_of_another_name_has_that_name_forked() {
+        let th10 = super::Files {
+            theirs: c"scoreth10.dat",
+            ours: c"pointdevice_scoreth10.dat",
+        };
+        assert_eq!(
+            super::theirs_among(th10, br"C:\game\scoreth10.dat")
+                .map(|directory| super::forked_among(th10, directory))
+                .as_deref(),
+            Some(&b"C:\\game\\pointdevice_scoreth10.dat\0"[..])
+        );
+        assert!(super::theirs_among(th10, b"score.dat").is_none());
+        assert!(super::theirs_among(th10, b"pointdevice_scoreth10.dat").is_none());
     }
 
     /// orb's own file is not itself forked: what is compared is the whole file name, and a

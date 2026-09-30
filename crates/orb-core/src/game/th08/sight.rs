@@ -120,6 +120,8 @@ unsafe fn trace_what_stood_over_a_hit(at: (f32, f32)) {
             size,
             kind,
             hidden: unsafe { mem::read::<u8>(bullet + BULLET_UNTESTED) },
+            age: None,
+            step: None,
         });
     }
     trace::over_a_hit(over);
@@ -160,6 +162,8 @@ unsafe fn trace_the_field(at: (f32, f32)) {
             size: unsafe { position(bullet + BULLET_SIZE) },
             kind,
             hidden: unsafe { mem::read::<u8>(bullet + BULLET_UNTESTED) },
+            age: None,
+            step: None,
         });
     }
     trace::the_field(field);
@@ -437,6 +441,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             kind: Kind::Bullet {
                 hitting: state == BULLET_HITS,
                 state,
+                next_change: None,
             },
             slot,
             // **And how long this bullet has been in the slot** — see [`BULLET_FRAMES`]: a step of its own is

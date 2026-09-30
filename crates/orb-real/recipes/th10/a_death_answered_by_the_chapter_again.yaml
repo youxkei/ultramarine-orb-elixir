@@ -1,0 +1,67 @@
+# **A run of th10 whose first attempt at its chapter is hit on purpose and answered with the chapter again**,
+# which is the whole content of the mode over this game and what a run that dodges everything never reaches:
+# the mode question answered over the main menu's first item, a Normal run of Reimu A, a hit taken in the
+# stage's first chapter, and the stage played on for six thousand frames after it.
+#
+# **The front end is walked by this game's own screen numbers** — see `a_run_started_and_given_up.yaml`,
+# which walks the same four.
+#
+# **The stage's first chapter is its start, and the chapter after it the midboss's first attack**: this game's
+# first stage holds no row of its midstage table, so it is cut where it begins and at every attack of a fight as
+# the fight is fought. A launch of this walk, 2026-10-01, was hit in chapter 1 at script 561, came back in it, and took
+# chapter 2 at frame 2521 (script 2201).
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **A chance of one per chapter, and none of it again after a retry.** The hit falls in the chapter the run is
+# in when the rules next come near a bullet, and the retry is that chapter again; the chance going to nothing
+# for the attempt after it is what leaves the run playing rather than dying in the same place for ever.
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+# **Six thousand frames**, which is a minute and a half of stage and past the midboss.
+- play_until: { frames: 6000 }
+# And the run left where it stands, with nothing played after that bound.
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

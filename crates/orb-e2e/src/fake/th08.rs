@@ -884,6 +884,13 @@ impl Fake {
                 },
             )
         };
+        // **And the host's `SetActiveWindow` handed over where orb writes over its import entry** — see
+        // [`Fake::activates_its_window`].
+        unsafe {
+            orb_core::window::answers_the_window_activated(
+                host_activates_a_window as *const () as usize,
+            )
+        };
         // **Whoever is playing this run, installed where a real launch installs it**: `orb`'s attach
         // reaches `orb_bot::install` and nothing of orb-core does, so an e2e test over a bot has to reach
         // it too. After the attach, as a real launch's is: what a refused recipe has to say goes in the
@@ -915,6 +922,15 @@ impl Fake {
     pub fn creates_its_window(&self) -> orb_api::Hwnd {
         orb_core::runtime::create_game_window(std::ptr::null_mut());
         self.asks_for_a_window_of_the_class(WINDOW_CLASS)
+    }
+
+    /// **The game activating the window it plays in**, as 0x4436a0 does straight after making it: its input attached
+    /// to the foreground window's thread (0x4436d4), the foreground lock's timeout taken to nought (0x4436f8), and
+    /// `SetActiveWindow` on the window through the import at `0x4b41f4` (0x443702) — which reaches orb's
+    /// `orb_core::window::set_active_window` where orb wrote over that entry. What the host makes of it is
+    /// `orb_sim`'s windows brought forward.
+    pub fn activates_its_window(&self, window: orb_api::Hwnd) {
+        unsafe { orb_core::window::set_active_window(window.0 as *mut c_void) };
     }
 
     /// And a window of another class, which is an ask orb has to hand straight on: the same call on a class
@@ -2727,6 +2743,16 @@ extern "C" fn create_game_window(_instance: *mut c_void) {}
 /// presented through it: nothing of its own, the device and its vtable being
 /// [`Fake::finds_its_device`]'s writes.
 extern "C" fn init_d3d_device() {}
+
+/// **And its `SetActiveWindow`**, which orb's rewrite calls through for a window it leaves to the game: the host
+/// writes the window down as brought forward, an active window being the one in front.
+unsafe extern "system" fn host_activates_a_window(window: *mut c_void) -> *mut c_void {
+    running()
+        .sim()
+        .windows()
+        .bring_forward(orb_api::Hwnd(window as usize));
+    std::ptr::null_mut()
+}
 
 /// And its `CreateFileA`, which every file this game opens goes through: the name the call landed on written
 /// down, and a handle that is its place in that list.

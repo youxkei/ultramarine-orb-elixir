@@ -25,7 +25,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use orb_api::d3d8::{D3DBACKBUFFER_TYPE_MONO, D3DFMT_R5G6B5, D3DLOCK_READONLY};
-use orb_api::{Device, Surface, clock, d3d8, fs, module};
+use orb_api::d3d9::D3DPOOL_SYSTEMMEM;
+use orb_api::{Device, Surface, clock, d3d8, d3d9, fs, module};
 
 /// The directory beside the exe the frames are written into.
 const HELD_IN: &str = "snapshot";
@@ -66,11 +67,7 @@ pub fn wanted(label: &str) {
 /// # Safety
 /// Must run on the thread the device belongs to, inside a frame whose scene has ended.
 pub unsafe fn taken(device: Device) {
-    let label = WANTED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take();
-    let Some(label) = label else {
+    let Some(label) = asked_for() else {
         return;
     };
     let (_, back) = d3d8::get_back_buffer(device, 0, D3DBACKBUFFER_TYPE_MONO);
@@ -80,16 +77,53 @@ pub unsafe fn taken(device: Device) {
     };
     let taken = unsafe { off(device, back) };
     d3d8::release_surface(back);
-    let Some(bytes) = taken else {
+    if let Some(bytes) = taken {
+        filed(&label, &bytes);
+    }
+}
+
+/// **The same through a Direct3D 9 device**, th10's, whose back buffer is copied out by `GetRenderTargetData`
+/// into a surface of orb's own in system memory — Direct3D 9's one way out of a render target, `CopyRects`
+/// having gone with Direct3D 8.
+///
+/// **A device of its own and not [`taken`]'s**: a th10 trace held no picture at all, hits and `--shot-every`
+/// alike, the Direct3D 8 calls being made only where the frame has a device of that kind.
+///
+/// # Safety
+/// Must run on the thread the device belongs to, after the frame's scene has ended.
+pub unsafe fn taken_through_direct3d_9(device: Device) {
+    let Some(label) = asked_for() else {
         return;
     };
+    let (_, back) = d3d9::get_back_buffer(device, 0, 0, D3DBACKBUFFER_TYPE_MONO);
+    let Some(back) = back else {
+        crate::log!("shot: the device would not hand over its back buffer");
+        return;
+    };
+    let taken = unsafe { off_through_direct3d_9(device, back) };
+    d3d9::release_surface(back);
+    if let Some(bytes) = taken {
+        filed(&label, &bytes);
+    }
+}
+
+/// What the next frame was asked to be written out as, taken so it is asked once.
+fn asked_for() -> Option<String> {
+    WANTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+}
+
+/// A frame's picture put where it was asked for.
+fn filed(label: &str, bytes: &[u8]) {
     // **And into the trace where one is being written**, which is where a picture belongs: a trace already
     // holds the state, the word and every line the log said on the frame it was said on, so a frame's
     // picture beside those is the whole of what that frame looked like in the one file a check reads. See
     // [`crate::trace::picture`], and [`INTO_THE_TRACE`] for the label a periodic one is asked for under —
     // that one is not written beside the exe at all, a run's worth of them being a directory nobody asked
     // for.
-    crate::trace::picture(&bytes);
+    crate::trace::picture(bytes);
     if label == INTO_THE_TRACE {
         return;
     }
@@ -111,7 +145,7 @@ pub unsafe fn taken(device: Device) {
     // answerable; the stamp is the number in front of every line the log wrote, which is what makes a picture and
     // the dump of the hit it came out of findable from one another.
     let path = held.join(format!("{label}-{}.bmp", clock::ticks()));
-    match fs::write(&path, &bytes) {
+    match fs::write(&path, bytes) {
         Ok(()) => crate::log!("shot: {} holds the frame", path.display()),
         Err(error) => crate::log!("shot: {} was not written: {error}", path.display()),
     }
@@ -131,7 +165,15 @@ unsafe fn off(device: Device, back: Surface) -> Option<Vec<u8>> {
         None
     } else {
         d3d8::lock_surface(copy, D3DLOCK_READONLY).map(|locked| {
-            let rows = unsafe { read(locked.bits, locked.pitch, &desc) };
+            let rows = unsafe {
+                read(
+                    locked.bits,
+                    locked.pitch,
+                    desc.width,
+                    desc.height,
+                    desc.format,
+                )
+            };
             d3d8::unlock_surface(copy);
             bmp(desc.width, desc.height, &rows)
         })
@@ -140,15 +182,52 @@ unsafe fn off(device: Device, back: Surface) -> Option<Vec<u8>> {
     bytes
 }
 
+/// And the same out of a Direct3D 9 back buffer.
+///
+/// # Safety
+/// Must run on the thread the device belongs to.
+unsafe fn off_through_direct3d_9(device: Device, back: Surface) -> Option<Vec<u8>> {
+    let desc = d3d9::surface_desc(back)?;
+    let (_, copy) = d3d9::create_offscreen_plain_surface(
+        device,
+        desc.width,
+        desc.height,
+        desc.format,
+        D3DPOOL_SYSTEMMEM,
+    );
+    let copy = copy?;
+    let made = d3d9::get_render_target_data(device, back, copy);
+    let bytes = if made < 0 {
+        crate::log!("shot: the frame would not copy, {made:#x}");
+        None
+    } else {
+        d3d9::lock_surface(copy, D3DLOCK_READONLY).map(|locked| {
+            let rows = unsafe {
+                read(
+                    locked.bits,
+                    locked.pitch,
+                    desc.width,
+                    desc.height,
+                    desc.format,
+                )
+            };
+            d3d9::unlock_surface(copy);
+            bmp(desc.width, desc.height, &rows)
+        })
+    };
+    d3d9::release_surface(copy);
+    bytes
+}
+
 /// The locked rows as tightly packed blue-green-red-and-a-spare, top row first.
 ///
 /// # Safety
-/// `bits` must be the address a lock of a surface `desc` describes handed back.
-unsafe fn read(bits: usize, pitch: i32, desc: &orb_api::SurfaceDesc) -> Vec<u8> {
-    let across = desc.width as usize;
-    let down = desc.height as usize;
+/// `bits` must be the address a lock of a surface of that size and format handed back.
+unsafe fn read(bits: usize, pitch: i32, width: u32, height: u32, format: u32) -> Vec<u8> {
+    let across = width as usize;
+    let down = height as usize;
     let mut rows = Vec::with_capacity(across * down * 4);
-    let wide = desc.format == D3DFMT_R5G6B5;
+    let wide = format == D3DFMT_R5G6B5;
     for y in 0..down {
         let row = bits + y * pitch.unsigned_abs() as usize;
         for x in 0..across {

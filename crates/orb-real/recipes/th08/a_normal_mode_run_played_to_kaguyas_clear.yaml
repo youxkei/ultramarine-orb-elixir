@@ -32,16 +32,8 @@
 - press: [decide]
   frames: 12
 - wait_until: { frames: 300 }
-# The cards before hers the no-bomb clear has a way for — see `a_run_played_to_its_clear_without_a_bomb.yaml`.
-- dodge: { with: in_the_middle, spell: 94 }
-- dodge: { with: out_of_the_following_laser, spell: 97 }
-- dodge: { with: visionary_tuning, spell: 105 }
-- dodge: { with: focused, spell: 113 }
-# **And card 152, Kaguya's own `難題「龍の頸の玉　-五色の弾丸-」`**, whose lasers are aimed at the run with fire
-# strewn between them: the rules told nothing were carried to a wall by dodging each laser the same way as the
-# last, and every one of nine clears was hit on it, eight within 47 of a wall. The strategy wiki has it
-# `まともに避けようとすると詰む事もある`, and its way through is side to side between the lasers.
-- dodge: { with: side_to_side, spell: 152 }
+# The cards the rules lost a run on, Kaguya's own card 152 among them, are dodged the ways `orb_bot`'s own table for
+# th08's Normal names — `orb_bot::ways`.
 - play_until: { frames: 250000 }
   give_up_after: 300000
 # **And the ending pressed through to the title**, which is what writes Kaguya's clear into the records.

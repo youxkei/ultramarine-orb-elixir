@@ -125,6 +125,15 @@ pub struct Config {
     /// field of bullets a frame is a trace ten times the size, so it is asked of the one card being read and
     /// not of a launch.
     pub trace_the_field_in: Option<u32>,
+    /// **Whether every frame of a run puts the game's own world into that trace**, which nothing does unless
+    /// `--trace-the-world` asks — `crate::trace`'s `TheWorld` in `orb_core`. For a playback that parts from its
+    /// run: the frame two of them stop agreeing on is read off the world, and a world a frame is a trace many
+    /// times the size.
+    pub trace_the_world: bool,
+    /// **Where every chapter a pointdevice run is hit in is kept**, as it stood at its start, and nowhere
+    /// unless `--keep-hits-in` names a directory — each a run of its own to pick that chapter up from, for
+    /// trying again what was hit in without playing the run to it.
+    pub keep_hits_in: Option<PathBuf>,
     /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
     /// played again in a later launch.
     ///
@@ -570,6 +579,8 @@ impl Config {
             trace: None,
             shot_every: 0,
             trace_the_field_in: None,
+            trace_the_world: false,
+            keep_hits_in: None,
             frame_hooks: true,
             own_frame_loop: true,
             always_draw: file.always_draw,

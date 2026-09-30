@@ -98,6 +98,8 @@ pub mod th06nc;
 pub mod th07;
 #[cfg(target_arch = "x86")]
 pub mod th08;
+#[cfg(target_arch = "x86")]
+pub mod th10;
 
 use std::ffi::c_void;
 use std::fmt;
@@ -210,6 +212,18 @@ pub const KNOWN: &[Known] = &[
             version: "the build of md5 77b6785e",
         }],
         game: &th08::Th08,
+    },
+    // The fourth: [`th10::Th10`] answers `rewinds` with `true` as well, so a launch here gets what one of
+    // th07 and th08 does. Pinned by the md5 alone, and what of it is not read is at the end of
+    // `th10/asm.md`.
+    Known {
+        exe: "th10.exe",
+        cfg: "th10.cfg",
+        builds: &[Build {
+            md5: "7dc488d82c81dd4aee4ba098b8804d83",
+            version: "1.00a",
+        }],
+        game: &th10::Th10,
     },
 ];
 
@@ -331,6 +345,14 @@ pub(crate) fn the_name_typed_into(address: usize, bytes: usize, name: &str) -> b
 pub enum Read {
     Code(Patch),
     LookedUp(Lookup),
+    /// **The pad's half of a read whose keyboard half stores what that half answers**, for a game whose read
+    /// writes the word into its own buffer before it returns: th10's `0x44a5f0` stores `ax` at `0x474e30`
+    /// itself, so what a hook over it answers reaches nobody — and the word it stores is the one
+    /// `0x44a190` hands back, entered with the keyboard's word in `ecx` and the player and the pad pushed
+    /// (`push 0; push ebx; mov ecx,edi; call 0x44a190` at 0x44a8b3). See
+    /// `runtime::get_input_with_the_keys`. **Called through**, so the pad's buttons and stick are the game's
+    /// own, and what [`Game::pad_word`] answers is added to it: over such a game, what its half leaves out.
+    PadHalf(Patch),
 }
 
 /// **A function the game asks for by name at startup**, which orb answers in place of the host.
@@ -444,6 +466,9 @@ pub struct Hooks {
     /// wins: it is the loop's own two calls, and the patches would be a second answer to the same
     /// question.
     pub walks: Option<Walks>,
+    /// **And where the argument of those three arrives** — [`Hooks::update`], [`Hooks::draw`] and
+    /// [`Hooks::render`]; see [`FrameEntered`].
+    pub frame_entered: FrameEntered,
     /// **One call per frame of the game's own, for a game orb does not own the frame of** — the walk of
     /// the calc chain, which orb is told about here rather than standing in the place of.
     ///
@@ -482,7 +507,7 @@ pub struct Hooks {
     ///
     /// `None` where the game has no such call, which costs a resumed run the seed and with
     /// it every enemy the seed decides.
-    pub stage_building: Option<Patch>,
+    pub stage_building: Option<Building>,
     /// Runs around the read of the score file that the front end's own unlocks are taken out of —
     /// which stages it offers, whether it offers the Extra stage — and around no other read of it.
     ///
@@ -728,6 +753,42 @@ impl Entered {
             Self::OnTheStack(patch) | Self::InEcx(patch) => patch,
         }
     }
+}
+
+/// **How the call [`Hooks::stage_building`] stands over is entered**, which is [`Entered`]'s question for a call
+/// that takes something other than one argument: th06's `Stage::RegisterChain` and the builds of th06c, th06nc,
+/// th07 and th08 take one number and leave the stack to their caller, and th10's `0x429610` takes two and pops
+/// them itself (`ret 0x8` at 0x4296b2).
+pub enum Building {
+    Cdecl(Patch),
+    StdcallOfTwo(Patch),
+}
+
+impl Building {
+    /// The patch either of them carries.
+    pub fn patch(&self) -> &Patch {
+        match self {
+            Self::Cdecl(patch) | Self::StdcallOfTwo(patch) => patch,
+        }
+    }
+}
+
+/// **Where the one argument of the game's two chain walks and of its whole frame arrives** — the three
+/// patches [`Hooks::update`], [`Hooks::draw`] and [`Hooks::render`] stand over, which a game compiles one
+/// way for all three.
+///
+/// **Beside [`Entered`] and not one of it per patch**, because the three are not three facts: what enters
+/// them is the game's own frame and message pump, and a game whose walks took the chain in `ecx` while its
+/// frame took the window on the stack is one nobody has read. th06, th07 and th08 enter all three as
+/// `__thiscall`s, the argument in `ecx`; th10 pushes it — `push [0x491be4]; call 0x449c00` and
+/// `push 0x4924f0; call 0x439390`, each returning with `ret 0x4` — so a hook entered the other way reads its
+/// argument out of whatever `ecx` held and returns four bytes short.
+///
+/// A 64-bit game has one convention, which is what `InEcx` names there: the argument in `rcx`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FrameEntered {
+    InEcx,
+    OnTheStack,
 }
 
 /// What the game's own front end is being asked for.
@@ -1000,6 +1061,11 @@ pub trait Game {
     /// orb's question off its menus.
     fn rewinds(&self) -> bool;
 
+    /// **The file the game keeps its scores in, and orb's beside it** — `score.dat` for every game but th10.
+    fn score_files(&self) -> crate::score::Files {
+        crate::score::SCORE_DAT
+    }
+
     /// # Safety
     /// Must run on the game's main thread, with the game past initialisation.
     unsafe fn read_state(&self) -> State;
@@ -1175,6 +1241,27 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn d3d_device(&self) -> Device;
+
+    /// **The `IDirect3DDevice9` the game draws through**, for a game whose device is that one and not
+    /// [`Game::d3d_device`]'s Direct3D 8 — [`Device::NULL`] for every other game and until the game has made
+    /// it. What orb draws its overlay with in th10, whose scene the game's own frame opens and closes.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn direct3d_9_device(&self) -> Device {
+        Device::NULL
+    }
+
+    /// **What the game has queued to draw, drawn ahead of the overlay**, for a game whose drawing fills a
+    /// queue of quads that its own frame draws out only after the draw chain. Nothing for a game with no
+    /// such queue.
+    ///
+    /// Here rather than moving [`Game::end_drawing`]'s own draw: that one is where the game's frame has
+    /// it, and drawing the queue a second time draws nothing, the draw setting its count to nought.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, inside the scene the game draws into, after its draw chain.
+    unsafe fn draw_what_is_queued(&self) {}
 
     /// **Whether the game draws every frame at the size its swapchain was made**, whatever size its window
     /// is — which is what `crate::dxgi::resizes_its_buffers` keeps a swapchain's buffers at the size asked
@@ -1934,6 +2021,15 @@ pub trait Game {
         false
     }
 
+    /// **Whether the ending stands on a line until a key goes down**, which orb's skip of an ending then makes
+    /// the presses for: the skip is the game's own update played over inside one frame, and every read in it
+    /// answers the same word, so a line waiting for a press is a line no number of those updates gets past.
+    ///
+    /// False, which is every game whose ending runs on by itself.
+    fn an_ending_waits_for_a_press(&self) -> bool {
+        false
+    }
+
     /// Leaves the game's own idea of the buttons so that the frame it carries on into has no new
     /// press on it, whatever is being held.
     ///
@@ -2469,6 +2565,19 @@ pub trait Game {
         None
     }
 
+    /// **The run's world as this game's own fields hold it**, for the trace of a launch that asked — see
+    /// [`crate::trace::TheWorld`] — and `None` from a game nobody has read it off.
+    ///
+    /// **Beside [`Game::the_worlds_fingerprint`] and not instead of it**: the fold is a line any launch's log can
+    /// carry and says *that* two passes parted; this is every field, which only a trace asked for can hold, and
+    /// says *what* parted.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn the_world(&self) -> Option<crate::trace::TheWorld> {
+        None
+    }
+
     /// **What the game's own list of jobs holds**, said where a frame leaves on its walk answering an exit,
     /// and `None` from a game whose list nobody has read.
     ///
@@ -2750,10 +2859,21 @@ pub struct Frame {
     /// of 747 spawning bullets as solid, had `nowhere open to it` in every box, and died in the corner they
     /// had backed into — where a person plays that card by standing in the mesh.
     ///
+    /// `true` from th10 as well, whose coming-out branch tests nothing (see `Th10::BULLET_STATE`) — until the
+    /// age in [`Frame::a_bullet_comes_out_for`], which th08 has no counterpart of.
+    ///
     /// `false` from every other game, where a bullet out of that state is left as dangerous as any other: what
     /// th06 calls spent and th07 calls not yet hitting are their own readings, and whether either game hands a
     /// run the same mercy is unmeasured.
     pub a_bullet_not_hitting_is_harmless: bool,
+    /// **The age a bullet coming out turns solid at**, where [`Frame::a_bullet_not_hitting_is_harmless`] is
+    /// `true` and the game turns every bullet the same frame of its life: the frames such a bullet is ground
+    /// to cross are the ones before that age, and from it on it is a hazard like any other — the wait inside
+    /// it included.
+    ///
+    /// `None` where it stays harmless for good, which is th08's: a bullet erased as it comes out is never made
+    /// solid at all. `Some(9)` from th10, see `Th10::A_BULLET_COMES_OUT_FOR`.
+    pub a_bullet_comes_out_for: Option<i32>,
     /// **Whether a boss is to be shot unfocused**, which is a game's own answer about what its shot earns
     /// and not about how it dodges: the rules hold the focus key on a calm frame of a fight because a focused
     /// shot concentrates the damage, and on a game where the shot's mode is also what a hit is *worth*, that
@@ -2854,7 +2974,16 @@ pub enum Kind {
     /// step is scaled by is its state's, so a bullet that moved by something other than what its step said is
     /// one whose state is the question — and th06c has a bullet that moved `-2.25,5.13` against a step of
     /// `-1.60,3.66`, the same `1.4` on both axes, which no scale it reads off that game's five branches is.
-    Bullet { hitting: bool, state: u16 },
+    ///
+    /// **And which of the changes its script laid on it the bullet is at**, where a game keeps such a list on
+    /// the bullet, and `None` where it keeps none — every game but th10, whose bullet carries up to eighteen
+    /// (see `th10::BULLET_NEXT_CHANGE`). A card whose fire is aimed twice is told apart by it: one way of
+    /// dodging turns back only once every bullet has been aimed at the run the second time.
+    Bullet {
+        hitting: bool,
+        state: u16,
+        next_change: Option<u32>,
+    },
     /// A body, and whether the game will run its collision at all — an enemy with nothing solid on it cannot
     /// touch the player, however wide it is.
     Body { solid: bool },
@@ -2991,6 +3120,9 @@ pub struct Reached {
     /// let-go is timed by starts again from wherever it starts or goes back, so that a run picked up at a
     /// chapter lets go on the frames the run it was written by did.
     pub stage_frames: Option<u32>,
+    /// **The run's difficulty, as the game counts it**, `State::difficulty`, and nothing off a run — which the
+    /// autoplay engine's ways are written for, a chapter of one difficulty's stage being no chapter of another's.
+    pub difficulty: Option<i32>,
 }
 
 /// The questions of orb's own a recipe can wait for, by the names it writes them as.

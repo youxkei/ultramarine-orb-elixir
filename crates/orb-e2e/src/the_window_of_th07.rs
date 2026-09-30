@@ -30,12 +30,13 @@ const WHOLE: (i32, i32) = (1286, 760);
 const SCALED: (i32, i32) = (2560, 1440);
 const REAL: (i32, i32) = (3840, 2160);
 
-/// A launch with that window in `orb.yaml`, with the game's window made.
+/// A launch with that window in `orb.yaml`, with the game's window made and then its device, as a real launch
+/// makes them — the device being where orb redirects the `Present` the black beside the game is written around.
 ///
 /// Nothing of a run is played: what a window is does not depend on what is on screen, and the game sits where a
 /// launch leaves it.
 fn launched(name: &str, screen: Screen) -> Box<Fake> {
-    let game = Fake::attach_configured(
+    let game = Fake::attach_before_its_device(
         Display::agreed(120),
         name,
         Work::wandering(WORK_US),
@@ -45,6 +46,7 @@ fn launched(name: &str, screen: Screen) -> Box<Fake> {
         },
     );
     game.creates_its_window();
+    game.finds_its_device();
     game
 }
 

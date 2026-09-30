@@ -108,15 +108,23 @@ fn a_game_already_in_a_window_is_left_as_it_is() {
     });
 }
 
-/// A launch with that window in `orb.yaml`, with the game's window made.
+/// A launch with that window in `orb.yaml`, with the game's window made and then its device, as a real
+/// launch makes them — the device being where orb redirects the `Present` the black beside the game is
+/// written around.
 ///
 /// Nothing of a run is played: what a window is does not depend on what is on screen, and the game sits
 /// where a launch leaves it.
 fn launched(name: &str, screen: Screen) -> Box<Fake> {
-    let game = Fake::attach_to_a_panel(Panel::scaled(), name, the_run(), move |config| {
-        config.screen = screen;
-    });
+    let game = Fake::attach_to_a_panel_before_its_device(
+        Panel::scaled(),
+        name,
+        the_run(),
+        move |config| {
+            config.screen = screen;
+        },
+    );
     game.creates_its_window();
+    game.finds_its_device();
     game
 }
 

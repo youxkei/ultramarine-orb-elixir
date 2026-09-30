@@ -40,8 +40,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering}
 use orb_api::mem;
 
 use crate::game::{
-    Boundary, Call, CountedDeath, Entered, FileOpen, FrameCalls, Game, Hooks, Lookup, Memory, Menu,
-    Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads, Walks,
+    Boundary, Building, Call, CountedDeath, Entered, FileOpen, FrameCalls, FrameEntered, Game,
+    Hooks, Lookup, Memory, Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State,
+    Threads, Walks,
 };
 
 pub mod chapters;
@@ -2927,6 +2928,9 @@ impl Game for Th06nc {
                 update: walks_the_calc_chain as *const () as usize,
                 draw: walks_the_draw as *const () as usize,
             }),
+            // The one convention a 64-bit game has, and nothing patched for it to matter to: the walks are
+            // handed over above.
+            frame_entered: FrameEntered::InEcx,
             runs_its_frame: None,
             save_replay: None,
             stop_recording: None,
@@ -2939,10 +2943,10 @@ impl Game for Th06nc {
                 target: at(STAGE_BUILD),
                 prologue: STAGE_BUILD_PROLOGUE,
             })),
-            stage_building: Some(Patch {
+            stage_building: Some(Building::Cdecl(Patch {
                 target: at(STAGE_SEEDED),
                 prologue: STAGE_SEEDED_PROLOGUE,
-            }),
+            })),
             unlocks_read: None,
             ranking_read: None,
             card_records_read: None,

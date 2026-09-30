@@ -599,6 +599,13 @@ impl Win for Sim {
         self.display.foreground()
     }
 
+    /// A window brought to the front, written down and put in front — see [`Windows::bring_forward`].
+    fn bring_forward(&self, window: Hwnd) -> bool {
+        self.windows.bring_forward(window);
+        self.display.set_foreground(window);
+        true
+    }
+
     fn set_process_dpi_aware(&self) -> bool {
         self.windows.set_process_dpi_aware()
     }
@@ -649,7 +656,7 @@ impl Win for Sim {
 
     /// A window shown, written down rather than drawn — see [`Windows::shown`], which is where an
     /// e2e test reads back that the window orb made hidden reached the screen.
-    fn show(&self, window: Hwnd) -> bool {
+    fn show_without_activating(&self, window: Hwnd) -> bool {
         self.windows.show(window)
     }
 

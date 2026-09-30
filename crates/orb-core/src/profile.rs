@@ -72,6 +72,21 @@ pub enum Phase {
     /// control that took no hits and paid the same. `Th06nc::read_state` is seven instruments and a walk
     /// of the fight's own slots, every read of it going through `mem::read_committed`.
     State,
+    /// **What the installed bot answers for the word it presses**, which for the rules is their steering:
+    /// every hazard projected along its step and every move judged against it.
+    ///
+    /// **Its own phase because th10's update hid it**: a legacy Normal driven `--pace=2` at 120Hz went `15` to
+    /// `17` milliseconds a frame through stage 4's boss with its update phase at `9.3` to `10.9`, where the
+    /// phases the line named came to some `0.1` — and the same replay played back with nothing steered had an
+    /// update phase whose 90th percentile was `6.3` milliseconds against `10.1`.
+    Steering,
+    /// **The part of [`Phase::Steering`] that reads the field out of the game**, `Game::what_a_bot_sees`, which
+    /// is inside `Steering` and not additional to it.
+    ///
+    /// **Its own phase because the steering grew some `10` microseconds a bullet** on a stage 6 practice of
+    /// th10, and th10's sight reads two words of every bullet through `mem::read_committed`, a `VirtualQuery`
+    /// apiece — so what grew is either the reading or the judging, and this says which.
+    Sight,
     /// Taking a chapter snapshot.
     Snapshot,
     /// Finding the regions to save, which walks the game's heaps.
@@ -80,7 +95,7 @@ pub enum Phase {
     Threads,
 }
 
-const PHASES: [(Phase, &str); 13] = [
+const PHASES: [(Phase, &str); 15] = [
     (Phase::Update, "update"),
     (Phase::Draw, "draw"),
     (Phase::Present, "present"),
@@ -91,6 +106,8 @@ const PHASES: [(Phase, &str); 13] = [
     (Phase::Chaptering, "chaptering"),
     (Phase::Keeping, "keeping"),
     (Phase::State, "state"),
+    (Phase::Steering, "steering"),
+    (Phase::Sight, "sight"),
     (Phase::Snapshot, "snapshot"),
     (Phase::Regions, "regions"),
     (Phase::Threads, "threads"),
@@ -110,6 +127,9 @@ static SLOTS: MainThread<[Slot; PHASES.len()]> = MainThread::new(
         calls: 0,
     }; PHASES.len()],
 );
+/// What each phase spent of the frame going on, and `None` for a phase it has not entered — handed to the trace
+/// once a frame, see [`crate::trace::phases`].
+static THIS_FRAME: MainThread<[Option<i64>; PHASES.len()]> = MainThread::new([None; PHASES.len()]);
 static FRAMES: MainThread<u32> = MainThread::new(0);
 /// The whole frame, measured between calls to `frame`. Everything the game does
 /// is in here too, so it is what says whether a slowdown is orb's at all.
@@ -156,6 +176,8 @@ pub unsafe fn record_until(phase: Phase, since: i64, until: i64) {
     slot.ticks += elapsed;
     slot.worst = slot.worst.max(elapsed);
     slot.calls += 1;
+    let this_frame = &mut unsafe { THIS_FRAME.get() }[index(phase)];
+    *this_frame = Some(this_frame.unwrap_or(0) + elapsed);
 }
 
 /// Returns true on the frames it reports, so callers can add their own line
@@ -174,6 +196,19 @@ pub unsafe fn frame() -> bool {
         frame.calls += 1;
     }
     *last = now;
+
+    let this_frame = std::mem::replace(unsafe { THIS_FRAME.get() }, [None; PHASES.len()]);
+    if crate::trace::on() {
+        let frequency = frequency();
+        let phases: Vec<(&str, i64)> = PHASES
+            .iter()
+            .zip(this_frame)
+            .filter_map(|((_, name), ticks)| {
+                ticks.map(|ticks| (*name, microseconds(ticks, frequency)))
+            })
+            .collect();
+        crate::trace::phases(&phases);
+    }
 
     let frames = unsafe { FRAMES.get() };
     *frames += 1;

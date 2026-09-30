@@ -1,0 +1,93 @@
+# **A Normal run of th10 in the game's own mode, played to its clear by the rules with the bomb allowed and its
+# ending run out to the title** — the run the Extra's own item is lit by.
+#
+# **The game's own mode, because the main menu lights its Extra out of the game's own file.** `orb_core::score`
+# forks the score file while the pointdevice mode is settled, so no pointdevice run writes `scoreth10.dat`; and
+# the menu takes its Extra off the score object's clears (0x42c850 at 0x42d442), which a good ending writes.
+#
+# **And the screen after the ending walked to the main menu, and the game left by the menu's own last item,
+# because that is what writes the clear**: the score object goes back to `scoreth10.dat` only from a run's
+# teardown (0x42b1e0 from 0x417c8d) and the game's own way out (0x41fc6e, out of scene 3, which the title's screen
+# 3 asks for after that item, 0x42d15d), and the run's end is torn down on its way to the ending (0x418150 at
+# 0x421afd) before the ending's set-up marks the clear in it (0x40b684 through 0x40b6e2) — so nothing after the
+# clear writes it, the name entry, screen 16 and the main menu included, and a `quit` ends the process past the
+# game's own teardown. A run more of the game's own mode would write it too, its mode question leaving the score
+# object as the clear left it (`runtime::choose`), but the way out is the shorter way to a write. The name the
+# ranking is registered under is typed into the
+# clear's own entry, the title's screen 15, its decide leaving it, and the replay's 25 slots after it, screen 16,
+# left with a cancel: the game's own offer, which in this mode orb leaves alone.
+#
+# **The front end is walked by this game's own screen numbers** — see `a_run_started_and_given_up.yaml`, which
+# walks the same four — with orb's own mode question over the main menu's first item answered with the game's
+# own mode, item 1.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+# The attacks the rules lost a Normal run on are dodged the ways `orb_bot`'s own table for th10's Normal names —
+# `orb_bot::ways` — so nothing here names one.
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **The whole run in one step**, which a `play` ends the frame the run is over.
+- play_until: { frames: 400000 }
+  give_up_after: 420000
+- name: ORB
+  give_up_after: 9000
+- press: [decide]
+  frames: 6
+  until: { screen: 16 }
+  give_up_after: 3600
+- press: [cancel]
+  frames: 6
+  until: { screen: 2 }
+  give_up_after: 3600
+# The way out that writes the clear: a cancel puts the cursor on the menu's last item (0x42d5c0 through
+# 0x42d5dc), a cancel on that item takes it (0x42d5a5), and twenty frames on the title's screen 3 asks for the
+# game's leaving, whose teardown writes the score object and ends the process. The `quit` after it is for a game
+# that did not leave, which is then a launch whose clear is not written.
+- press: [cancel]
+  frames: 10
+  until: { screen: 2, cursor: 7 }
+  give_up_after: 900
+- press: [cancel]
+  frames: 10
+- wait_until: { frames: 600 }
+- quit: true

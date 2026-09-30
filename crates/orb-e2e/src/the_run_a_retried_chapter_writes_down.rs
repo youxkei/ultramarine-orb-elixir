@@ -41,6 +41,59 @@ fn gives_the_run_up(game: &Fake) {
     });
 }
 
+/// **The chapter a hit lands in kept where the launch asked**, as a run of its own named by the stage, the chapter
+/// and the frame of the hit — and the very chapter the run wrote down at its start, byte for byte, which is what
+/// a later launch picked up from it plays from.
+#[test]
+fn a_chapter_hit_in_is_kept_as_a_run_of_its_own_where_the_launch_asks() {
+    in_its_own_process(|| {
+        const HITS: &str = r"C:\kept\hits";
+        let game = Fake::attach("a-chapter-hit-in-kept", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+            config.keep_hits_in = Some(HITS.into());
+        });
+        let log = game.log();
+        game.in_a_pointdevice_run();
+        game.frames_until("the card's chapter", CARD_STARTS + 400, || {
+            log.said(&format!("chapter 3 at frame {CARD_STARTS}"))
+        });
+        let written = game
+            .dir()
+            .join("pointdevice_resume")
+            .join("normal-reimu-a.msgpack");
+        game.frames_until_a_thread("the chapter written down", || {
+            game.sim().files().get(&written).is_some()
+        });
+        game.frames(INTO_THE_CHAPTER);
+
+        game.dies();
+        game.frame();
+        // Named by the frame the count of deaths moved on, which is the frame after the one the hit was dealt on.
+        let kept = std::path::Path::new(HITS)
+            .join(format!("s1-c3-f{}", CARD_STARTS + INTO_THE_CHAPTER + 1))
+            .join("pointdevice_resume")
+            .join("normal-reimu-a.msgpack");
+        assert!(
+            log.said(&format!(
+                "resume: the chapter hit in kept as {}",
+                kept.display()
+            )),
+            "the chapter hit in was not kept as {}:\n  {}",
+            kept.display(),
+            log.lines().join("\n  ")
+        );
+        game.frames_until_a_thread("the chapter hit in kept", || {
+            game.sim().files().get(&kept).is_some()
+        });
+        assert_eq!(
+            game.sim().files().get(&kept),
+            game.sim().files().get(&written),
+            "what was kept for the hit is not the chapter written down at its start:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
 /// A chapter retried, and the run picked up out of the file the chapter after it left.
 #[test]
 fn a_run_whose_chapter_was_retried_is_put_back_at_the_chapter_after_it() {

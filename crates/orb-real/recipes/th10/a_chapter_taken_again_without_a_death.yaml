@@ -1,0 +1,70 @@
+# **A chapter of th10 taken again without dying for it**, which is the one way into the mode's own question
+# that is not a hit: the game's own pause menu item for starting over, which orb takes off and puts its
+# question of where to start again in front of — see `Th10::asked_to_start_the_run_over`.
+#
+# **The front end is walked by this game's own screen numbers** — see `a_run_started_and_given_up.yaml`,
+# which walks the same four — with orb's own mode question over the main menu's first item, answered with the
+# pointdevice mode: what this case is about is the mode.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **Ten seconds of the stage played before the ask**, so that the chapter the run is in is one it has been in
+# for a while: what the check holds is that the run came back in the chapter it was asked from, with the
+# deaths it had when it asked.
+- play_until: { frames: 600 }
+  give_up_after: 7200
+# **The ask itself**, which is the pause menu's own item and not a hit — `start_over` presses it, and orb
+# answers with its own question rather than the game's own start over.
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# **And the run playing on from that chapter into the next**, which is what says the retry landed rather than
+# merely being answered — and what the check holds it to. The ask comes in the stage's first chapter, and the
+# next is the midboss's first attack, at frame 2521 of the stage.
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

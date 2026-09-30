@@ -276,7 +276,8 @@ pub struct Options {
     /// put every bullet on the field into that trace, frame by frame, for as long as this spell card is
     /// up — where each is, its size, its kind and whether its script is hiding it — which is what a card
     /// is measured by before a way of dodging it is written — or `none`, for every frame no card is up on,
-    /// which is how a stage's own stretch between its cards is measured. Nothing without `--trace`
+    /// which is how a stage's own stretch between its cards is measured — or `all`, for every frame
+    /// whatever is up, which is how a replay is read in one playing. Nothing without `--trace`
     #[arg(
         long,
         require_equals = true,
@@ -286,12 +287,24 @@ pub struct Options {
     )]
     trace_the_field_in: Option<u32>,
 
+    /// put the game's own world — the player's clocks, its shots, the enemies, the items — into every
+    /// record of the trace, the frames a run is played back into its chapter among them, so that where a
+    /// playback parts from its run is read off the two traces
+    #[arg(long, help_heading = FAULT)]
+    trace_the_world: bool,
+
     /// keep the files orb writes of its own — the run left unfinished, its replay, the name it
     /// remembers, and a trace naming no directory — under this directory rather than beside the
     /// game. For a launch that is a test: what an earlier session left beside the game then
     /// answers none of this launch's questions, and nothing there has to be moved to make room
     #[arg(long, require_equals = true, value_name = "DIR", help_heading = FAULT)]
     keep_in: Option<PathBuf>,
+
+    /// keep every chapter a pointdevice run is hit in, as it stood at its start, under a directory of
+    /// its own here — `s<stage>-c<chapter>-f<frame>` — each one a run another launch picks up with
+    /// `--keep-in` naming it, which puts the chapter that was hit straight back to be played again
+    #[arg(long, require_equals = true, value_name = "DIR", help_heading = FAULT)]
+    keep_hits_in: Option<PathBuf>,
 
     /// answer the imports a game sold through Steam reaches it through, so that the launch needs no
     /// client running and puts nothing on anybody's account. What a launch playing itself does anyway,
@@ -499,6 +512,9 @@ impl Config {
         if let Some(card) = options.trace_the_field_in {
             self.trace_the_field_in = Some(card);
         }
+        if options.trace_the_world {
+            self.trace_the_world = true;
+        }
         if let Some(path) = &options.trace {
             self.trace = Some(path.clone());
         }
@@ -506,6 +522,9 @@ impl Config {
         // is where this launch *writes*, which is every path derived from the base directory.
         if let Some(dir) = &options.keep_in {
             self.base_dir = dir.clone();
+        }
+        if let Some(dir) = &options.keep_hits_in {
+            self.keep_hits_in = Some(dir.clone());
         }
         // **Only ever said and never unsaid**, which is the shape every switch here has: what says the
         // other answer is the file, and what says neither is a launch playing itself — see
@@ -536,13 +555,18 @@ const CLEAR_SPEED: u32 = 64;
 /// card a game numbers, so that no card is taken for none.
 pub const NO_CARD: u32 = u32::MAX;
 
-/// `--trace-the-field-in`'s value: a card by its number, or `none` for [`NO_CARD`].
+/// **The number `--trace-the-field-in=all` is read as**, which names every frame whatever is up — past every card a
+/// game numbers too, and not [`NO_CARD`].
+pub const EVERY_FRAME: u32 = u32::MAX - 1;
+
+/// `--trace-the-field-in`'s value: a card by its number, `none` for [`NO_CARD`] or `all` for [`EVERY_FRAME`].
 fn a_card_or_none(value: &str) -> Result<u32, String> {
     match value {
         "none" => Ok(NO_CARD),
+        "all" => Ok(EVERY_FRAME),
         number => number
             .parse()
-            .map_err(|_| format!("`{number}` is neither a card's number nor `none`")),
+            .map_err(|_| format!("`{number}` is neither a card's number nor `none` nor `all`")),
     }
 }
 
@@ -594,6 +618,25 @@ mod tests {
         );
         // What was read stays read from beside the game: only where this launch writes has moved.
         assert_eq!(checked.game_dir, std::path::Path::new("/opt/orb"));
+    }
+
+    /// **And a directory to keep each chapter hit in**, which no launch nobody asked keeps at all.
+    #[test]
+    fn a_directory_to_keep_the_chapters_hit_in_is_only_ever_asked_for() {
+        assert_eq!(with("").keep_hits_in, None);
+        assert_eq!(
+            with(r"--keep-hits-in=C:\copy\keep\hits")
+                .keep_hits_in
+                .as_deref(),
+            Some(std::path::Path::new(r"C:\copy\keep\hits"))
+        );
+    }
+
+    /// **And the world in the trace**, which no launch nobody asked writes at all.
+    #[test]
+    fn the_world_in_the_trace_is_only_ever_asked_for() {
+        assert!(!with("").trace_the_world);
+        assert!(with("--trace-the-world").trace_the_world);
     }
 
     /// Asking for both passes at once is a mistake rather than the later one winning: they are
@@ -791,6 +834,10 @@ mod tests {
             with("--trace-the-field-in=none").trace_the_field_in,
             Some(super::NO_CARD)
         );
+        assert_eq!(
+            with("--trace-the-field-in=all").trace_the_field_in,
+            Some(super::EVERY_FRAME)
+        );
         assert_eq!(config().trace_the_field_in, None);
     }
 
@@ -802,7 +849,7 @@ mod tests {
             "--speed=fast",
             "--speed=0",
             "--log=loud",
-            "--trace-the-field-in=all",
+            "--trace-the-field-in=every",
         ] {
             let error = Options::from_command_line(option).unwrap_err();
             let name = option.split('=').next().unwrap();

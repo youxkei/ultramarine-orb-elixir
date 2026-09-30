@@ -38,7 +38,7 @@ mod threads;
 mod window;
 
 use std::ffi::c_void;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use orb_config::Config;
 
@@ -82,6 +82,48 @@ use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+
+/// **The three entry points a game whose walks and frame take their argument on the stack is patched
+/// with**, each with the slot its trampoline goes in and the call that reaches that trampoline the game's
+/// way — see `orb_core::game::FrameEntered` and `orb_core::runtime::run_calc_chain_on_the_stack`.
+struct OnTheStack {
+    update: usize,
+    update_slot: &'static AtomicUsize,
+    calls_the_update: usize,
+    draw: usize,
+    draw_slot: &'static AtomicUsize,
+    calls_the_draw: usize,
+    frame: usize,
+    frame_slot: &'static AtomicUsize,
+    calls_the_frame: usize,
+}
+
+#[cfg(target_arch = "x86")]
+fn on_the_stack() -> Option<OnTheStack> {
+    use orb_core::runtime::{
+        RENDER_ON_THE_STACK, RUN_CALC_CHAIN_ON_THE_STACK, RUN_DRAW_CHAIN_ON_THE_STACK,
+        calls_the_calc_chain_on_the_stack, calls_the_draw_chain_on_the_stack,
+        calls_the_frame_on_the_stack, render_on_the_stack, run_calc_chain_on_the_stack,
+        run_draw_chain_on_the_stack,
+    };
+    Some(OnTheStack {
+        update: hook::address(run_calc_chain_on_the_stack as _),
+        update_slot: &RUN_CALC_CHAIN_ON_THE_STACK,
+        calls_the_update: hook::address(calls_the_calc_chain_on_the_stack as _),
+        draw: hook::address(run_draw_chain_on_the_stack as _),
+        draw_slot: &RUN_DRAW_CHAIN_ON_THE_STACK,
+        calls_the_draw: hook::address(calls_the_draw_chain_on_the_stack as _),
+        frame: hook::address(render_on_the_stack as _),
+        frame_slot: &RENDER_ON_THE_STACK,
+        calls_the_frame: hook::address(calls_the_frame_on_the_stack as _),
+    })
+}
+
+/// None on a 64-bit target, which has one convention and no game that pushes: `stdcall` is x86's.
+#[cfg(not(target_arch = "x86"))]
+fn on_the_stack() -> Option<OnTheStack> {
+    None
+}
 
 /// This process's command line, which for the game is what the launcher wrote: the game's own
 /// path and orb's options after it.
@@ -289,14 +331,40 @@ fn attach() {
     // the loop calls is the hook with the handed-over walk behind it. The same wiring
     // `orb_core::runtime::attach_to` leaves for a game that is not a real process, and for the same
     // reason. See `orb_core::game::Walks`.
-    match &patches.walks {
-        Some(walks) => {
+    // **And where the three patches below take their argument**, which decides what goes over each prologue
+    // and where its original is kept — see `orb_core::game::FrameEntered`. `None` is the one convention the
+    // hooks are written in; `Some` is the three entry points that stand in front of them for a game that
+    // pushes the argument, each with the slot its trampoline goes in.
+    let on_the_stack = match patches.frame_entered {
+        game::FrameEntered::InEcx => None,
+        game::FrameEntered::OnTheStack => match on_the_stack() {
+            Some(entries) => Some(entries),
+            None => {
+                return log!(
+                    "frame: this game's walks and frame take their argument on the stack and no entry \
+                     point here does; orb is doing nothing this run"
+                );
+            }
+        },
+    };
+    match (&patches.walks, &on_the_stack) {
+        (Some(walks), _) => {
             RUN_CALC_CHAIN_TARGET.store(hook::address(run_calc_chain as _), Ordering::Relaxed);
             RUN_CALC_CHAIN.store(walks.update, Ordering::Relaxed);
             RUN_DRAW_CHAIN_TARGET.store(hook::address(run_draw_chain as _), Ordering::Relaxed);
             RUN_DRAW_CHAIN.store(walks.draw, Ordering::Relaxed);
         }
-        None => {
+        // **orb's own two hooks as what the loop calls**, for a game whose patched prologues the loop cannot
+        // call: those are the game's functions entered the game's way, and the loop calls in the one
+        // convention it has. The hooks are what a patched prologue would have reached anyway, so it is the
+        // same path — and the originals behind them are the pushing calls the entries left.
+        (None, Some(entries)) => {
+            RUN_CALC_CHAIN_TARGET.store(hook::address(run_calc_chain as _), Ordering::Relaxed);
+            RUN_CALC_CHAIN.store(entries.calls_the_update, Ordering::Relaxed);
+            RUN_DRAW_CHAIN_TARGET.store(hook::address(run_draw_chain as _), Ordering::Relaxed);
+            RUN_DRAW_CHAIN.store(entries.calls_the_draw, Ordering::Relaxed);
+        }
+        (None, None) => {
             RUN_CALC_CHAIN_TARGET.store(
                 patches.update.as_ref().map_or(0, |patch| patch.target),
                 Ordering::Relaxed,
@@ -337,22 +405,33 @@ fn attach() {
     // frame names neither, and what it gets is the hooks below that it does name — see
     // `orb_core::game::Hooks::update`.
     if let (true, Some(update), Some(draw)) = (config.frame_hooks, patches.update, patches.draw) {
-        hooks.push((
-            "update",
-            update,
-            hook::address(run_calc_chain as _),
-            &RUN_CALC_CHAIN,
-        ));
-        hooks.push((
-            "draw",
-            draw,
-            hook::address(run_draw_chain as _),
-            &RUN_DRAW_CHAIN,
-        ));
+        let (update_entry, update_slot, draw_entry, draw_slot) = match &on_the_stack {
+            None => (
+                hook::address(run_calc_chain as _),
+                &RUN_CALC_CHAIN,
+                hook::address(run_draw_chain as _),
+                &RUN_DRAW_CHAIN,
+            ),
+            Some(entries) => (
+                entries.update,
+                entries.update_slot,
+                entries.draw,
+                entries.draw_slot,
+            ),
+        };
+        hooks.push(("update", update, update_entry, update_slot));
+        hooks.push(("draw", draw, draw_entry, draw_slot));
     }
     match patches.render {
         Some(patch) if config.frame_hooks && config.own_frame_loop => {
-            hooks.push(("frame loop", patch, hook::address(render as _), &RENDER));
+            let (entry, slot) = match &on_the_stack {
+                None => (hook::address(render as _), &RENDER),
+                Some(entries) => {
+                    RENDER.store(entries.calls_the_frame, Ordering::Relaxed);
+                    (entries.frame, entries.frame_slot)
+                }
+            };
+            hooks.push(("frame loop", patch, entry, slot));
         }
         _ => {}
     }
@@ -366,6 +445,18 @@ fn attach() {
         // written down here and handed back here.
         Some(game::Read::Code(patch)) if config.frame_hooks => {
             hooks.push(("input", patch, hook::address(get_input as _), &GET_INPUT));
+        }
+        // **And the pad's half, for a game whose read stores what that half answers** — see
+        // `orb_core::game::Read::PadHalf`. 32-bit alone, the entry being a `fastcall`.
+        #[cfg(target_arch = "x86")]
+        Some(game::Read::PadHalf(patch)) if config.frame_hooks => {
+            use orb_core::runtime::get_input_with_the_keys;
+            hooks.push((
+                "input",
+                patch,
+                hook::address(get_input_with_the_keys as _),
+                &GET_INPUT,
+            ));
         }
         // **And a pointer written where the game keeps its own read**, for a game that looked that
         // read up rather than calling it from its own code: no jump, no prologue, and what was
@@ -485,13 +576,22 @@ fn attach() {
     match patches.stage_building {
         // The other half of the same job: the numbers go in where the stage has just been built, and
         // the seed has to be in before it is.
-        Some(patch) if config.chapters && config.resume => {
-            hooks.push((
-                "stage build",
-                patch,
-                hook::address(stage_building as _),
-                &STAGE_BUILDING,
-            ));
+        Some(building) if config.chapters && config.resume => {
+            let hooked = match building {
+                game::Building::Cdecl(patch) => Some((patch, hook::address(stage_building as _))),
+                #[cfg(target_arch = "x86")]
+                game::Building::StdcallOfTwo(patch) => Some((
+                    patch,
+                    hook::address(orb_core::runtime::stage_building_of_two as _),
+                )),
+                // No game of this width builds a stage that way, and a hook entered by the wrong ABI is a
+                // crash rather than a wrong number.
+                #[cfg(not(target_arch = "x86"))]
+                game::Building::StdcallOfTwo(_) => None,
+            };
+            if let Some((patch, hook)) = hooked {
+                hooks.push(("stage build", patch, hook, &STAGE_BUILDING));
+            }
         }
         _ => {}
     }
@@ -591,6 +691,7 @@ fn attach() {
             game.content_size(),
             config.screen,
             config.autoplay.is_some(),
+            config.pace > 1,
         )
     } {
         Ok(()) => log!("screen: window hooks installed"),

@@ -258,7 +258,7 @@ pub type CreateWindowExW = unsafe extern "system" fn(
 /// dialog and kept off the taskbar** — the corner and the frame of [`placed_out_of_the_way`], which is
 /// what the game whose `CreateWindowExA` is written over gets the whole of.
 ///
-/// **[`DIALOG_EX_STYLE`] for the reason it is there at all**: a window a bot plays in that the window
+/// **[`OUT_OF_THE_WAY_EX_STYLE`] for the reason it is there at all**: a window a bot plays in that the window
 /// manager treats as an ordinary one is a window in the way — in the taskbar, in alt-tab, and taking a
 /// turn at being focused.
 ///
@@ -313,7 +313,7 @@ pub unsafe extern "system" fn create_window_ex_w(
     let window = unsafe {
         original(
             // Added to the game's own rather than written over it, the same as the other rewrite.
-            ex_style | corner.map_or(0, |_| DIALOG_EX_STYLE),
+            ex_style | corner.map_or(0, |_| OUT_OF_THE_WAY_EX_STYLE),
             class_name,
             window_name,
             style,
@@ -456,6 +456,198 @@ pub unsafe fn answers_the_window_shown(original: usize) {
     SHOW_WINDOW.store(original, Ordering::Relaxed);
 }
 
+/// The game's own `SetForegroundWindow`, which [`set_foreground_window`] calls through.
+static SET_FOREGROUND_WINDOW: AtomicUsize = AtomicUsize::new(0);
+
+/// `BOOL SetForegroundWindow(HWND)`.
+pub type SetForegroundWindow = unsafe extern "system" fn(*mut c_void) -> i32;
+
+/// **The window orb plays in left where it is when the game asks for it to be brought to the front**, and every
+/// other window brought forward as asked.
+///
+/// **Because [`OUT_OF_THE_WAY_EX_STYLE`]'s `WS_EX_NOACTIVATE` does not reach this call**: it keeps a window from
+/// being activated by a click and by the system, and a program asking for its own window to be in front is asked
+/// for outright — th10's WinMain does that once its window is made (0x438cb1), and a launch with the style on still
+/// took the focus off whatever somebody was working in. True is the answer, which is the host's for a window brought
+/// forward: the game asked to be in front and goes on as though it were.
+///
+/// # Safety
+/// The argument is `SetForegroundWindow`'s own, and [`answers_the_window_brought_forward`] must have run first.
+pub unsafe extern "system" fn set_foreground_window(window: *mut c_void) -> i32 {
+    let original: SetForegroundWindow =
+        unsafe { std::mem::transmute(SET_FOREGROUND_WINDOW.load(Ordering::Relaxed)) };
+    let ours = window as usize;
+    if unsafe { *OUT_OF_THE_WAY.get() }
+        && ours != 0
+        && (ours == GAME_WINDOW.load(Ordering::Relaxed)
+            || ours == PLAYED_IN.load(Ordering::Relaxed))
+    {
+        detail!(
+            "screen: the game asked for the window orb plays in to be brought forward; it stays where it is"
+        );
+        return 1;
+    }
+    unsafe { original(window) }
+}
+
+/// The game's own `SetActiveWindow`, which [`set_active_window`] calls through.
+static SET_ACTIVE_WINDOW: AtomicUsize = AtomicUsize::new(0);
+
+/// `HWND SetActiveWindow(HWND)`.
+pub type SetActiveWindow = unsafe extern "system" fn(*mut c_void) -> *mut c_void;
+
+/// **The window orb plays in left as it is when the game asks for it to be activated**, and every other window
+/// activated as asked — [`set_foreground_window`]'s answer to the other call a game brings itself forward with.
+///
+/// # Safety
+/// The argument is `SetActiveWindow`'s own, and [`answers_the_window_activated`] must have run first.
+pub unsafe extern "system" fn set_active_window(window: *mut c_void) -> *mut c_void {
+    let original: SetActiveWindow =
+        unsafe { std::mem::transmute(SET_ACTIVE_WINDOW.load(Ordering::Relaxed)) };
+    let ours = window as usize;
+    if unsafe { *OUT_OF_THE_WAY.get() }
+        && ours != 0
+        && (ours == GAME_WINDOW.load(Ordering::Relaxed)
+            || ours == PLAYED_IN.load(Ordering::Relaxed))
+    {
+        detail!(
+            "screen: the game asked for the window orb plays in to be activated; it is left as it is"
+        );
+        // Nothing, which is `SetActiveWindow`'s answer where no window was active before: the game goes on as though
+        // its window were, th08 reading nothing of what comes back (0x443708).
+        return std::ptr::null_mut();
+    }
+    unsafe { original(window) }
+}
+
+/// Says which function [`set_active_window`] calls through.
+///
+/// # Safety
+/// Must run before the game asks for its window to be activated.
+pub unsafe fn answers_the_window_activated(original: usize) {
+    SET_ACTIVE_WINDOW.store(original, Ordering::Relaxed);
+}
+
+/// The game's own `Direct3DCreate9`, which [`direct3d_create9`] calls through.
+static DIRECT3D_CREATE9: AtomicUsize = AtomicUsize::new(0);
+
+/// And the `IDirect3D9::CreateDevice` its object came with, which [`create_device9`] calls through.
+static CREATE_DEVICE9: AtomicUsize = AtomicUsize::new(0);
+
+/// `IDirect3D9 *Direct3DCreate9(UINT SDKVersion)`.
+pub type Direct3DCreate9 = unsafe extern "system" fn(u32) -> *mut c_void;
+
+/// `HRESULT IDirect3D9::CreateDevice(this, adapter, device type, focus window, behaviour flags, presentation
+/// parameters, the device made)`.
+pub type CreateDevice9 = unsafe extern "system" fn(
+    *mut c_void,
+    u32,
+    u32,
+    *mut c_void,
+    u32,
+    *mut c_void,
+    *mut *mut c_void,
+) -> i32;
+
+/// **Whether the device is made to present without waiting for the display**, for a launch paced faster than it —
+/// see [`presents_without_waiting`].
+static PRESENTS_WITHOUT_WAITING: AtomicBool = AtomicBool::new(false);
+
+/// **Says whether a Direct3D 9 device is to be made presenting without waiting for the display's blank**, which is
+/// the whole of what a launch paced faster than the display needs of one: its interval is the display pacing it,
+/// so a frame asked for faster than the blanks and a present that waits on one are two answers to one question, and
+/// the blank wins. **Measured**: th10 at `--pace=8` ran at 2.00x on a 120Hz display, `601 frames, 8309us apart` — one
+/// frame a refresh. The DXGI games' answer is the same, made per present — see `crate::dxgi::hands_over_without_waiting`
+/// — where a D3D9 device's interval is its present parameters', set as it is made.
+///
+/// Set only from [`crate::frame::Pacing::paces_faster`], so an ordinary launch's device is made as the game asks.
+pub fn presents_without_waiting(without: bool) {
+    PRESENTS_WITHOUT_WAITING.store(without, Ordering::Relaxed);
+}
+
+/// **The Direct3D 9 object the game makes its device with**, with its `CreateDevice` written over where orb plays
+/// the game in a window of its own or paces it faster than the display — see [`create_device9`].
+///
+/// # Safety
+/// The argument is `Direct3DCreate9`'s own, and [`answers_the_direct3d_made`] must have run first.
+pub unsafe extern "system" fn direct3d_create9(sdk: u32) -> *mut c_void {
+    let original: Direct3DCreate9 =
+        unsafe { std::mem::transmute(DIRECT3D_CREATE9.load(Ordering::Relaxed)) };
+    let made = unsafe { original(sdk) };
+    let wanted =
+        unsafe { *OUT_OF_THE_WAY.get() } || PRESENTS_WITHOUT_WAITING.load(Ordering::Relaxed);
+    if made.is_null() || !wanted {
+        return made;
+    }
+    // The vtable read out of the object, for the reason [`hook_device`] reads the device's that way.
+    let vtable = unsafe { orb_api::mem::read::<usize>(made as usize) };
+    let slot = vtable + orb_api::d3d9::CREATE_DEVICE_SLOT * size_of::<usize>();
+    let ours = create_device9 as *const () as usize;
+    match unsafe { orb_api::mem::replace_word(slot, ours) } {
+        // **Kept only where it is not orb's own**: every object `Direct3DCreate9` makes shares the one vtable, so a
+        // second object finds orb's in the slot already, and the game's is the one kept from the first.
+        Some(previous) if previous != ours => CREATE_DEVICE9.store(previous, Ordering::Relaxed),
+        Some(_) => {}
+        None => log!("screen: the Direct3D object's CreateDevice could not be written over"),
+    }
+    made
+}
+
+/// **The device made with Direct3D told to leave the focus window alone**, where orb plays the game in a window of
+/// its own: `D3DCREATE_NOWINDOWCHANGES` beside the game's own flags. **Because the device is what brought the window
+/// to the front**: made hidden, shown with `SW_SHOWNA`, `WS_EX_NOACTIVATE` on it and the game's own
+/// `SetForegroundWindow` swallowed, th10's window still came to the front some 110 milliseconds after it was made —
+/// tick 3501540094 to 3501540109 on the log's clock, between the window made at 3501539993 and the pad read at
+/// 3501540233, WinMain's device (0x439890) being the one thing between those.
+///
+/// **And made presenting without waiting for the display**, where the launch is paced faster than it — see
+/// [`presents_without_waiting`]. **Written into the game's own parameters** rather than a copy of them, because
+/// th10 hands the same ones to its `Reset` (0x439232), and a device put back by a reset that waited again would be a
+/// pace lost from then on.
+///
+/// # Safety
+/// The arguments are `IDirect3D9::CreateDevice`'s own, and [`direct3d_create9`] must have written this over the slot.
+pub unsafe extern "system" fn create_device9(
+    this: *mut c_void,
+    adapter: u32,
+    kind: u32,
+    focus: *mut c_void,
+    behaviour: u32,
+    parameters: *mut c_void,
+    device: *mut *mut c_void,
+) -> i32 {
+    let original: CreateDevice9 =
+        unsafe { std::mem::transmute(CREATE_DEVICE9.load(Ordering::Relaxed)) };
+    let behaviour = match unsafe { *OUT_OF_THE_WAY.get() } {
+        true => behaviour | orb_api::d3d9::D3DCREATE_NOWINDOWCHANGES,
+        false => behaviour,
+    };
+    if PRESENTS_WITHOUT_WAITING.load(Ordering::Relaxed) && !parameters.is_null() {
+        let interval = parameters as usize + orb_api::d3d9::PRESENTATION_INTERVAL;
+        unsafe {
+            orb_api::mem::write::<u32>(interval, orb_api::d3d9::D3DPRESENT_INTERVAL_IMMEDIATE)
+        };
+        log!("frame: the device is made presenting without waiting for the display's blank");
+    }
+    unsafe { original(this, adapter, kind, focus, behaviour, parameters, device) }
+}
+
+/// Says which function [`direct3d_create9`] calls through.
+///
+/// # Safety
+/// Must run before the game makes its Direct3D object.
+pub unsafe fn answers_the_direct3d_made(original: usize) {
+    DIRECT3D_CREATE9.store(original, Ordering::Relaxed);
+}
+
+/// Says which function [`set_foreground_window`] calls through.
+///
+/// # Safety
+/// Must run before the game asks for its window to be brought forward.
+pub unsafe fn answers_the_window_brought_forward(original: usize) {
+    SET_FOREGROUND_WINDOW.store(original, Ordering::Relaxed);
+}
+
 /// The game's own `SetWindowPos`, which [`set_window_pos`] calls through.
 static SET_WINDOW_POS: AtomicUsize = AtomicUsize::new(0);
 
@@ -589,12 +781,14 @@ pub unsafe extern "system" fn set_window_long_w(
     let ours =
         unsafe { *OUT_OF_THE_WAY.get() } && window as usize == PLAYED_IN.load(Ordering::Relaxed);
     let value = match index {
-        GWL_EXSTYLE if ours && value as u32 & DIALOG_EX_STYLE != DIALOG_EX_STYLE => {
+        GWL_EXSTYLE
+            if ours && value as u32 & OUT_OF_THE_WAY_EX_STYLE != OUT_OF_THE_WAY_EX_STYLE =>
+        {
             detail!(
                 "screen: the game wrote the extended style {value:#010x} over the window orb plays in; \
                  it keeps the dialog frame"
             );
-            (value as u32 | DIALOG_EX_STYLE) as i32
+            (value as u32 | OUT_OF_THE_WAY_EX_STYLE) as i32
         }
         GWL_STYLE if unsafe { held_off_the_screen(window) } && value as u32 & WS_VISIBLE != 0 => {
             detail!(
@@ -777,7 +971,9 @@ fn shown_now_the_corner_is_held(window: usize) {
         "screen: the window orb plays in has held its corner for \
          {FRAMES_THE_CORNER_HOLDS_FIRST} frames; showing it",
     );
-    if !orb_api::window::show(Hwnd(window)) {
+    // **Without activating it**, for [`OUT_OF_THE_WAY_EX_STYLE`]'s reason: `SW_SHOW` activates the window it
+    // shows, the style or no style, and the focus went with it.
+    if !orb_api::window::show_without_activating(Hwnd(window)) {
         log!("screen: the window orb plays in could not be shown");
     }
 }
@@ -797,7 +993,7 @@ pub unsafe fn plays_out_of_the_way() -> bool {
 ///
 /// **Read rather than written every frame, and read for the same reason the corner is.** Both games do
 /// this and neither does it through a call orb answers: th06c's window was measured with an extended
-/// style of `0x100` where orb had made it with [`DIALOG_EX_STYLE`] — `dialog-frame False
+/// style of `0x100` where orb had made it with [`OUT_OF_THE_WAY_EX_STYLE`] — `dialog-frame False
 /// off-the-taskbar False`, read from outside the process by
 /// `.claude/skills/driving-orb-with-autoplay/scripts/window-style.ps1` — so the game had written its own
 /// style over orb's some time after the window was made. A put-back on one chosen frame is a put-back
@@ -818,14 +1014,14 @@ pub unsafe fn keeps_its_frame() {
         return;
     }
     let has = orb_api::window::ex_style(Hwnd(window));
-    if has & DIALOG_EX_STYLE == DIALOG_EX_STYLE {
+    if has & OUT_OF_THE_WAY_EX_STYLE == OUT_OF_THE_WAY_EX_STYLE {
         return;
     }
     detail!(
         "screen: the window orb plays in has the extended style {has:#010x}; \
          framing it as a dialog again",
     );
-    if !orb_api::window::add_ex_style(Hwnd(window), DIALOG_EX_STYLE) {
+    if !orb_api::window::add_ex_style(Hwnd(window), OUT_OF_THE_WAY_EX_STYLE) {
         log!("screen: the window orb plays in could not be framed as a dialog again");
     }
 }
@@ -843,6 +1039,7 @@ pub unsafe fn keeps_its_frame() {
 pub unsafe fn answers_the_window_made(original: usize, out_of_the_way: bool) {
     CREATE_WINDOW_EX_W.store(original, Ordering::Relaxed);
     unsafe { *OUT_OF_THE_WAY.get() = out_of_the_way };
+    the_focus_is_where_it_was(out_of_the_way);
 }
 
 /// Says which function [`create_window_ex_a`] calls through, and settles the window it is to make.
@@ -931,6 +1128,15 @@ pub unsafe extern "system" fn create_window_ex_a(
         placed(monitor, unsafe { screen() })
     };
 
+    // **And made hidden where orb plays in it, to be shown without being activated**: made visible, a launch's window
+    // took the focus off whatever somebody was working in the moment it was made, with [`OUT_OF_THE_WAY_EX_STYLE`]'s
+    // `WS_EX_NOACTIVATE` on it and the game's own `SetForegroundWindow` swallowed — a new process's first visible
+    // window being one Windows brings to the front however it is styled.
+    let out_of_the_way = unsafe { *OUT_OF_THE_WAY.get() };
+    let style = match out_of_the_way {
+        true => wanted.style & !WS_VISIBLE,
+        false => wanted.style,
+    };
     let window = unsafe {
         original(
             // Added to the game's own rather than written over it: what the game asked for is the game's
@@ -938,7 +1144,7 @@ pub unsafe extern "system" fn create_window_ex_a(
             ex_style | wanted.ex_style,
             class_name,
             window_name,
-            wanted.style,
+            style,
             wanted.area.left,
             wanted.area.top,
             wanted.area.width(),
@@ -951,6 +1157,9 @@ pub unsafe extern "system" fn create_window_ex_a(
     };
     if !window.is_null() {
         window_created(Hwnd(window as usize));
+        if out_of_the_way && !orb_api::window::show_without_activating(Hwnd(window as usize)) {
+            log!("screen: the window orb plays in could not be shown");
+        }
         // The client it came out with as well as the window that was asked for, because those are
         // two different numbers whenever anything between here and the screen has an opinion —
         // display scaling, a shell that remembers window sizes — and the client is the one the
@@ -1000,6 +1209,55 @@ pub unsafe fn settle(content: (u32, u32), screen: Screen, out_of_the_way: bool) 
         *CONTENT.get() = content;
         *SCREEN.get() = screen;
         *OUT_OF_THE_WAY.get() = out_of_the_way;
+    }
+    the_focus_is_where_it_was(out_of_the_way);
+}
+
+/// **The window that was in front when orb settled the window it is to play in**, which [`keeps_the_focus_where_it_was`]
+/// hands the focus back to — nought where somebody plays, or where nothing was.
+static FOCUS_WAS: AtomicUsize = AtomicUsize::new(0);
+
+/// Writes down the window in front, for a launch orb plays — before the game has a window of its own to take it.
+fn the_focus_is_where_it_was(out_of_the_way: bool) {
+    let was = match out_of_the_way {
+        true => orb_api::window::foreground().0,
+        false => 0,
+    };
+    FOCUS_WAS.store(was, Ordering::Relaxed);
+}
+
+/// **The focus handed back to the window that had it**, the frame the window orb plays in is seen in front — whatever
+/// brought it there.
+///
+/// **Beside what keeps it from coming forward at all**, and not instead of it: [`OUT_OF_THE_WAY_EX_STYLE`] keeps the
+/// window from a click and from the system, [`set_foreground_window`] from the game's own call, and
+/// [`create_device9`] from a Direct3D 9 device made on it — and that is th10's three. Direct3D 8 has no
+/// `D3DCREATE_NOWINDOWCHANGES`, and th06c's and th06nc's renderer is another again, so what is left for a game whose
+/// window comes forward by a way orb has no answer for is to give the focus back as soon as it is seen gone. A frame
+/// of it is the cost, which is a keystroke or two somebody typed going to the game.
+///
+/// Nothing where somebody plays, before the game has a window, or where the window in front is not orb's.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn keeps_the_focus_where_it_was() {
+    let was = FOCUS_WAS.load(Ordering::Relaxed);
+    if !unsafe { *OUT_OF_THE_WAY.get() } || was == 0 {
+        return;
+    }
+    let front = orb_api::window::foreground().0;
+    let ours = [
+        GAME_WINDOW.load(Ordering::Relaxed),
+        PLAYED_IN.load(Ordering::Relaxed),
+    ];
+    if front == 0 || front == was || !ours.contains(&front) {
+        return;
+    }
+    log!(
+        "screen: the window orb plays in came to the front; the focus handed back to the window that had it"
+    );
+    if !orb_api::window::bring_forward(Hwnd(was)) {
+        log!("screen: the focus could not be handed back");
     }
 }
 
@@ -1231,6 +1489,13 @@ pub unsafe fn write_beside(lines: &[String]) {
     /// The rows the last call painted, so this one can clear them whether or not it writes
     /// anything there itself.
     static PAINTED: MainThread<Option<Rect>> = MainThread::new(None);
+    // **Only where the picture is presented into the letterbox**, the swap of `Present` having gone in: a game
+    // whose device orb does not hook — th10's Direct3D 9 — has its back buffer stretched over the whole client,
+    // so the rectangle [`letterbox`] works out has no black beside it, and lines written there were over th10's
+    // picture, covered by its next present and back on the one after.
+    if PRESENT.load(Ordering::Relaxed) == 0 {
+        return;
+    }
     let window = game_window();
     let letterbox = unsafe { letterbox() };
     let Some(letterbox) = letterbox else { return };
@@ -1387,13 +1652,15 @@ pub struct Placed {
     pub area: Rect,
 }
 
-/// `WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW`, written out for [`BORDERLESS_STYLE`]'s reason: what an
-/// extended style is is the game's own `CreateWindowExA` argument.
+/// `WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, written out for [`BORDERLESS_STYLE`]'s reason:
+/// what an extended style is is the game's own `CreateWindowExA` argument.
 ///
 /// The dialog frame is what a window orb plays in is asked to look like; the tool window beside it is what
 /// keeps it off the taskbar and out of alt-tab, which is what *not being in the way* takes and the half to
-/// drop if a window nobody can alt-tab to turns out to be worse.
-pub const DIALOG_EX_STYLE: u32 = 0x0000_0001 | 0x0000_0080;
+/// drop if a window nobody can alt-tab to turns out to be worse. **And the window never activated**, by its
+/// own showing or by a click on it: a launch that plays itself is started on the machine somebody is working
+/// on, and every launch of a bench that took the focus took it off what they were typing into.
+pub const OUT_OF_THE_WAY_EX_STYLE: u32 = 0x0000_0001 | 0x0000_0080 | 0x0800_0000;
 
 /// The client a window orb plays in is given: half of a 640x480 game, which is small enough to sit in a
 /// corner of somebody's screen and big enough to see what the bot is doing to the run.
@@ -1419,7 +1686,7 @@ pub fn placed_out_of_the_way(monitor: Rect) -> Placed {
     let area = orb_api::window::adjust_window_rect(client, WINDOWED_STYLE, false).unwrap_or(client);
     Placed {
         style: WINDOWED_STYLE,
-        ex_style: DIALOG_EX_STYLE,
+        ex_style: OUT_OF_THE_WAY_EX_STYLE,
         area: Rect {
             left: monitor.left,
             top: monitor.top,

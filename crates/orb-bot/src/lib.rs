@@ -55,6 +55,7 @@
 //! game's own arrays needs that game's addresses and deciding what to do about them needs none, so the reading
 //! is the game seam's and the deciding is here, where the rest of the harness is.
 
+use std::ops::Range;
 use std::sync::Mutex;
 
 use orb_config::recipe::{self, Until};
@@ -68,6 +69,8 @@ mod cards;
 mod hits;
 /// The rules a stage is played by, which is what a recipe falls through to.
 mod steer;
+/// **The autoplay engine's own ways**, for each game and difficulty.
+mod ways;
 
 /// The recipe this launch is playing to and where it has got to, or `None` for a recipe that could not be
 /// read.
@@ -114,31 +117,261 @@ struct Playing {
     /// **The place a [`Step::StandAt`] written without a card told the rules**, which stands until another
     /// one says otherwise.
     standing: Option<steer::Standing>,
-    /// **And the places written for a card**, each standing while its own card runs and in place of the one
-    /// above — see [`Playing::the_place_told`].
-    for_cards: Vec<(u32, steer::Standing)>,
-    /// What the rules were last handed of the two, so that a card's place taking over or lapsing is said
+    /// **The ways the recipe named for where the run is**, each taken up there in place of the engine's.
+    written: Ways,
+    /// **And the autoplay engine's own for the run's difficulty**, read the first frame that difficulty is seen —
+    /// see [`ways`].
+    engine: Option<(i32, Ways)>,
+    /// **The chapter the run is in and the stage frame it was first seen on**, which a way written for frames of a
+    /// chapter counts them from.
+    chapter_began: Option<(i32, u32, u32)>,
+    /// What the rules were last handed of the places, so that a card's place taking over or lapsing is said
     /// the once.
     told: Option<steer::Standing>,
-    /// **The ways named for a card**, each taken up while its own card runs — see [`recipe::Step::Dodge`].
-    dodges: Vec<(u32, recipe::Dodge)>,
+    /// **The last card seen up, and the stage it was up in**, which is what says whose fire a boss's between two
+    /// cards is.
+    card_before: Option<(i32, u32)>,
     /// And the one the rules were last handed, for the same reason as [`Playing::told`].
     dodging: Option<recipe::Dodge>,
+    /// And the card whose path the rules were last handed, for the same reason as [`Playing::told`].
+    following: Option<u32>,
     /// And the attempt they were last handed — see [`hands_the_rules_their_attempt`].
     attempt: u32,
 }
 
-impl Playing {
-    /// **Where the rules are to stand this frame**: the place written for the card that is up where there is
-    /// one, and the place written without a card otherwise.
-    fn the_place_told(&self, spell: Option<u32>) -> Option<steer::Standing> {
-        spell
+/// **The ways a run is played by where it is**: the places told and the ways named for a card, the fire after one,
+/// a chapter and a stretch of a stage, and the paths written for a card — a recipe's own, or the autoplay engine's
+/// for one difficulty (see [`ways`]).
+#[derive(Default)]
+struct Ways {
+    /// **The places written for a card**, each standing while its own card runs — see [`recipe::Step::StandAt`].
+    for_cards: Vec<(u32, steer::Standing)>,
+    /// **And for a stretch of a stage**, each standing while that stage's frame is inside it — see
+    /// [`recipe::Step::StandAtThroughAStretch`].
+    for_stretches: Vec<(i32, Range<u32>, steer::Standing)>,
+    /// **And for a chapter of a stage**, or a stretch of its frames — see [`recipe::Step::StandAtThroughAChapter`].
+    for_chapters: Vec<(i32, u32, Option<Range<u32>>, steer::Standing)>,
+    /// **The ways named for a card**, each taken up while its own card runs — see [`recipe::Step::Dodge`].
+    dodges: Vec<(u32, recipe::Dodge)>,
+    /// **And for a stretch of a stage**, each taken up while that stage's frame is inside it — see
+    /// [`recipe::Step::DodgeAStretch`].
+    stretches: Vec<(i32, Range<u32>, recipe::Dodge)>,
+    /// **And for the fire after a card**, each taken up between that card and the next — see
+    /// [`recipe::Step::DodgeAfterACard`].
+    after_cards: Vec<(u32, recipe::Dodge)>,
+    /// **And for a chapter of a stage**, or a stretch of its frames — see [`recipe::Step::DodgeAChapter`].
+    chapters: Vec<(i32, u32, Option<Range<u32>>, recipe::Dodge)>,
+    /// **The paths written for a card**, each gone along while its own card runs — see [`recipe::Step::Follow`].
+    follows: Vec<(u32, steer::Following)>,
+}
+
+/// **Where in its run a frame is, for a way to be named for**: the stage, the chapter and how many frames into it, the
+/// stage's own frame, the card that is up and the card whose fire is up after it.
+struct Where {
+    stage: i32,
+    chapter: u32,
+    into_the_chapter: Option<u32>,
+    stage_frame: Option<u32>,
+    card: Option<u32>,
+    after_the_card: Option<u32>,
+}
+
+/// **Which of a [`Ways`]' names a way was taken up by**, for the line that says so.
+#[derive(Clone, Debug, PartialEq)]
+enum NamedBy {
+    Card(u32),
+    AfterTheCard(u32),
+    Chapter(i32, u32),
+    Stretch(i32, Range<u32>),
+}
+
+impl Ways {
+    /// **The way a step names kept**, in place of one named for the same card, fire, chapter or stretch before it —
+    /// and whether the step named one at all.
+    fn take(&mut self, step: &Step) -> bool {
+        match step {
+            Step::StandAt {
+                standing: Some(place),
+                spell: Some(card),
+            } => {
+                self.for_cards.retain(|(it, _)| it != card);
+                self.for_cards.push((*card, *place));
+            }
+            Step::StandAtThroughAStretch {
+                standing,
+                stage,
+                frames,
+            } => {
+                self.for_stretches
+                    .retain(|(at, over, _)| (at, over) != (stage, frames));
+                self.for_stretches.push((*stage, frames.clone(), *standing));
+            }
+            Step::StandAtThroughAChapter {
+                standing,
+                stage,
+                chapter,
+                frames,
+            } => {
+                self.for_chapters
+                    .retain(|(at, of, over, _)| (at, of, over) != (stage, chapter, frames));
+                self.for_chapters
+                    .push((*stage, *chapter, frames.clone(), *standing));
+            }
+            Step::Dodge { with, spell } => {
+                self.dodges.retain(|(card, _)| card != spell);
+                self.dodges.push((*spell, *with));
+            }
+            Step::DodgeAStretch {
+                with,
+                stage,
+                frames,
+            } => {
+                self.stretches
+                    .retain(|(at, over, _)| (at, over) != (stage, frames));
+                self.stretches.push((*stage, frames.clone(), *with));
+            }
+            Step::DodgeAfterACard { with, after } => {
+                self.after_cards.retain(|(card, _)| card != after);
+                self.after_cards.push((*after, *with));
+            }
+            Step::DodgeAChapter {
+                with,
+                stage,
+                chapter,
+                frames,
+            } => {
+                self.chapters
+                    .retain(|(at, of, over, _)| (at, of, over) != (stage, chapter, frames));
+                self.chapters
+                    .push((*stage, *chapter, frames.clone(), *with));
+            }
+            Step::Follow { spell, following } => {
+                self.follows.retain(|(card, _)| card != spell);
+                self.follows.push((*spell, following.clone()));
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// **The place told for where the run is**: a card's where one is up, a chapter's, and a stretch's — the
+    /// narrowest first.
+    fn the_place(&self, at: &Where) -> Option<steer::Standing> {
+        at.card
             .and_then(|up| {
                 self.for_cards
                     .iter()
                     .find(|(card, _)| *card == up)
                     .map(|(_, place)| *place)
             })
+            .or_else(|| {
+                self.for_chapters
+                    .iter()
+                    .find(|(stage, chapter, frames, _)| {
+                        (*stage, *chapter) == (at.stage, at.chapter) && Self::inside(frames, at)
+                    })
+                    .map(|(.., place)| *place)
+            })
+            .or_else(|| {
+                let frame = at.stage_frame?;
+                self.for_stretches
+                    .iter()
+                    .find(|(stage, frames, _)| *stage == at.stage && frames.contains(&frame))
+                    .map(|(.., place)| *place)
+            })
+    }
+
+    /// **The way named for where the run is**, and what named it: the card's own where one is up, the fire after a
+    /// card's between that card and the next, a chapter's, and a stretch's — the narrowest first.
+    fn the_dodge(&self, at: &Where) -> Option<(recipe::Dodge, NamedBy)> {
+        let a_cards = at.card.and_then(|up| {
+            self.dodges
+                .iter()
+                .find(|(card, _)| *card == up)
+                .map(|(card, with)| (*with, NamedBy::Card(*card)))
+        });
+        let after_a_card = || {
+            at.after_the_card.and_then(|before| {
+                self.after_cards
+                    .iter()
+                    .find(|(card, _)| *card == before)
+                    .map(|(card, with)| (*with, NamedBy::AfterTheCard(*card)))
+            })
+        };
+        let a_chapters = || {
+            self.chapters
+                .iter()
+                .find(|(stage, chapter, frames, _)| {
+                    (*stage, *chapter) == (at.stage, at.chapter) && Self::inside(frames, at)
+                })
+                .map(|(stage, chapter, _, with)| (*with, NamedBy::Chapter(*stage, *chapter)))
+        };
+        let a_stretchs = || {
+            let frame = at.stage_frame?;
+            self.stretches
+                .iter()
+                .find(|(stage, frames, _)| *stage == at.stage && frames.contains(&frame))
+                .map(|(stage, frames, with)| (*with, NamedBy::Stretch(*stage, frames.clone())))
+        };
+        a_cards
+            .or_else(after_a_card)
+            .or_else(a_chapters)
+            .or_else(a_stretchs)
+    }
+
+    /// **The path written for the card that is up**.
+    fn the_path(&self, at: &Where) -> Option<(u32, &steer::Following)> {
+        let up = at.card?;
+        self.follows
+            .iter()
+            .find(|(card, _)| *card == up)
+            .map(|(card, path)| (*card, path))
+    }
+
+    /// Whether a way written for some of a chapter's frames is for this one of them, or for all of it.
+    fn inside(frames: &Option<Range<u32>>, at: &Where) -> bool {
+        match (frames, at.into_the_chapter) {
+            (None, _) => true,
+            (Some(frames), Some(into)) => frames.contains(&into),
+            (Some(_), None) => false,
+        }
+    }
+}
+
+impl Playing {
+    /// **Where in its run this frame is**, the chapter's own frame counted from the one it was first seen on.
+    fn where_the_run_is(&self, reached: &Reached) -> Where {
+        Where {
+            stage: reached.stage,
+            chapter: reached.chapter,
+            into_the_chapter: self
+                .chapter_began
+                .filter(|(stage, chapter, _)| {
+                    (*stage, *chapter) == (reached.stage, reached.chapter)
+                })
+                .zip(reached.stage_frames)
+                .map(|((.., began), frame)| frame.saturating_sub(began)),
+            stage_frame: reached.stage_frames,
+            card: reached.spell,
+            after_the_card: the_card_whose_fire_is_up(self, reached),
+        }
+    }
+
+    /// **The engine's ways where the recipe named none**, for the run's difficulty.
+    fn the_engines(&self, reached: &Reached) -> Option<&Ways> {
+        self.engine
+            .as_ref()
+            .filter(|(difficulty, _)| Some(*difficulty) == reached.difficulty)
+            .map(|(_, ways)| ways)
+    }
+
+    /// **Where the rules are to stand this frame**: the place the recipe wrote for where the run is, the engine's
+    /// where it wrote none, and the place written without a card otherwise.
+    fn the_place_told(&self, reached: &Reached) -> Option<steer::Standing> {
+        let at = self.where_the_run_is(reached);
+        self.written
+            .the_place(&at)
+            .or_else(|| self.the_engines(reached)?.the_place(&at))
             .or(self.standing)
     }
 }
@@ -176,10 +409,47 @@ enum Step {
         standing: Option<steer::Standing>,
         spell: Option<u32>,
     },
+    /// Where the rules stand while a stretch of one stage runs — see [`recipe::Step::StandAtThroughAStretch`].
+    StandAtThroughAStretch {
+        standing: steer::Standing,
+        stage: i32,
+        frames: Range<u32>,
+    },
     /// The way the rules dodge one card while it runs — see [`recipe::Step::Dodge`].
     Dodge {
         with: recipe::Dodge,
         spell: u32,
+    },
+    /// The way the rules dodge a stretch of one stage — see [`recipe::Step::DodgeAStretch`].
+    DodgeAStretch {
+        with: recipe::Dodge,
+        stage: i32,
+        frames: Range<u32>,
+    },
+    /// The way the rules dodge the fire after one card — see [`recipe::Step::DodgeAfterACard`].
+    DodgeAfterACard {
+        with: recipe::Dodge,
+        after: u32,
+    },
+    /// The way the rules dodge a chapter of one stage, or some of its frames — see [`recipe::Step::DodgeAChapter`].
+    DodgeAChapter {
+        with: recipe::Dodge,
+        stage: i32,
+        chapter: u32,
+        frames: Option<Range<u32>>,
+    },
+    /// Where the rules stand through a chapter of one stage, or some of its frames — see
+    /// [`recipe::Step::StandAtThroughAChapter`].
+    StandAtThroughAChapter {
+        standing: steer::Standing,
+        stage: i32,
+        chapter: u32,
+        frames: Option<Range<u32>>,
+    },
+    /// A player's own path the rules go along through one card — see [`recipe::Step::Follow`].
+    Follow {
+        spell: u32,
+        following: steer::Following,
     },
     Answer {
         question: Question,
@@ -247,6 +517,34 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
             return None;
         }
     };
+    let steps = steps_of(written, game)?;
+    log!(
+        "autoplay: orb is playing this run itself, to {} step(s)",
+        steps.len()
+    );
+    Some(Playing {
+        steps,
+        at: 0,
+        frames: 0,
+        hits: hits::TakingHits::default(),
+        bombs: true,
+        asked: false,
+        in_run_seen: false,
+        standing: None,
+        written: Ways::default(),
+        engine: None,
+        chapter_began: None,
+        told: None,
+        card_before: None,
+        dodging: None,
+        following: None,
+        attempt: 0,
+    })
+}
+
+/// **A recipe's steps with their buttons turned into the game's word and their questions resolved**, or `None` —
+/// said in the log — for a step that names something the game or orb has not.
+fn steps_of(written: Vec<recipe::Step>, game: &dyn Game) -> Option<Vec<Step>> {
     let mut steps = Vec::with_capacity(written.len());
     for (index, step) in written.into_iter().enumerate() {
         let at = index + 1;
@@ -307,17 +605,27 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
                 gives_up,
             }),
             recipe::Step::Bombs { allowed } => Step::Bombs(allowed),
+            recipe::Step::StandAtThroughAStretch {
+                x,
+                y,
+                away_from_the_boss,
+                stage,
+                frames,
+            } => Step::StandAtThroughAStretch {
+                standing: steer::Standing {
+                    across: the_place_across(x, away_from_the_boss),
+                    y,
+                },
+                stage,
+                frames,
+            },
             recipe::Step::StandAt {
                 x,
                 y,
                 away_from_the_boss,
                 spell,
             } => {
-                let across = match (x, away_from_the_boss) {
-                    (Some(x), _) => Some(steer::Across::At(x)),
-                    (None, Some(distance)) => Some(steer::Across::AwayFromTheBoss(distance)),
-                    (None, None) => None,
-                };
+                let across = the_place_across(x, away_from_the_boss);
                 Step::StandAt {
                     standing: match (across, y) {
                         (None, None) => None,
@@ -327,6 +635,50 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
                 }
             }
             recipe::Step::Dodge { with, spell } => Step::Dodge { with, spell },
+            recipe::Step::DodgeAStretch {
+                with,
+                stage,
+                frames,
+            } => Step::DodgeAStretch {
+                with,
+                stage,
+                frames,
+            },
+            recipe::Step::DodgeAfterACard { with, after } => Step::DodgeAfterACard { with, after },
+            recipe::Step::DodgeAChapter {
+                with,
+                stage,
+                chapter,
+                frames,
+            } => Step::DodgeAChapter {
+                with,
+                stage,
+                chapter,
+                frames,
+            },
+            recipe::Step::StandAtThroughAChapter {
+                x,
+                y,
+                away_from_the_boss,
+                stage,
+                chapter,
+                frames,
+            } => Step::StandAtThroughAChapter {
+                standing: steer::Standing {
+                    across: the_place_across(x, away_from_the_boss),
+                    y,
+                },
+                stage,
+                chapter,
+                frames,
+            },
+            recipe::Step::Follow { spell, every, path } => Step::Follow {
+                spell,
+                following: steer::Following {
+                    every,
+                    path: path.into(),
+                },
+            },
             recipe::Step::Answer {
                 question,
                 item,
@@ -346,25 +698,16 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
         };
         steps.push(step);
     }
-    log!(
-        "autoplay: orb is playing this run itself, to {} step(s)",
-        steps.len()
-    );
-    Some(Playing {
-        steps,
-        at: 0,
-        frames: 0,
-        hits: hits::TakingHits::default(),
-        bombs: true,
-        asked: false,
-        in_run_seen: false,
-        standing: None,
-        for_cards: Vec::new(),
-        told: None,
-        dodges: Vec::new(),
-        dodging: None,
-        attempt: 0,
-    })
+    Some(steps)
+}
+
+/// The x a place is written with: an x outright, a distance from the boss's, or the rules' own.
+fn the_place_across(x: Option<f32>, away_from_the_boss: Option<f32>) -> Option<steer::Across> {
+    match (x, away_from_the_boss) {
+        (Some(x), _) => Some(steer::Across::At(x)),
+        (None, Some(distance)) => Some(steer::Across::AwayFromTheBoss(distance)),
+        (None, None) => None,
+    }
 }
 
 /// One `until` with its question resolved, or `None` — said in the log — for a name orb does not put up.
@@ -440,13 +783,17 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
 /// **The place the rules are to stand this frame, handed to them where it is not the one they have** — and
 /// said as a card's own place takes over or lapses, which is a thing a recipe wrote once and the log would
 /// otherwise never show happening.
-fn hands_the_rules_their_place(playing: &mut Playing, spell: Option<u32>) {
-    let told = playing.the_place_told(spell);
+fn hands_the_rules_their_place(playing: &mut Playing, reached: &Reached) {
+    let spell = reached.spell;
+    let told = playing.the_place_told(reached);
     if told == playing.told {
         return;
     }
     steer::stand_at(told);
-    let a_cards = spell.filter(|up| playing.for_cards.iter().any(|(card, _)| card == up));
+    let a_cards = spell.filter(|up| {
+        let named = |ways: &Ways| ways.for_cards.iter().any(|(card, _)| card == up);
+        named(&playing.written) || playing.the_engines(reached).is_some_and(named)
+    });
     match (a_cards, told) {
         (Some(card), Some(place)) => log!(
             "autoplay: card {card} is up, and the rules stand {} through it",
@@ -458,30 +805,94 @@ fn hands_the_rules_their_place(playing: &mut Playing, spell: Option<u32>) {
     playing.told = told;
 }
 
+/// **The path the rules are to go along through the card that is up, handed to them where it is not the one they
+/// have** — and said as it is taken up or put down, the way a card's own way is.
+fn hands_the_rules_their_path(playing: &mut Playing, reached: &Reached) {
+    let at = playing.where_the_run_is(reached);
+    let written = playing
+        .written
+        .the_path(&at)
+        .or_else(|| playing.the_engines(reached)?.the_path(&at));
+    let following = written.map(|(card, _)| card);
+    if following == playing.following {
+        return;
+    }
+    let path = written.map(|(_, path)| path.clone());
+    match (following, &path) {
+        (Some(card), Some(path)) => log!(
+            "autoplay: card {card} is up, and the rules go along the player's path through it, {} places {} frames \
+             apart",
+            path.path.len(),
+            path.every
+        ),
+        _ => log!("autoplay: the rules go along no player's path"),
+    }
+    steer::follow(path);
+    playing.following = following;
+}
+
 /// **The way the rules are to dodge the card that is up, handed to them where it is not the one they have** —
 /// and said as it is taken up or put down, the way a card's own place is.
-fn hands_the_rules_their_dodge(playing: &mut Playing, spell: Option<u32>) {
-    let dodging = spell.and_then(|up| {
-        playing
-            .dodges
-            .iter()
-            .find(|(card, _)| *card == up)
-            .map(|(_, with)| *with)
-    });
+fn hands_the_rules_their_dodge(playing: &mut Playing, reached: &Reached) {
+    let spell = reached.spell;
+    if let Some(up) = spell {
+        playing.card_before = Some((reached.stage, up));
+    }
+    let told = the_dodge_told(playing, reached);
+    let dodging = told.as_ref().map(|(with, ..)| *with);
     if dodging == playing.dodging {
         return;
     }
     steer::dodge_with(dodging);
-    match (spell, dodging) {
-        (Some(card), Some(with)) => {
-            log!(
-                "autoplay: card {card} is up, and the rules dodge it {}",
-                with.name()
-            )
-        }
-        _ => log!("autoplay: the rules dodge the way their own rules do"),
+    match told {
+        Some((with, named, whose)) => log!(
+            "autoplay: {}, and the rules dodge it {} as {whose} names",
+            match named {
+                NamedBy::Card(card) => format!("card {card} is up"),
+                NamedBy::AfterTheCard(card) => format!("the fire after card {card} is up"),
+                NamedBy::Chapter(stage, chapter) =>
+                    format!("stage {stage}'s chapter {chapter} is up"),
+                NamedBy::Stretch(stage, frames) => format!(
+                    "stage {stage} is between its frames {} and {}",
+                    frames.start, frames.end
+                ),
+            },
+            with.name(),
+        ),
+        None => log!("autoplay: the rules dodge the way their own rules do"),
     }
     playing.dodging = dodging;
+}
+
+/// **The way named for where the run is**, what named it and whose naming it is: the recipe's where it named one,
+/// and the autoplay engine's for the run's difficulty where it did not.
+fn the_dodge_told(
+    playing: &Playing,
+    reached: &Reached,
+) -> Option<(recipe::Dodge, NamedBy, &'static str)> {
+    let at = playing.where_the_run_is(reached);
+    let written = || {
+        playing
+            .written
+            .the_dodge(&at)
+            .map(|(with, named)| (with, named, "the recipe"))
+    };
+    let engines = || {
+        playing
+            .the_engines(reached)?
+            .the_dodge(&at)
+            .map(|(with, named)| (with, named, "the autoplay engine"))
+    };
+    written().or_else(engines)
+}
+
+/// **The card whose fire a boss between two cards is firing**: the last one up, while a boss is up in the same
+/// stage and no card is.
+fn the_card_whose_fire_is_up(playing: &Playing, reached: &Reached) -> Option<u32> {
+    playing
+        .card_before
+        .filter(|(stage, _)| reached.spell.is_none() && reached.boss && *stage == reached.stage)
+        .map(|(_, card)| card)
 }
 
 /// **The attempt at its chapter the run is on, handed to the rules where it is not the one they have** — and
@@ -500,6 +911,14 @@ fn hands_the_rules_their_attempt(playing: &mut Playing) {
         );
     }
     playing.attempt = attempt;
+}
+
+/// Some of a chapter's frames in the words the log says them in, and nothing for the whole of it.
+fn the_frames_of_it(frames: &Option<Range<u32>>) -> String {
+    match frames {
+        Some(frames) => format!(" from its frame {} to {}", frames.start, frames.end),
+        None => String::new(),
+    }
 }
 
 /// A told place in the words the log says it in.
@@ -521,14 +940,32 @@ fn where_they_stand(place: steer::Standing) -> String {
 
 /// What a bot playing `playing` presses this frame.
 fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) -> Option<u16> {
+    // **The frame the chapter the run is in began on**, the first one it is seen on, which a way written for some of
+    // a chapter's frames counts them from.
+    if playing
+        .chapter_began
+        .map(|(stage, chapter, _)| (stage, chapter))
+        != Some((reached.stage, reached.chapter))
+    {
+        playing.chapter_began = reached
+            .stage_frames
+            .map(|frame| (reached.stage, reached.chapter, frame));
+    }
+    // **And the engine's ways for the run's difficulty**, the first frame a run of it is seen on.
+    if let Some(difficulty) = reached.difficulty
+        && playing.engine.as_ref().map(|(of, _)| *of) != Some(difficulty)
+    {
+        playing.engine = Some((difficulty, ways::for_a_run_of(game.named(), difficulty)));
+    }
     // **A frame of a run being played back is the rules' to see and nothing else's** — see `orb_core`'s
     // `runtime::the_rules_watch`, which asks for it and feeds the run's own word whatever this answers. Not
     // the recipe's: its steps are the pick-up's own, and a step counting these frames would be counting
     // frames of the run that wrote the file. Nor the hits': an attempt counted here is one the run already
     // made, so the rules see its frames as attempt 0's whichever attempt at a chapter the file kept.
     if unsafe { orb_core::resume::landing() }.is_some() {
-        hands_the_rules_their_place(playing, reached.spell);
-        hands_the_rules_their_dodge(playing, reached.spell);
+        hands_the_rules_their_place(playing, &reached);
+        hands_the_rules_their_dodge(playing, &reached);
+        hands_the_rules_their_path(playing, &reached);
         steer::the_card_has_run(reached.card_frames);
         steer::the_stage_has_run(reached.stage_frames);
         return Some(unsafe { steer::word_to_press(game, hits::Hazards::Dodged, playing.bombs) });
@@ -542,9 +979,12 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
     hands_the_rules_their_attempt(playing);
     // **And where to stand, which is the card that is up's to say where a recipe gave it a place** — asked
     // every frame for the same reason, a card beginning and ending in the middle of whatever step is on.
-    hands_the_rules_their_place(playing, reached.spell);
-    // **And how to dodge it, which is the card's to say where a recipe named it a way** — for the same reason.
-    hands_the_rules_their_dodge(playing, reached.spell);
+    hands_the_rules_their_place(playing, &reached);
+    // **And how to dodge it, which is the card's to say where a recipe named it a way** — for the same reason,
+    // or the stretch of the stage's where one named that.
+    hands_the_rules_their_dodge(playing, &reached);
+    // **And the path to go along through it, which is the card's to say where a recipe wrote one.**
+    hands_the_rules_their_path(playing, &reached);
     // **And how far into the card they are**, which a way of dodging one card by its own schedule reads.
     steer::the_card_has_run(reached.card_frames);
     // **And the stage's own frame**, which the shot's let-go is timed by.
@@ -698,12 +1138,8 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // for the frames that card runs, which the hand-over at the top of this function looks after.
         Step::StandAt { standing, spell } => {
             let (standing, spell) = (*standing, *spell);
-            match (spell, standing) {
-                (Some(card), Some(place)) => {
-                    playing.for_cards.retain(|(it, _)| *it != card);
-                    playing.for_cards.push((card, place));
-                }
-                _ => playing.standing = standing,
+            if !playing.written.take(step) {
+                playing.standing = standing;
             }
             log!(
                 "autoplay: step {} of {} {}{}",
@@ -719,7 +1155,32 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
                 },
             );
             // Handed over on this frame and not the next, the step's own line having said what it is.
-            let told = playing.the_place_told(reached.spell);
+            let told = playing.the_place_told(&reached);
+            steer::stand_at(told);
+            playing.told = told;
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
+        // **And a place told for a stretch of a stage**, kept for the frames of it the way a card's is.
+        Step::StandAtThroughAStretch {
+            standing,
+            stage,
+            frames,
+        } => {
+            let (standing, stage, frames) = (*standing, *stage, frames.clone());
+            playing.written.take(step);
+            log!(
+                "autoplay: step {} of {} tells the rules to stand {} from stage {stage}'s frame {} to {}",
+                playing.at + 1,
+                playing.steps.len(),
+                where_they_stand(standing),
+                frames.start,
+                frames.end,
+            );
+            // Handed over on this frame, for the reason a card's place is.
+            let told = playing.the_place_told(&reached);
             steer::stand_at(told);
             playing.told = told;
             (
@@ -731,8 +1192,7 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // which the hand-over at the top of this function looks after the way it does a card's own place.
         Step::Dodge { with, spell } => {
             let (with, spell) = (*with, *spell);
-            playing.dodges.retain(|(card, _)| *card != spell);
-            playing.dodges.push((spell, with));
+            playing.written.take(step);
             log!(
                 "autoplay: step {} of {} has the rules dodge card {spell} {}",
                 playing.at + 1,
@@ -747,6 +1207,128 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
                 .or(playing.dodging);
             steer::dodge_with(dodging);
             playing.dodging = dodging;
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
+        // **And a way named for a stretch of a stage**, kept the same way for the frames of it.
+        Step::DodgeAStretch {
+            with,
+            stage,
+            frames,
+        } => {
+            let (with, stage, frames) = (*with, *stage, frames.clone());
+            playing.written.take(step);
+            log!(
+                "autoplay: step {} of {} has the rules dodge stage {stage} from its frame {} to {} {}",
+                playing.at + 1,
+                playing.steps.len(),
+                frames.start,
+                frames.end,
+                with.name(),
+            );
+            // Handed over on this frame, for the reason the card's is.
+            let dodging = reached
+                .stage_frames
+                .filter(|frame| reached.stage == stage && frames.contains(frame))
+                .map(|_| with)
+                .or(playing.dodging);
+            steer::dodge_with(dodging);
+            playing.dodging = dodging;
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
+        // **And a way named for the fire after a card**, kept the same way for the frames between that card and
+        // the next.
+        Step::DodgeAfterACard { with, after } => {
+            let (with, after) = (*with, *after);
+            playing.written.take(step);
+            log!(
+                "autoplay: step {} of {} has the rules dodge the fire after card {after} {}",
+                playing.at + 1,
+                playing.steps.len(),
+                with.name(),
+            );
+            // Handed over on this frame, for the reason the card's is.
+            let dodging = the_dodge_told(playing, &reached)
+                .map(|(with, ..)| with)
+                .or(playing.dodging);
+            steer::dodge_with(dodging);
+            playing.dodging = dodging;
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
+        // **And a way named for a chapter of a stage**, kept the same way for that chapter's frames.
+        Step::DodgeAChapter {
+            with,
+            stage,
+            chapter,
+            frames,
+        } => {
+            let (with, stage, chapter, frames) = (*with, *stage, *chapter, frames.clone());
+            playing.written.take(step);
+            log!(
+                "autoplay: step {} of {} has the rules dodge stage {stage}'s chapter {chapter}{} {}",
+                playing.at + 1,
+                playing.steps.len(),
+                the_frames_of_it(&frames),
+                with.name(),
+            );
+            // Handed over on this frame, for the reason the card's is.
+            let dodging = the_dodge_told(playing, &reached)
+                .map(|(with, ..)| with)
+                .or(playing.dodging);
+            steer::dodge_with(dodging);
+            playing.dodging = dodging;
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
+        // **And a place told for a chapter of a stage**, kept the same way.
+        Step::StandAtThroughAChapter {
+            standing,
+            stage,
+            chapter,
+            frames,
+        } => {
+            let (standing, stage, chapter, frames) = (*standing, *stage, *chapter, frames.clone());
+            playing.written.take(step);
+            log!(
+                "autoplay: step {} of {} tells the rules to stand {} through stage {stage}'s chapter {chapter}{}",
+                playing.at + 1,
+                playing.steps.len(),
+                where_they_stand(standing),
+                the_frames_of_it(&frames),
+            );
+            // Handed over on this frame, for the reason a card's place is.
+            let told = playing.the_place_told(&reached);
+            steer::stand_at(told);
+            playing.told = told;
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
+        // **And a player's path written for a card**, kept the same way for the frames that card runs.
+        Step::Follow { spell, following } => {
+            let spell = *spell;
+            playing.written.take(step);
+            log!(
+                "autoplay: step {} of {} has the rules go along a player's path through card {spell}",
+                playing.at + 1,
+                playing.steps.len(),
+            );
+            // Handed over on this frame, for the reason a card's way is.
+            if reached.spell == Some(spell) {
+                steer::follow(Some(following.clone()));
+                playing.following = Some(spell);
+            }
             (
                 unsafe { steer::word_to_press(game, hazards, playing.bombs) },
                 true,
@@ -863,7 +1445,13 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
             | Step::TakeHits(..)
             | Step::Bombs(..)
             | Step::StandAt { .. }
-            | Step::Dodge { .. } => false,
+            | Step::StandAtThroughAStretch { .. }
+            | Step::Dodge { .. }
+            | Step::DodgeAStretch { .. }
+            | Step::DodgeAfterACard { .. }
+            | Step::DodgeAChapter { .. }
+            | Step::StandAtThroughAChapter { .. }
+            | Step::Follow { .. } => false,
         };
     if over || gave_up {
         playing.at += 1;
@@ -952,6 +1540,7 @@ mod tests {
             spell: None,
             card_frames: None,
             stage_frames: None,
+            difficulty: None,
         }
     }
 
@@ -969,13 +1558,67 @@ mod tests {
             y: Some(260.0),
         };
         playing.standing = Some(everywhere);
-        playing.for_cards.push((105, through_the_card));
+        playing.written.for_cards.push((105, through_the_card));
+        let up = |spell| Reached {
+            spell,
+            ..reached(None)
+        };
 
-        assert_eq!(playing.the_place_told(None), Some(everywhere));
-        assert_eq!(playing.the_place_told(Some(105)), Some(through_the_card));
-        assert_eq!(playing.the_place_told(Some(94)), Some(everywhere));
+        assert_eq!(playing.the_place_told(&up(None)), Some(everywhere));
+        assert_eq!(
+            playing.the_place_told(&up(Some(105))),
+            Some(through_the_card)
+        );
+        assert_eq!(playing.the_place_told(&up(Some(94))), Some(everywhere));
         playing.standing = None;
-        assert_eq!(playing.the_place_told(Some(94)), None);
+        assert_eq!(playing.the_place_told(&up(Some(94))), None);
+    }
+
+    /// **And a stretch's own place stands while the stage's frame is inside it**, in that stage alone, a card's
+    /// own place standing over it and the place written without either standing otherwise.
+    #[test]
+    fn a_stretchs_place_stands_through_that_stretch_alone() {
+        let mut playing = playing_to("- quit: true\n");
+        let everywhere = steer::Standing {
+            across: Some(steer::Across::At(40.0)),
+            y: None,
+        };
+        let through_the_stretch = steer::Standing {
+            across: Some(steer::Across::AwayFromTheBoss(96.0)),
+            y: Some(300.0),
+        };
+        let through_the_card = steer::Standing {
+            across: Some(steer::Across::At(192.0)),
+            y: Some(260.0),
+        };
+        playing.standing = Some(everywhere);
+        playing
+            .written
+            .for_stretches
+            .push((4, 3600..4660, through_the_stretch));
+        playing.written.for_cards.push((105, through_the_card));
+        let at = |stage, frame, spell| Reached {
+            stage,
+            stage_frames: Some(frame),
+            spell,
+            ..reached(None)
+        };
+
+        assert_eq!(playing.the_place_told(&at(4, 3599, None)), Some(everywhere));
+        assert_eq!(
+            playing.the_place_told(&at(4, 3600, None)),
+            Some(through_the_stretch)
+        );
+        assert_eq!(
+            playing.the_place_told(&at(4, 4659, None)),
+            Some(through_the_stretch)
+        );
+        assert_eq!(playing.the_place_told(&at(4, 4660, None)), Some(everywhere));
+        assert_eq!(playing.the_place_told(&at(3, 4000, None)), Some(everywhere));
+        assert_eq!(
+            playing.the_place_told(&at(4, 4000, Some(105))),
+            Some(through_the_card)
+        );
     }
 
     /// **A step waiting for a card by its number waits through every other card**, and ends the frame that one

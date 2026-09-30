@@ -210,6 +210,10 @@ pub struct Chapters {
     /// `step` — and the only thing that says so on a game whose transition spends no frame
     /// outside the scene a run is played in.
     won: bool,
+    /// **Whether a chapter is only counted**, its boundary found and its number moved on with no snapshot taken of
+    /// it — for a legacy run orb plays, which has nothing to go back into and whose chapters are still what the
+    /// autoplay engine's ways are taken up by. See [`Chapters::counts_only`].
+    counts_only: bool,
 }
 
 /// Which of a stage's two kinds of fight is on.
@@ -561,7 +565,15 @@ impl Chapters {
             starts: Vec::new(),
             fighting: None,
             won: false,
+            counts_only: false,
         }
+    }
+
+    /// **Counts the chapters without keeping them**, or keeps them again: the boundaries found and the numbers moved
+    /// on exactly as a kept chapter's are, and nothing taken at them — so that a legacy run's chapter numbers are the
+    /// ones a Pointdevice run of the same stage has, the autoplay engine's ways being written against those.
+    pub fn counts_only(&mut self, yes: bool) {
+        self.counts_only = yes;
     }
 
     /// Whether the fight this stage ends with has been won, which is this stage being over.
@@ -1374,6 +1386,11 @@ impl Chapters {
         // snapshot of it names was released when this stage loaded. The buffers stay to be written
         // over, this one first.
         self.snapshots.keeping(0);
+        // **Nothing said of a chapter only counted**: its number is in every record of the trace, which is where a
+        // launch is read back from — see `trace::Record::chapter`.
+        if self.counts_only {
+            return;
+        }
 
         let snapshot = unsafe {
             take(
@@ -1429,6 +1446,10 @@ impl Chapters {
             .binary_search_by_key(&state.stage_frames, |(frame, _)| *frame)
         {
             self.starts.insert(at, (state.stage_frames, cause));
+        }
+        // Nothing said, for the reason `begin_stage` gives.
+        if self.counts_only {
+            return;
         }
         let audio = self.audio_for(game, state);
         let keeps_music = matches!(audio.policy, Music::KeepPlaying);

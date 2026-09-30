@@ -111,6 +111,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             kind: Kind::Bullet {
                 hitting: state != bullet_manager::BULLET_SPENT,
                 state,
+                next_change: None,
             },
             slot,
             frames: None,

@@ -22,6 +22,15 @@ pub fn foreground() -> Hwnd {
     host::foreground()
 }
 
+/// **Brings a window to the front and gives it the keyboard** — `SetForegroundWindow` — and whether the host did.
+pub fn bring_forward(window: Hwnd) -> bool {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.bring_forward(window);
+    }
+    host::bring_forward(window)
+}
+
 /// Says this process reads sizes as the monitor's real pixels, and whether the host took it.
 pub fn set_process_dpi_aware() -> bool {
     #[cfg(feature = "sim")]
@@ -96,15 +105,16 @@ pub fn ex_style(window: Hwnd) -> u32 {
     host::ex_style(window)
 }
 
-/// **Shows a window that was made hidden**, which is how a launch orb lays out keeps its window off the
-/// screen until the corner is settled — see `orb_core::window::create_window_ex_w`, which strips
-/// `WS_VISIBLE`, and `keeps_its_corner`, which shows it. False where the host refused.
-pub fn show(window: Hwnd) -> bool {
+/// **Shows a window that was made hidden, and does not activate it** — `ShowWindow` with `SW_SHOWNA` — which
+/// is how a launch orb lays out keeps its window off the screen until the corner is settled: see
+/// `orb_core::window::create_window_ex_w`, which strips `WS_VISIBLE`, and `keeps_its_corner`, which shows it.
+/// False where the host refused.
+pub fn show_without_activating(window: Hwnd) -> bool {
     #[cfg(feature = "sim")]
     if let Some(win) = crate::installed() {
-        return win.show(window);
+        return win.show_without_activating(window);
     }
-    host::show(window)
+    host::show_without_activating(window)
 }
 
 /// **Whether a window is on the screen** — `IsWindowVisible`, which is the style bit and not whether
@@ -191,6 +201,9 @@ mod host {
     pub fn foreground() -> Hwnd {
         no_windows("window::foreground")
     }
+    pub fn bring_forward(_window: Hwnd) -> bool {
+        no_windows("window::bring_forward")
+    }
     pub fn set_process_dpi_aware() -> bool {
         no_windows("window::set_process_dpi_aware")
     }
@@ -212,8 +225,8 @@ mod host {
     pub fn add_ex_style(_window: Hwnd, _ex_style: u32) -> bool {
         no_windows("window::add_ex_style")
     }
-    pub fn show(_window: Hwnd) -> bool {
-        no_windows("window::show")
+    pub fn show_without_activating(_window: Hwnd) -> bool {
+        no_windows("window::show_without_activating")
     }
     pub fn is_visible(_window: Hwnd) -> bool {
         no_windows("window::is_visible")

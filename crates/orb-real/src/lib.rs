@@ -22,7 +22,8 @@
 //! `the_cases_of_th08_the_real_game_is_tested_with`, one test a chain: its first two took 35 seconds of the
 //! laid-out game where the real one took eight minutes, and the second of them was written wrong once — a
 //! check looking for a line orb writes on a hit rather than per frame, which the real game took seven
-//! minutes to refuse.
+//! minutes to refuse. th10's are in `the_cases_of_th10_the_real_game_is_tested_with`, one test a chain the
+//! same way.
 //!
 //! **One case can carry on from the one before it.** A pick-up needs a run left unfinished, and the launch
 //! that leaves one is a case of its own; [`Case::continues`] says the two share the directory orb keeps its
@@ -60,6 +61,9 @@ pub enum Game {
     /// case the rewinding games have under this game's own recipes, with the clears and the Extra its own
     /// chain wants — see [`cases_of`].
     Th08,
+    /// **And 東方風神録, Mountain of Faith**, which `orb_core::game::th10` rewinds, its first stage holding no row
+    /// of its midstage table: its cases are th08's, under this game's own recipes — see [`cases_of`].
+    Th10,
 }
 
 impl Game {
@@ -71,6 +75,7 @@ impl Game {
             Game::Th06c => "th06c",
             Game::Th06nc => "th06nc",
             Game::Th08 => "th08",
+            Game::Th10 => "th10",
         }
     }
 
@@ -84,6 +89,7 @@ impl Game {
             Game::Th06c => "th06c.exe",
             Game::Th06nc => "th06nc.exe",
             Game::Th08 => "th08.exe",
+            Game::Th10 => "th10.exe",
         }
     }
 
@@ -96,17 +102,22 @@ impl Game {
     /// whatever the case before it left. The same names as `orb_core::game::KNOWN` and `orb_core::score`
     /// carry, here for the reason [`Game::exe`] is: the session that moves them has no game in memory to
     /// ask.
-    pub fn records(self) -> [&'static str; 3] {
-        [
-            "score.dat",
-            match self {
-                Game::Th06 => "東方紅魔郷.cfg",
-                Game::Th07 => "th07.cfg",
-                Game::Th06c | Game::Th06nc => "th06.cfg",
-                Game::Th08 => "th08.cfg",
-            },
-            "pointdevice_score.dat",
-        ]
+    ///
+    /// **th10 names its score file after itself**, `scoreth10.dat` where every game before it has
+    /// `score.dat` — `Th10::score_files` — so the fork is `pointdevice_scoreth10.dat`.
+    ///
+    /// **And th10's configuration is left in the copy**, `th10.cfg` not being one of these: without it the game
+    /// stops at start-up on a dialog of its own asking whether to run in a window, which nothing answers — the
+    /// first case played without it stood at that dialog with its trace holding no frame. Whether its 52 bytes
+    /// hold anything a case's start turns on — a cursor the title or a select comes up on — is not established.
+    pub fn records(self) -> &'static [&'static str] {
+        match self {
+            Game::Th06 => &["score.dat", "東方紅魔郷.cfg", "pointdevice_score.dat"],
+            Game::Th07 => &["score.dat", "th07.cfg", "pointdevice_score.dat"],
+            Game::Th06c | Game::Th06nc => &["score.dat", "th06.cfg", "pointdevice_score.dat"],
+            Game::Th08 => &["score.dat", "th08.cfg", "pointdevice_score.dat"],
+            Game::Th10 => &["scoreth10.dat", "pointdevice_scoreth10.dat"],
+        }
     }
 
     /// **The target orb has to be built for to attach to this game**, which is the architecture the game's
@@ -121,17 +132,18 @@ impl Game {
     /// [`Game::exe`] is: this crate is the one place which games there are is written down.
     pub fn target(self) -> &'static str {
         match self {
-            Game::Th06 | Game::Th07 | Game::Th08 => "i686-pc-windows-gnu",
+            Game::Th06 | Game::Th07 | Game::Th08 | Game::Th10 => "i686-pc-windows-gnu",
             Game::Th06c | Game::Th06nc => "x86_64-pc-windows-gnu",
         }
     }
 
-    pub const ALL: [Game; 5] = [
+    pub const ALL: [Game; 6] = [
         Game::Th06,
         Game::Th07,
         Game::Th06c,
         Game::Th06nc,
         Game::Th08,
+        Game::Th10,
     ];
 }
 
@@ -279,6 +291,7 @@ pub fn cases_of(game: Game) -> Vec<Case> {
         }
         Game::Th06nc => the_cases_of_th06nc(),
         Game::Th08 => the_cases_of_th08(),
+        Game::Th10 => the_cases_of_th10(),
     }
 }
 
@@ -355,7 +368,7 @@ fn the_cases_of_th08() -> Vec<Case> {
             recipe: include_str!("../recipes/th08/the_run_started_over_and_its_replay_kept.yaml"),
             continues: true,
             within: WITHIN,
-            check: checks::the_run_of_th08_started_over_and_its_replay_kept,
+            check: checks::the_run_started_over_and_its_replay_kept_without_asking,
         },
         // **And the attempt of that replay the death rewound the run from, watched**, off orb's own list
         // behind the title's fifth item: the second chapter's first of two, which nothing but orb's replay
@@ -546,6 +559,271 @@ fn the_cases_of_th08() -> Vec<Case> {
             continues: false,
             within: WITHIN,
             check: checks::a_stage_practised_on_its_own,
+        },
+    ]
+}
+
+/// **The cases th10 has**, one per recipe in `recipes/th10/` — `ls crates/orb-real/recipes/th10 | wc -l`
+/// counts them — which are th08's first two, about the seam, then the mode's over this game's first and
+/// second stages, the whole game played to its clear in the mode, and the Extra behind a clear of the game's
+/// own mode last.
+///
+/// **The chapters they are over are the first stage's start and its fight's**: a stage is cut where it begins,
+/// at the rows of its midstage table (`orb_core::game::th10::chapters`) and at each attack of a fight as it is
+/// fought. Stage 1's chapter 2 is the midboss's first attack and chapter 3 the attack after it, which launches
+/// of the real game read at frames 2521 and 3247 of the stage (scripts 2201 and 2927), 2026-10-01.
+///
+/// **Five chains and the rest start from records taken aside** — see [`Case::continues`]: the stage practised
+/// after the run of the game's own mode that cleared it; the run that died and was retried, started over with
+/// its replay kept and the attempt it was rewound from watched, one directory throughout; the run left in its
+/// second chapter picked up; the run left in stage 2's fight picked up there; and the whole Normal run of the
+/// game's own mode, followed by the Extra it lights, cleared and then cleared with no hit and no bomb, and a
+/// chapter of that Extra taken again.
+fn the_cases_of_th10() -> Vec<Case> {
+    vec![
+        Case {
+            game: Game::Th10,
+            name: "a_run_started_and_given_up",
+            recipe: include_str!("../recipes/th10/a_run_started_and_given_up.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_run_of_th10_started_and_given_up,
+        },
+        Case {
+            game: Game::Th10,
+            name: "a_normal_mode_run_played_without_a_bomb",
+            recipe: include_str!("../recipes/th10/a_normal_mode_run_played_without_a_bomb.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_normal_mode_run_of_th10_played_without_a_bomb,
+        },
+        // **And one stage practised on its own**, the main menu's item 2 — **continuing the case before it**,
+        // because th10 offers a stage to practise only once a run of that shot type and difficulty has cleared
+        // it: the stage's end marks it (0x416c08) and the practice select draws nothing it has not marked
+        // (0x4314be). From the score files taken aside the stage screen stood with nothing to choose, `decide`
+        // doing nothing for the 900 frames its step waits (2026-10-02, `no run was started after the mode
+        // question`), and so it did after a run in the mode quit in stage 1 — the mode's question taking the
+        // offers out of the game's own file, which only a run of the game's own mode writes. The case before
+        // plays Reimu A's Normal in that mode through two stages.
+        Case {
+            game: Game::Th10,
+            name: "a_stage_practised_on_its_own",
+            recipe: include_str!("../recipes/th10/a_stage_practised_on_its_own.yaml"),
+            continues: true,
+            within: WITHIN,
+            check: checks::a_stage_practised_on_its_own,
+        },
+        // **And the mode's own case**, which a launch of this walk by hand played, 2026-10-01: hit in
+        // chapter 1 at script 561, `restore: skipping 27 range(s), 90744 bytes`, six regions put back, and
+        // the run playing on into chapter 2 at frame 2521.
+        Case {
+            game: Game::Th10,
+            name: "a_death_answered_by_the_chapter_again",
+            recipe: include_str!("../recipes/th10/a_death_answered_by_the_chapter_again.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_of_th10_answered_by_the_chapter_again,
+        },
+        // **And the run that case left, started over from its own beginning with its replay kept**, and the
+        // attempt of that replay the death rewound the run from watched, off orb's own list behind the main
+        // menu's item 3 — the first chapter's first of two, which nothing but orb's replay keeps. Both are
+        // played over a laid-out th10 by `orb-e2e`'s `watching_a_pointdevice_replay_of_th10`, from these
+        // recipes.
+        Case {
+            game: Game::Th10,
+            name: "the_run_started_over_and_its_replay_kept",
+            recipe: include_str!("../recipes/th10/the_run_started_over_and_its_replay_kept.yaml"),
+            continues: true,
+            within: WITHIN,
+            check: checks::the_run_started_over_and_its_replay_kept_without_asking,
+        },
+        Case {
+            game: Game::Th10,
+            name: "an_attempt_of_the_kept_replay_watched",
+            recipe: include_str!("../recipes/th10/an_attempt_of_the_kept_replay_watched.yaml"),
+            continues: true,
+            within: WITHIN,
+            check: checks::an_attempt_a_retry_rewound_away_watched,
+        },
+        // **And the same chapter asked for without dying for it**, the game's own pause menu item orb takes
+        // off. The check is the one the rewinding games use: what it reads is the log's own lines and the
+        // run's deaths either side of the ask, and neither is a game's own.
+        Case {
+            game: Game::Th10,
+            name: "a_chapter_taken_again_without_a_death",
+            recipe: include_str!("../recipes/th10/a_chapter_taken_again_without_a_death.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_chapter_taken_again_without_a_death,
+        },
+        // **And a run left in a chapter for a resume to be offered out of, and that run picked up**, which a
+        // launch of the real game measured before these cases were written: a run left in stage 1's third
+        // chapter, picked up, read `the landing is the frame that was written down, field for field`.
+        Case {
+            game: Game::Th10,
+            name: "a_run_left_in_its_second_chapter",
+            recipe: include_str!("../recipes/th10/a_run_left_in_its_second_chapter.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_run_left_in_its_second_chapter,
+        },
+        Case {
+            game: Game::Th10,
+            name: "the_run_picked_up_where_it_was_left",
+            recipe: include_str!("../recipes/th10/the_run_picked_up_where_it_was_left.yaml"),
+            continues: true,
+            within: WITHIN,
+            check: checks::the_run_picked_up_where_it_was_left,
+        },
+        // **And a chapter of the stage after the first, taken again and played past** — which is what says
+        // the chapters are the stage's own: a snapshot taken in stage 2 puts the run back into stage 2 — and
+        // the run left there picked up in that stage, the build a resume answers for pointed at the stage the
+        // file names, which for this game is a stage after one won built with the numbers carried (0x4179e9).
+        Case {
+            game: Game::Th10,
+            name: "a_chapter_of_the_stage_after_the_first",
+            recipe: include_str!("../recipes/th10/a_chapter_of_the_stage_after_the_first.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_chapter_of_the_stage_after_the_first,
+        },
+        Case {
+            game: Game::Th10,
+            name: "the_run_picked_up_in_the_stage_it_walked_into",
+            recipe: include_str!(
+                "../recipes/th10/the_run_picked_up_in_the_stage_it_walked_into.yaml"
+            ),
+            continues: true,
+            within: WITHIN,
+            check: checks::the_run_picked_up_in_the_stage_it_walked_into,
+        },
+        // **And a run of the other mode, which orb keeps nothing of** — the check the rewinding games use,
+        // the lines it reads being orb's own.
+        Case {
+            game: Game::Th10,
+            name: "a_normal_mode_run_nothing_is_kept_of",
+            recipe: include_str!("../recipes/th10/a_normal_mode_run_nothing_is_kept_of.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_normal_mode_run_nothing_is_kept_of,
+        },
+        // **And the other three ways the question offers**, whose items are `retry_ui::RetryMenu::new`'s own
+        // order — see `the_cases_of_th08`, whose recipes ask at the same depths.
+        Case {
+            game: Game::Th10,
+            name: "the_stage_taken_again_from_its_start",
+            recipe: include_str!("../recipes/th10/the_stage_taken_again_from_its_start.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::the_stage_taken_again_from_its_start,
+        },
+        Case {
+            game: Game::Th10,
+            name: "the_run_given_up_at_the_retry",
+            recipe: include_str!("../recipes/th10/the_run_given_up_at_the_retry.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::the_run_given_up_at_the_retry,
+        },
+        Case {
+            game: Game::Th10,
+            name: "a_chapter_further_back_taken_again",
+            recipe: include_str!("../recipes/th10/a_chapter_further_back_taken_again.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_chapter_further_back_taken_again,
+        },
+        // **And the same list over a death**, and a death in the nonspell after a card — the cases the
+        // rewinding games have of these names, with their checks.
+        Case {
+            game: Game::Th10,
+            name: "a_death_answered_by_a_chapter_further_back",
+            recipe: include_str!("../recipes/th10/a_death_answered_by_a_chapter_further_back.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_answered_by_a_chapter_further_back,
+        },
+        Case {
+            game: Game::Th10,
+            name: "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
+            recipe: include_str!(
+                "../recipes/th10/a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell.yaml"
+            ),
+            continues: false,
+            within: WITHIN,
+            check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
+        },
+        // **And the whole game played to its clear in the mode orb exists for**, with no bomb pressed — last,
+        // because it is the case that costs the real game the most.
+        Case {
+            game: Game::Th10,
+            name: "a_run_played_to_its_clear_without_a_bomb",
+            recipe: include_str!("../recipes/th10/a_run_played_to_its_clear_without_a_bomb.yaml"),
+            continues: false,
+            within: A_WHOLE_GAME,
+            check: checks::a_run_of_th10_played_to_its_clear_without_a_bomb,
+        },
+        // **And the Extra, played to its clear behind the run of the game's own mode that lights it** — one
+        // chain, in one directory: the main menu takes its Extra off the score object's clears (0x42c850 at
+        // 0x42d442), and only a run of the game's own mode writes the game's own file. Then a chapter of the
+        // Extra taken again, continuing it, in the directory whose records hold the unlock.
+        Case {
+            game: Game::Th10,
+            name: "a_normal_mode_run_played_to_its_clear",
+            recipe: include_str!("../recipes/th10/a_normal_mode_run_played_to_its_clear.yaml"),
+            continues: false,
+            within: A_WHOLE_GAME,
+            check: checks::a_normal_mode_run_of_th10_played_to_its_clear,
+        },
+        Case {
+            game: Game::Th10,
+            name: "the_extra_played_to_its_clear",
+            recipe: include_str!("../recipes/th10/the_extra_played_to_its_clear.yaml"),
+            continues: true,
+            within: A_WHOLE_GAME,
+            check: checks::the_extra_of_th10_played_to_its_clear,
+        },
+        // **The Extra cleared with no hit and no bomb**, as th06c's and th06nc's is, in the directory the unlock is
+        // in — and ahead of the chapter taken again, which leaves its run in the Extra's fourth chapter: behind it,
+        // the Extra's item puts up orb's question of picking that run up, and no step here answers it.
+        Case {
+            game: Game::Th10,
+            name: "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
+            recipe: include_str!(
+                "../recipes/th10/the_extra_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
+            ),
+            continues: true,
+            within: A_WHOLE_GAME,
+            check: checks::the_extra_of_th10_played_to_its_clear_with_no_hit_and_no_bomb,
+        },
+        Case {
+            game: Game::Th10,
+            name: "a_chapter_of_the_extra_taken_again",
+            recipe: include_str!("../recipes/th10/a_chapter_of_the_extra_taken_again.yaml"),
+            continues: true,
+            within: WITHIN,
+            check: checks::the_extra_a_cleared_run_unlocked,
+        },
+        // **An attempt at a card counted and kept**, th07's and th06nc's case over this game's score object.
+        Case {
+            game: Game::Th10,
+            name: "an_attempt_at_a_card_counted_and_kept",
+            recipe: include_str!("../recipes/th10/an_attempt_at_a_card_counted_and_kept.yaml"),
+            continues: false,
+            within: WITHIN,
+            check: checks::an_attempt_at_a_card_of_th10_counted_and_kept,
+        },
+        // **And the Normal run cleared with no hit and no bomb**, as th06c's and th06nc's is, which needs nothing
+        // of the chain above.
+        Case {
+            game: Game::Th10,
+            name: "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
+            recipe: include_str!(
+                "../recipes/th10/a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
+            ),
+            continues: false,
+            within: A_WHOLE_GAME,
+            check: checks::a_normal_run_of_th10_played_to_its_clear_with_no_hit_and_no_bomb,
         },
     ]
 }
@@ -874,6 +1152,7 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
                 // the branch the other two are not.
                 Game::Th06nc => unreachable!("th06nc has its own cases"),
                 Game::Th08 => unreachable!("th08 has its own cases"),
+                Game::Th10 => unreachable!("th10 has its own cases"),
             }
         };
     }
@@ -1231,6 +1510,12 @@ pub mod checks {
     /// run pressing the shot and no direction, and the word is where that shows.
     const TH08_DIRECTIONS: u16 = 0x0010 | 0x0020 | 0x0040 | 0x0080;
 
+    /// **th10's bomb and its four directions in the word a run is played with** — `orb_core::game::th10`'s
+    /// `BUTTON_BOMB` and `PAD_UP` with its three neighbours, the same bits as th08's, written out for the
+    /// reason [`TH08_BOMB`] is.
+    const TH10_BOMB: u16 = 0x0002;
+    const TH10_DIRECTIONS: u16 = 0x0010 | 0x0020 | 0x0040 | 0x0080;
+
     /// **th08's run started by a recipe and handed back to the game's own title.**
     ///
     /// **Which is the case that says orb can take a run of this game down**, and the first attempt at
@@ -1239,11 +1524,24 @@ pub mod checks {
     /// and the scene the run itself wants — is `orb_core::game::th08`'s `leave_run`, and this is the
     /// launch that holds it.
     ///
-    /// **Three things in order**: a run in progress, the log's own line for the give-up, and the front
-    /// end reading a screen after it. The last of those is read off a line and not a field because
-    /// nothing in `State` carries a front end's screen — `Game::front_end_screen` is what the log prints
-    /// — and the first off `State::in_run`, which for this game is the scene being a run's.
+    /// See [`started_and_given_up`] for what it is held to.
     pub fn a_run_of_th08_started_and_given_up(trace: &Trace) -> Result<(), String> {
+        started_and_given_up(trace)
+    }
+
+    /// **th10's run started by a recipe and handed back to the game's own title**, which is the case that
+    /// says `orb_core::game::th10`'s `leave_run` takes a run of this game down: the scene wanted put at the
+    /// title, the write the pause menu's own item for the title makes, answered by the supervisor taking the
+    /// game down and building the title. See [`started_and_given_up`] for what it is held to.
+    pub fn a_run_of_th10_started_and_given_up(trace: &Trace) -> Result<(), String> {
+        started_and_given_up(trace)
+    }
+
+    /// **Three things in order**: a run in progress, the log's own line for the give-up, and the front end
+    /// reading a screen after it. The last of those is read off a line and not a field because nothing in
+    /// `State` carries a front end's screen — `Game::front_end_screen` is what the log prints — and the first
+    /// off `State::in_run`, which for either game is the scene being a run's.
+    fn started_and_given_up(trace: &Trace) -> Result<(), String> {
         let started = trace.in_run_from(0).ok_or("no run was ever started")?;
         let given_up = trace
             .line_from(started, "retry: the run is given up")
@@ -1269,6 +1567,19 @@ pub mod checks {
     /// **And not the stage reached**, which is the one thing about this game's bot that is not settled —
     /// see [`super::the_cases_of_th08`].
     pub fn a_normal_mode_run_of_th08_played_without_a_bomb(trace: &Trace) -> Result<(), String> {
+        played_without_a_bomb(trace, TH08_BOMB, TH08_DIRECTIONS)
+    }
+
+    /// **th10's Normal run played by the rules with the bomb forbidden**, held to the four things th08's
+    /// is — see [`a_normal_mode_run_of_th08_played_without_a_bomb`] — and not to the stage reached either,
+    /// for th08's reason: how far the rules get is the bot's to vary, where this case is about the seam.
+    pub fn a_normal_mode_run_of_th10_played_without_a_bomb(trace: &Trace) -> Result<(), String> {
+        played_without_a_bomb(trace, TH10_BOMB, TH10_DIRECTIONS)
+    }
+
+    /// The run entered on Normal, the stage's own clock advancing under it, a direction in `directions`
+    /// pressed inside it and never `bomb`.
+    fn played_without_a_bomb(trace: &Trace, bomb: u16, directions: u16) -> Result<(), String> {
         let started = trace.in_run_from(0).ok_or("no run was ever started")?;
         let normal = trace.records[started]
             .state
@@ -1278,35 +1589,35 @@ pub mod checks {
             format!("the run was started on difficulty {normal} and not on Normal")
         })?;
         // **The clock and not the frames orb counted**, which is what says the stage is running rather
-        // than the launch: `script_frames` of this game is the stage's own count, stepped once a frame
-        // with a conversation the only thing that stops it.
+        // than the launch: `script_frames` is the stage script's own count, which a conversation stops —
+        // and th10's, orb's clock of the stage's scripts, a boss up as well.
         let played = trace.records[started..]
             .iter()
             .filter_map(|record| record.state)
             .map(|state| state.script_frames)
             .max()
             .unwrap_or(0);
-        expect(played >= A_STAGE_OF_TH08_IS_UNDER_WAY, || {
+        expect(played >= A_STAGE_IS_UNDER_WAY, || {
             format!("the stage's own clock reached {played} frame(s)")
         })?;
         // **And a direction pressed inside the run**, which is the whole of what says the rules reached
-        // this game: a launch whose `what_a_bot_sees` answered nothing would play a run holding the shot
-        // and standing still at the (192, 384) a stage puts the player at. Read off the word for the
-        // reason the bomb below is — it is the word the rules pressed, and nothing else the trace carries
-        // says where the player went.
+        // the game: a launch whose `what_a_bot_sees` answered nothing would play a run holding the shot
+        // and standing still where a stage puts the player. Read off the word for the reason the bomb below
+        // is — it is the word the rules pressed, and nothing else the trace carries says where the player
+        // went.
         let steered = trace.records[started..].iter().any(|record| {
-            record.state.is_some_and(|state| state.in_run) && record.word & TH08_DIRECTIONS != 0
+            record.state.is_some_and(|state| state.in_run) && record.word & directions != 0
         });
         expect(steered, || {
             "the rules pressed no direction inside the run".to_owned()
         })?;
-        th08_pressed_no_bomb(trace, started)
+        pressed_no_bomb(trace, started, bomb)
     }
 
-    /// **No bomb pressed inside a run of th08 from `started` on**, read off the word the rules pressed.
-    fn th08_pressed_no_bomb(trace: &Trace, started: usize) -> Result<(), String> {
+    /// **No `bomb` pressed inside a run from `started` on**, read off the word the rules pressed.
+    fn pressed_no_bomb(trace: &Trace, started: usize, bomb: u16) -> Result<(), String> {
         let bombed = trace.records[started..].iter().find(|record| {
-            record.state.is_some_and(|state| state.in_run) && record.word & TH08_BOMB != 0
+            record.state.is_some_and(|state| state.in_run) && record.word & bomb != 0
         });
         expect(bombed.is_none(), || {
             format!(
@@ -1333,6 +1644,25 @@ pub mod checks {
     /// typed into its entry and orb's replay of the run kept in place of the game's own offer — what every
     /// other rewinding game's clear is held to, and what nothing of this game's asked before.
     pub fn a_run_of_th08_played_to_its_clear_without_a_bomb(trace: &Trace) -> Result<(), String> {
+        let (started, ending) = played_to_its_clear_without_a_bomb(trace, TH08_BOMB)?;
+        th08_took_a_last_spell(trace, started, ending).map(|_| ())
+    }
+
+    /// **th10's Normal run in Pointdevice mode, played to its ending with no bomb pressed** — th08's case of
+    /// this name less its Last Spell, this game having none: the ending, which is this game's scene 14 or
+    /// orb's own line for running it out, and the screen after it.
+    pub fn a_run_of_th10_played_to_its_clear_without_a_bomb(trace: &Trace) -> Result<(), String> {
+        played_to_its_clear_without_a_bomb(trace, TH10_BOMB).map(|_| ())
+    }
+
+    /// **A Normal run played to its ending with `bomb` never pressed, and the screen it ends at walked**, as
+    /// [`a_run_played_to_its_clear`] holds the rewinding games' clears to it: the name the ranking was
+    /// registered under, and the replay of the run kept. Answers where the run started and where its ending
+    /// is.
+    fn played_to_its_clear_without_a_bomb(
+        trace: &Trace,
+        bomb: u16,
+    ) -> Result<(usize, usize), String> {
         let started = trace.in_run_from(0).ok_or("no run was ever started")?;
         let normal = trace.records[started]
             .state
@@ -1341,13 +1671,10 @@ pub mod checks {
         expect(normal == 1, || {
             format!("the run was started on difficulty {normal} and not on Normal")
         })?;
-        th08_pressed_no_bomb(trace, started)?;
+        pressed_no_bomb(trace, started, bomb)?;
         let ending = trace
             .ending_from(started)
             .ok_or("the run never reached its ending")?;
-        th08_took_a_last_spell(trace, started, ending)?;
-        // **And the screen the run ends at**, as [`a_run_played_to_its_clear`] holds the rewinding games'
-        // clears to it: the name the ranking was registered under, and the replay of the run kept.
         trace
             .line_from(ending, "types ORB into the name the game asks for")
             .ok_or("the ranking was not registered under the name the recipe typed")?;
@@ -1356,10 +1683,8 @@ pub mod checks {
             .ok_or("the replay of the run that was finished with was never asked about")?;
         trace
             .line_from(offered, "replay: kept")
-            .map(|_| ())
-            .ok_or_else(|| {
-                "the question about that replay was not answered with keeping it".to_owned()
-            })
+            .ok_or("the question about that replay was not answered with keeping it")?;
+        Ok((started, ending))
     }
 
     /// **th06c's bomb in the word a run is played with** — `orb_core`'s `th06c::button::BOMB`, written out for
@@ -1631,14 +1956,180 @@ pub mod checks {
     /// The stage word th08's Extra is played in, which its team select writes as the difficulty and four.
     const TH08_THE_EXTRAS_STAGE: i32 = 8;
 
+    /// **th10's Normal run in the game's own mode, played to its clear with the screen after its ending walked
+    /// to the main menu** — the run the Extra is lit by: the mode question answered for the normal mode, the run
+    /// on Normal, the ending, the name the ranking is registered under typed into the clear's own entry, and
+    /// the main menu up again, which is where the run's records have been written.
+    pub fn a_normal_mode_run_of_th10_played_to_its_clear(trace: &Trace) -> Result<(), String> {
+        let asked = trace
+            .question_from(0, "mode")
+            .ok_or("the mode question never stood")?;
+        let answered = trace
+            .line_from(asked, "mode: normal")
+            .ok_or("the mode question was not answered for the normal mode")?;
+        let started = trace
+            .in_run_from(answered)
+            .ok_or("no run was started after the mode question")?;
+        let difficulty = trace.records[started]
+            .state
+            .ok_or("the run stood over no state")?
+            .difficulty;
+        expect(difficulty == 1, || {
+            format!("the run was started on difficulty {difficulty} and not on Normal")
+        })?;
+        let ending = trace
+            .ending_from(started)
+            .ok_or("nothing says an ending ran, so the run was not cleared")?;
+        let named = trace
+            .line_from(ending, "types ORB into the name the game asks for")
+            .ok_or("the ranking was not registered under the name the recipe typed")?;
+        trace
+            .line_from(named, "front end: screen 2")
+            .map(|_| ())
+            .ok_or_else(|| {
+                "the screen after the ending was never walked to the main menu".to_owned()
+            })
+    }
+
+    /// **th10's Extra, played to its clear in Pointdevice mode** — th08's case of this name over this game's
+    /// Extra, which its shot select writes as stage 7, the stage word 6 the state reads: the run at the Extra's
+    /// own difficulty, ended on its own and not given up, and the screen after it walked with the game's own menu
+    /// taken off and orb's question about the replay answered with keeping it.
+    pub fn the_extra_of_th10_played_to_its_clear(trace: &Trace) -> Result<(), String> {
+        let asked = trace
+            .question_from(0, "mode")
+            .ok_or("the mode question never stood over the item that starts the Extra")?;
+        let started = trace
+            .in_run_from(asked)
+            .ok_or("no run was started after the mode question, so the item offered none")?;
+        let state = trace.records[started]
+            .state
+            .expect("in_run_from answers a record with a state");
+        expect(
+            (state.difficulty, state.stage) == (EXTRA, TH10_THE_EXTRAS_STAGE),
+            || {
+                format!(
+                    "the run that started is at difficulty {} and stage word {}, where the Extra is \
+                     {EXTRA} and {TH10_THE_EXTRAS_STAGE}",
+                    state.difficulty, state.stage
+                )
+            },
+        )?;
+        expect(
+            trace
+                .line_from(started, "retry: the run is given up")
+                .is_none(),
+            || "the Extra was given up rather than played out".to_owned(),
+        )?;
+        let ended = trace
+            .line_from(started, "run ended after")
+            .ok_or("the Extra never ended, so it was not cleared")?;
+        let taken_off = trace
+            .line_from(
+                ended,
+                "replay: the offer to save one was taken off the screen a run ended on",
+            )
+            .ok_or("the game's own menu was left on the screen the Extra ended at")?;
+        trace
+            .line_from(taken_off, "replay: kept")
+            .map(|_| ())
+            .ok_or_else(|| "the replay of the Extra was not kept".to_owned())
+    }
+
+    /// **th10's Extra played to its clear with no hit and no bomb, in Pointdevice mode** — the clear
+    /// [`the_extra_of_th10_played_to_its_clear`] holds a launch to, from the run's start to its end taking no hit
+    /// and pressing no bomb: th06c's and th06nc's case of this name over this game.
+    pub fn the_extra_of_th10_played_to_its_clear_with_no_hit_and_no_bomb(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        the_extra_of_th10_played_to_its_clear(trace)?;
+        let asked = trace
+            .question_from(0, "mode")
+            .ok_or("the mode question never stood over the item that starts the Extra")?;
+        let started = trace
+            .in_run_from(asked)
+            .ok_or("no run was started after the mode question")?;
+        let ended = trace
+            .line_from(started, "run ended after")
+            .ok_or("the Extra never ended, so it was not cleared")?;
+        took_no_hit_and_no_bomb(trace, started, ended, TH10_BOMB)
+    }
+
+    /// **th10's Normal run played to its ending with no hit and no bomb, in Pointdevice mode** — the goal its
+    /// ways were written for, `normalの1〜6面とextraを無被弾ボムなしでクリアする`: th06c's and th06nc's case of
+    /// this name over this game.
+    pub fn a_normal_run_of_th10_played_to_its_clear_with_no_hit_and_no_bomb(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        let normal = trace.records[started]
+            .state
+            .ok_or("the run stood over no state")?
+            .difficulty;
+        expect(normal == 1, || {
+            format!("the run was started on difficulty {normal} and not on Normal")
+        })?;
+        let ending = trace
+            .ending_from(started)
+            .ok_or("the run never reached its ending")?;
+        took_no_hit_and_no_bomb(trace, started, ending, TH10_BOMB)
+    }
+
+    /// **th10's attempt at a card counted and kept**, th07's two runs over this game's own score object: an
+    /// attempt counted where the first run's chapter is taken again inside a card, and the second run's retry
+    /// inside the same card counting at least two more — the card's own start and the retry — which is what
+    /// says nothing between the runs laid the score file back over the count.
+    pub fn an_attempt_at_a_card_of_th10_counted_and_kept(trace: &Trace) -> Result<(), String> {
+        const COUNTED: &str = "retry: attempt ";
+        let attempt = |at: usize| -> Option<u32> {
+            trace.records[at].lines.iter().find_map(|line| {
+                line.split_once(COUNTED)?
+                    .1
+                    .split_once(" at this spell card")?
+                    .0
+                    .parse()
+                    .ok()
+            })
+        };
+        let first = trace.line_from(0, COUNTED).ok_or(
+            "nothing counted an attempt at the card the first run's chapter was taken again inside",
+        )?;
+        let left = trace.records[first..]
+            .iter()
+            .position(|record| record.state.is_none_or(|state| !state.in_run))
+            .map(|at| at + first)
+            .ok_or("the run that counted was never left, so no second run could start")?;
+        let second_run = trace
+            .in_run_from(left)
+            .ok_or("no second run was started in the launch")?;
+        let second = trace
+            .line_from(second_run, COUNTED)
+            .ok_or("nothing counted an attempt at the card in the second run")?;
+        let (first, second) = (
+            attempt(first).ok_or("the first count said no number")?,
+            attempt(second).ok_or("the second count said no number")?,
+        );
+        expect(second >= first + 2, || {
+            format!(
+                "the second run's retry counted attempt {second} after the first's {first}, which is not the \
+                 card's start and a retry on top of it: the first run's count was not kept"
+            )
+        })
+    }
+
+    /// The stage word th10's Extra is played in, the stage from nought that `[0x474c7c]` counts from 1 as 7.
+    const TH10_THE_EXTRAS_STAGE: i32 = 6;
+
     /// **How far the stage's own clock has to get for the run to have been played**, which is what
-    /// `a_normal_mode_run_of_th08_played_without_a_bomb` is held to in place of a stage reached.
+    /// `a_normal_mode_run_of_th08_played_without_a_bomb` and th10's of that name are held to in place of a
+    /// stage reached.
     ///
-    /// Two thousand, which is half a minute of stage at this game's sixty frames a second and a tenth of
-    /// what the recipe's own `play_until` asks for: every launch of it so far has passed ten thousand,
-    /// and the slowest reached 3,843 with three deaths behind it. So this is a bound on a launch that
-    /// went nowhere at all rather than a bound on the bot.
-    const A_STAGE_OF_TH08_IS_UNDER_WAY: i32 = 2_000;
+    /// Two thousand, which is half a minute of stage at sixty frames a second and a tenth of what th08's
+    /// recipe's own `play_until` asks for: every launch of it so far has passed ten thousand, and the
+    /// slowest reached 3,843 with three deaths behind it. So this is a bound on a launch that went nowhere
+    /// at all rather than a bound on the bot — th10's first stage alone reads 2201 on its clock where its
+    /// midboss arrives.
+    const A_STAGE_IS_UNDER_WAY: i32 = 2_000;
 
     /// **th06nc's Normal run: started, played through six stages to its ending, and not one bomb pressed.**
     ///
@@ -1948,12 +2439,15 @@ pub mod checks {
             })
     }
 
-    /// **th08's own, which keeps the replay without asking about it**: this game's team select is no screen
-    /// orb holds a press back on — `Th08::menu_takes_a_press` answers the title alone — so the resume
-    /// question comes as the run is built, and a はじめから answered there keeps the replay of the run it
-    /// writes over with no question of its own, which is `it is kept without asking` in the log. Then the
-    /// fresh run plays into its second chapter, stage 1's midstage table beginning one at script 1352.
-    pub fn the_run_of_th08_started_over_and_its_replay_kept(trace: &Trace) -> Result<(), String> {
+    /// **th08's and th10's, which keep the replay without asking about it**: neither game's last screen
+    /// before a run is one orb holds a press back on — `Th08::menu_takes_a_press` and `Th10::menu_takes_a_press`
+    /// answer the main menu alone — so the resume question comes as the run is chosen, and a はじめから
+    /// answered there keeps the replay of the run it writes over with no question of its own, which is `it is
+    /// kept without asking` in the log. Then the fresh run plays into its second chapter: th08's stage 1's
+    /// midstage table beginning one at script 1352, th10's the midboss's first attack.
+    pub fn the_run_started_over_and_its_replay_kept_without_asking(
+        trace: &Trace,
+    ) -> Result<(), String> {
         let answered = the_beginning_answered(trace)?;
         let kept = trace
             .line_from(answered, "it is kept without asking")
@@ -2304,7 +2798,40 @@ pub mod checks {
     /// script's own, which starts again with the stage and waits out a fight. Both go back over a
     /// restore, the run's clock being a field of `.data` a snapshot copies; the script's is the one a
     /// chapter is a number on, so it is the one this reads.
+    ///
+    /// **And the sound left alone in four ranges**: `Th08::audio_state` names the manager, its DirectSound
+    /// wrapper, the stream a played track has and the source that stream reads through, and a launch read
+    /// the first three as ranges of the game's own heap.
     pub fn a_death_of_th08_answered_by_the_chapter_again(trace: &Trace) -> Result<(), String> {
+        a_death_answered_by_the_chapter_again_on_the_scripts_clock(trace, 4)
+    }
+
+    /// **th10's death answered by the chapter again**, which is th08's check — see
+    /// [`a_death_of_th08_answered_by_the_chapter_again`] — for the same reason: this game's first stage holds no
+    /// row of its midstage table, and a chapter after the one died in is a boss's next attack, which is further
+    /// than what says the run went on.
+    ///
+    /// **Its `script_frames` is orb's own clock of the stage's scripts**, the latest time any of them has
+    /// reached, which stands while a boss is up — see `orb_core::game::th10`'s `SCRIPT_CLOCK`. It is kept by
+    /// the stage's frame, so a frame restored to reads the count it was given then, and the clock goes back
+    /// with the chapter. The recipe's hit lands in the stage's first chapter, before the midboss, where it
+    /// climbs.
+    ///
+    /// **And the sound left alone in five ranges**: `Th10::audio_state` names the manager, its DirectSound
+    /// wrapper, the stream, the block the stream's buffer is held in and the source the stream reads
+    /// through — `snapshot: leaving 5 audio range(s) alone` on every chapter a launch of this walk took,
+    /// 2026-10-01.
+    pub fn a_death_of_th10_answered_by_the_chapter_again(trace: &Trace) -> Result<(), String> {
+        a_death_answered_by_the_chapter_again_on_the_scripts_clock(trace, 5)
+    }
+
+    /// A hit raising the retry question, the chapter again answered, the run back in the chapter it died in
+    /// with the stage script's clock behind where the death was and the retry counted, the sound held back
+    /// in `audio_ranges` ranges, and the clock past the death afterwards.
+    fn a_death_answered_by_the_chapter_again_on_the_scripts_clock(
+        trace: &Trace,
+        audio_ranges: usize,
+    ) -> Result<(), String> {
         let started = trace.in_run_from(0).ok_or("no run was started")?;
         let retry = trace
             .question_from(started, "retry")
@@ -2343,16 +2870,17 @@ pub mod checks {
         expect(trace.records[back].retries >= 1, || {
             "the retry was not counted".to_owned()
         })?;
-        // **And the sound left alone rather than rewound**, which is what makes a restore of this game
-        // safe: `Th08::audio_state` names the manager, its DirectSound wrapper, the stream a played
-        // track has and the source that stream reads through, and a launch read the first three as ranges
-        // of the game's own heap.
+        // **And the sound left alone rather than rewound**, which is what makes a restore of either game
+        // safe: the ranges are each game's `audio_state`.
         //
         // Read from the run's own start and not from the retry, because that is where the line is: a
         // chapter says what it holds back as it is *taken*, and the retry puts back the one already
         // taken rather than taking another.
         trace
-            .line_from(started, "snapshot: leaving 4 audio range(s) alone")
+            .line_from(
+                started,
+                &format!("snapshot: leaving {audio_ranges} audio range(s) alone"),
+            )
             .ok_or_else(|| "the snapshot did not hold this game's sound back".to_owned())?;
         let past = trace.records[back..].iter().any(|record| {
             record
@@ -3019,9 +3547,10 @@ pub mod checks {
     }
 
     /// **A run of the other mode played to its clear, which is the one thing that unlocks the Extra**: the
-    /// question is answered for the normal mode, no chapter is counted in any frame of it, the run goes
+    /// question is answered for the normal mode, no chapter is retried in any frame of it, the run goes
     /// through the stages on the lives the game gave it, and an ending comes — the record of which lands in
-    /// the game's own score file, where the front end reads the items it offers from.
+    /// the game's own score file, where the front end reads the items it offers from. Its chapters are
+    /// counted all the same, for the reason [`a_normal_mode_run_nothing_is_kept_of`] gives.
     pub fn a_normal_mode_run_played_to_its_clear(trace: &Trace) -> Result<(), String> {
         let asked = trace
             .question_from(0, "mode")
@@ -3032,19 +3561,19 @@ pub mod checks {
         let started = trace
             .in_run_from(answered)
             .ok_or("no run was started after the mode question")?;
-        // The fifth stage and by the stage alone: a run of this mode is at chapter nought on every frame,
-        // orb keeping none of it, so there is no chapter to wait for.
+        // The fifth stage and by the stage alone: a game whose table has no row in a stage counts no chapter in it,
+        // so a chapter is nothing to wait for.
         let last = trace
             .stage_from(started, 5)
             .ok_or("the run never reached a fifth stage")?;
         let kept = trace.records[started..]
             .iter()
-            .find(|record| record.chapter != 0);
+            .find(|record| record.retries != 0);
         expect(kept.is_none(), || {
-            let record = kept.expect("a record with a chapter of its own");
+            let record = kept.expect("a record with a retry of its own");
             format!(
-                "frame {} of the run is at chapter {}, where a run of this mode has none",
-                record.frame, record.chapter
+                "frame {} of the run is at chapter {} with {} retr(ies), where a run of this mode has none",
+                record.frame, record.chapter, record.retries
             )
         })?;
         // **And the ending off the log's own words as well as off the scene** — see [`Trace::ending_from`],
@@ -3142,8 +3671,12 @@ pub mod checks {
     }
 
     /// **A run of the other mode is the game as it comes**: the question is answered for the normal mode,
-    /// the run is played, and orb keeps nothing of it — no chapter counted, no retry, and the hook that
-    /// writes a chapter down saying it wrote nothing.
+    /// the run is played, and orb keeps nothing of it — no retry, and the hook that writes a chapter down
+    /// saying it wrote nothing.
+    ///
+    /// **A chapter counted is not one kept**: a run orb plays counts its chapters in this mode too, for the
+    /// autoplay engine's ways named by them (`orb_core::chapter::Chapters::counts_only`), and the trace's record
+    /// carries the number — so what says nothing was kept is that no chapter was ever retried.
     pub fn a_normal_mode_run_nothing_is_kept_of(trace: &Trace) -> Result<(), String> {
         let asked = trace
             .question_from(0, "mode")
@@ -3162,12 +3695,12 @@ pub mod checks {
             .ok_or("nothing said the run was one orb keeps nothing of")?;
         let kept = trace.records[started..]
             .iter()
-            .find(|record| record.chapter != 0 || record.retries != 0);
+            .find(|record| record.retries != 0);
         expect(kept.is_none(), || {
-            let record = kept.expect("a record with a chapter of its own");
+            let record = kept.expect("a record with a retry of its own");
             format!(
                 "frame {} of the run is at chapter {} with {} retr(ies), where a run of this mode \
-                 has neither",
+                 has none",
                 record.frame, record.chapter, record.retries
             )
         })?;

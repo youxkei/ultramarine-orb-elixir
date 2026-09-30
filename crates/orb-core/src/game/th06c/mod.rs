@@ -51,8 +51,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering}
 use orb_api::mem;
 
 use crate::game::{
-    Boundary, Call, CountedDeath, Dialog, Entered, FileOpen, FrameCalls, Game, Hooks, Lookup,
-    Memory, Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads, Walks,
+    Boundary, Building, Call, CountedDeath, Dialog, Entered, FileOpen, FrameCalls, FrameEntered,
+    Game, Hooks, Lookup, Memory, Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State,
+    Threads, Walks,
 };
 use crate::log;
 use crate::score;
@@ -2017,6 +2018,9 @@ impl Game for Th06c {
             // hook was is one call per walk of the calc chain for a game whose frame orb had not been
             // read far enough into to replace; the walk is orb's own to call now, and the rules are
             // asked where every other game's are.
+            // The one convention a 64-bit game has, and nothing patched for it to matter to: the walks are
+            // handed over above.
+            frame_entered: FrameEntered::InEcx,
             runs_its_frame: None,
             save_replay: None,
             stop_recording: None,
@@ -2028,10 +2032,10 @@ impl Game for Th06c {
                 target: at(GAME_MANAGER_ADDED),
                 prologue: GAME_MANAGER_ADDED_PROLOGUE,
             })),
-            stage_building: Some(Patch {
+            stage_building: Some(Building::Cdecl(Patch {
                 target: at(STAGE_REGISTER_CHAIN),
                 prologue: STAGE_REGISTER_CHAIN_PROLOGUE,
-            }),
+            })),
             // **None, and the bracket is up all the same**: the one read this game makes is inline in its
             // startup, so it is bracketed from the attach to the first settling of the mode instead — see
             // [`Game::reads_its_file_once_at_startup`] and [`score_file`].
