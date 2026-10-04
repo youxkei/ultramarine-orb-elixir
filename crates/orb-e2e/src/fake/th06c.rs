@@ -1193,6 +1193,12 @@ impl Fake {
 
     /// The script's events for the frame the stage has reached, the bullets, the player and the hit test.
     fn plays_the_stage(&self, now: u32) {
+        // The game manager's update raising the run's score to the panel's where the panel is ahead of it —
+        // `0x140023f71` — which is what gives a stage the run walked into its score back.
+        if self.image.the_score_the_panel_shows() > self.image.the_score() {
+            self.image
+                .the_runs_own_score_is(self.image.the_score_the_panel_shows());
+        }
         let last = self.last_stage_frame.get();
         if now < last {
             // A stage put back is a stage whose bullets are gone: what a restore could not put back is dropped
@@ -1906,6 +1912,10 @@ extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
         image.the_panel_shows(image.the_score());
         image.the_rank_is(image.the_rank(), 0);
     }
+    // **And the run's own score field left at nought, whichever way the callback came** — `0x14002548d`, in
+    // the tail both branches reach — the score standing in the panel's alone until the stage's first update
+    // raises the run's back to it. A chapter written down as the callback returns reads it there.
+    image.the_runs_own_score_is(0);
     let (seed, _) = image.the_generator();
     image.the_stage_began_with_the_seed(seed);
     image.the_generator_is(seed, 0);

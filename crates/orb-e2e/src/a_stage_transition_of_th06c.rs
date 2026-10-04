@@ -140,6 +140,30 @@ fn a_stage_transition_of_th06c_shows_the_runs_own_score_on_the_panel() {
     });
 }
 
+/// **And the stage the run walked into is written down with the run's score**, the score a chapter of it is
+/// picked up with: the stage callback leaves the run's own field at nought, so the score that stands when it
+/// returns is the panel's.
+#[test]
+fn the_stage_of_th06c_a_run_walks_into_is_written_down_with_the_runs_score() {
+    in_its_own_process(|| {
+        let game = in_its_first_stage("th06c-a-transition-the-score-written-down");
+        let log = game.log();
+        game.image().the_run_has_scored(SCORE, 0);
+        walks_into_the_next_stage(&game);
+        game.frames_until("the stage's own first chapter", A_SETTLE, || {
+            log.said(&format!(
+                "stage {} chapter 1 (stage start)",
+                THE_NEXT_STAGE + 1
+            ))
+        });
+        assert!(
+            log.said(&format!("Numbers {{ score: {SCORE},")),
+            "the stage the run walked into was written down with a score of its own:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
 /// A transition is not the run ending: every frame of it reads as a run in progress.
 #[test]
 fn a_stage_transition_of_th06c_is_not_the_run_ending() {

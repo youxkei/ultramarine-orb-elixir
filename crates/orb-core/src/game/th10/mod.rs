@@ -644,25 +644,20 @@ const PAD_MAPPED: [(usize, u16); 5] = [
 /// slots of `IDirectInputDevice8` the read calls: `Acquire` (0x44a351), `GetDeviceState` (0x44a3bb) and `Poll`
 /// (0x44a33b).
 const G_PAD_DEVICE: usize = 0x0049_1c3c;
+/// The `JOYCAPSA` of joystick 0 the startup check fills (0x44a11b) — `x_min` at `+0x24`, as the read takes it
+/// (0x44a2a2).
+#[cfg(any(test, feature = "sim"))]
+const G_JOYSTICK_CAPS: usize = 0x0049_18b8;
 const PAD_THROUGH_DIRECTINPUT: u32 = 0x400;
 const CFG_PAD_ACROSS: usize = 0x0049_1d5e;
 const CFG_PAD_DOWN: usize = 0x0049_1d60;
+#[cfg(any(test, feature = "sim"))]
 const DEVICE_ACQUIRE: usize = 7;
+#[cfg(any(test, feature = "sim"))]
 const DEVICE_GET_STATE: usize = 9;
+#[cfg(any(test, feature = "sim"))]
 const DEVICE_POLL: usize = 25;
-
-/// `DIJOYSTATE2`, the format the read gives its pad: all of it, its size being what `GetDeviceState` is told.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct JoyState {
-    axes: [i32; 6],
-    sliders: [i32; 2],
-    hats: [u32; 4],
-    buttons: [u8; 128],
-    rest: [i32; 24],
-}
-
-const _: () = assert!(size_of::<JoyState>() == 0x110);
+const PAD_RANGE: i32 = 1000;
 
 /// **The supervisor**, whose `+0x0` is the `hInstance` (0x438b51): the scene it is on and the scene wanted,
 /// which the switch at 0x4218d0 moves the one to where they differ.
@@ -995,39 +990,14 @@ impl Th10 {
             .fold(0, |word, (_, bit)| word | bit)
     }
 
-    /// **One read of the pad DirectInput found**, as the read makes it: `Poll`, and `GetDeviceState` into the
-    /// `DIJOYSTATE2` the device was given — `None` where the input's flags say there is none.
-    ///
-    /// **The acquire after a lost device is asked for once and the frame given up**, where the game's own read
-    /// asks four hundred times over (0x44a360 through 0x44a37b): what reads this is a menu of orb's, on frames
-    /// the game's read is frozen out of, and the next frame is a sixtieth of a second away.
+    /// **One read of the pad DirectInput found** — see `joystick::the_state_of` — and `None` where the input's
+    /// flags say there is none.
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    unsafe fn the_pads_own_state(&self) -> Option<JoyState> {
-        if mem::read_committed::<u32>(G_INPUT_FLAGS)? & PAD_THROUGH_DIRECTINPUT == 0 {
-            return None;
-        }
-        let device = mem::read_committed::<usize>(G_PAD_DEVICE).filter(|device| *device != 0)?;
-        let vtable = mem::read_committed::<usize>(device)?;
-        let slot = |index: usize| {
-            mem::read_committed::<usize>(vtable + index * size_of::<usize>()).filter(|it| *it != 0)
-        };
-        let poll: unsafe extern "system" fn(usize) -> i32 =
-            unsafe { std::mem::transmute(slot(DEVICE_POLL)?) };
-        if unsafe { poll(device) } < 0 {
-            let acquire: unsafe extern "system" fn(usize) -> i32 =
-                unsafe { std::mem::transmute(slot(DEVICE_ACQUIRE)?) };
-            unsafe { acquire(device) };
-            return None;
-        }
-        let read: unsafe extern "system" fn(usize, u32, *mut JoyState) -> i32 =
-            unsafe { std::mem::transmute(slot(DEVICE_GET_STATE)?) };
-        let mut state: JoyState = unsafe { std::mem::zeroed() };
-        if unsafe { read(device, size_of::<JoyState>() as u32, &mut state) } < 0 {
-            return None;
-        }
-        Some(state)
+    unsafe fn the_pads_own_state(&self) -> Option<crate::joystick::DeviceState> {
+        let (device, _) = unsafe { self.its_pad_device() }?;
+        unsafe { crate::joystick::the_state_of(device) }
     }
 
     /// **The word the read makes of the pad DirectInput found**: the buttons by the mapping, a button held
@@ -1036,14 +1006,12 @@ impl Th10 {
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    unsafe fn the_word_of_the_pads_own(&self, state: &JoyState, hats: bool) -> u16 {
-        let buttons = state
-            .buttons
-            .iter()
-            .take(32)
-            .enumerate()
-            .filter(|(_, held)| **held & 0x80 != 0)
-            .fold(0u32, |mask, (button, _)| mask | 1 << button);
+    unsafe fn the_word_of_the_pads_own(
+        &self,
+        state: &crate::joystick::DeviceState,
+        hats: bool,
+    ) -> u16 {
+        let buttons = state.buttons_held();
         let threshold = |at: usize| i32::from(unsafe { mem::read::<i16>(at) });
         let (across, down) = (threshold(CFG_PAD_ACROSS), threshold(CFG_PAD_DOWN));
         let (x, y) = (state.axes[0], state.axes[1]);
@@ -2054,6 +2022,29 @@ impl Game for Th10 {
     }
 
     unsafe fn add_pad_buttons(&self, _into: *mut c_void, _pad: Option<Reading>) {}
+
+    /// **The mapping read backwards**: each of the five bits the read makes of a pad's buttons held on the
+    /// button the mapping names for it, and the four directions as the stick pushed to the end of its travel,
+    /// past the dead zone of either branch of the read. The menus' Enter (`0x1000`) has no button — every menu
+    /// takes the shot's `0x1` beside it — and nor have the pause menu's Q and R or the screenshot.
+    unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
+        let mapping = unsafe { mem::read::<[i16; 9]>(G_PAD_MAPPING) };
+        Some(crate::joystick::pushed_by(
+            word,
+            PAD_MAPPED.iter().map(|(at, bit)| (*bit, mapping[*at])),
+            (PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT),
+        ))
+    }
+
+    /// **The pad DirectInput found**, where the input's flags say there is one — its axes ranged ±1000 (0x43bb30).
+    unsafe fn its_pad_device(&self) -> Option<(usize, i32)> {
+        if mem::read_committed::<u32>(G_INPUT_FLAGS)? & PAD_THROUGH_DIRECTINPUT == 0 {
+            return None;
+        }
+        mem::read_committed::<usize>(G_PAD_DEVICE)
+            .filter(|device| *device != 0)
+            .map(|device| (device, PAD_RANGE))
+    }
 
     /// **What the pause menu's own item for the title writes**: the scene wanted put at the title
     /// (0x40ac90, called with 4 at 0x42319a), which the supervisor answers by taking the game down and

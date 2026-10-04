@@ -682,6 +682,9 @@ struct Playing {
     reached: Reached,
     /// What it is pressing this frame, asked for once where the frame begins — see [`what_is_reached`].
     pressing: Option<u16>,
+    /// **Whether that word went onto the virtual pad**, for a launch pressing through one: what then reaches the
+    /// game is what its own read makes of the pad, and the word is handed to nothing — see [`handed_over`].
+    through_the_pad: bool,
     /// The screen and the item the front end was last said to be on, so that the line saying so is written
     /// where either changes rather than every frame.
     ///
@@ -862,8 +865,10 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             card_frames: None,
             stage_frames: None,
             difficulty: None,
+            on_the_question: None,
         },
         pressing: None,
+        through_the_pad: false,
         said: None,
     });
 }
@@ -889,6 +894,10 @@ pub static FORCE_WINDOWED: AtomicBool = AtomicBool::new(false);
 /// and a game laid out by hand pass through — so the default here is only what a process has before
 /// orb has read a setting, which is a process with no game in it yet.
 pub static DPAD_MOVES: AtomicBool = AtomicBool::new(false);
+
+/// **Whether a launch playing itself presses through the virtual pad** — `Config::through_a_pad` — written by
+/// [`attached`] for the same reason [`DPAD_MOVES`] is.
+static THROUGH_A_PAD: AtomicBool = AtomicBool::new(false);
 /// Whether the record of captures in memory is emptied before a read of the score file that is about to
 /// define it, which is a launch with two files to keep apart — see [`ranking_read`] and
 /// `Game::forget_captures`.
@@ -1484,6 +1493,14 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             "is left as the game has it, which is doing nothing"
         }
     );
+    // **And the virtual pad plugged in before the game's own startup looks for a joystick**, for a launch pressing
+    // through one: the startup check is the read a game decides it has a pad by, and it comes before any frame.
+    let through_a_pad = config.through_a_pad && config.autoplay.is_some();
+    THROUGH_A_PAD.store(through_a_pad, Ordering::Relaxed);
+    match through_a_pad {
+        true => joystick::plug_in_the_virtual_pad(),
+        false => joystick::unplug_the_virtual_pad(),
+    }
 
     // Which language every screen of orb's own is in, settled once here: the file says, or the machine
     // does where it says nothing. Said in the log because a screenshot of a menu somebody could not
@@ -1635,8 +1652,9 @@ unsafe fn pad(game: &dyn Game) -> Pad {
     // the mode question, the offer of a run left unfinished, the offer to retry a death — read the keyboard and
     // the pad, and a bot's word goes to the *game*: without this there is no way for one to answer them, and a
     // launch that died sat on that offer until somebody looked at the screen. The pad rather than the keyboard
-    // because a pad is already a set of named buttons, which is what a word is.
-    if let Some(word) = pressing() {
+    // because a pad is already a set of named buttons, which is what a word is. **Nothing where the word went
+    // onto the virtual pad**, which the game's own `pad` has already read above.
+    if let Some(word) = handed_over() {
         let held = |name| game.button_bit(name).is_some_and(|bit| word & bit != 0);
         pad.shot |= held("shot");
         pad.bomb |= held("bomb");
@@ -1698,6 +1716,7 @@ unsafe fn what_is_reached(runtime: &Runtime) {
         }
     }
     playing.reached.question = question_up(runtime);
+    playing.reached.on_the_question = on_the_question(runtime);
     // **And the stage and whether the run is over, for a game orb stands in no frame of.** Everything a
     // stage is read for is filled where the frame ends — see the block after `watch_music`, which is
     // where the state is read anyway — and a game whose `Hooks::update` is `None` never reaches it: the
@@ -1728,10 +1747,78 @@ unsafe fn what_is_reached(runtime: &Runtime) {
     let started = profile::now();
     playing.pressing = (playing.word)(runtime.game, playing.reached);
     unsafe { profile::record(profile::Phase::Steering, started) };
+    // **And pushed on the virtual pad rather than handed over, for a launch pressing through one**, before the
+    // game's read of the frame: the device the game holds stood in front of once it has one, and the pad let go
+    // of on a frame nothing is pressed. A game that cannot take a word as a pad says so once and is handed it.
+    if THROUGH_A_PAD.load(Ordering::Relaxed) {
+        if let Some((device, range)) = unsafe { runtime.game.its_pad_device() } {
+            unsafe { joystick::stand_in_front_of(device, range) };
+        }
+        let word = playing.pressing.unwrap_or(0);
+        match unsafe { runtime.game.pushed_for(word) } {
+            Some(pushed) => {
+                joystick::the_virtual_pad_is_pushed(pushed);
+                if !playing.through_the_pad {
+                    log!("autoplay: the run is pressed through the virtual pad");
+                }
+                playing.through_the_pad = true;
+            }
+            None => {
+                if !SAID_NO_PAD.swap(true, Ordering::Relaxed) {
+                    log!(
+                        "autoplay: this game takes no word as a pad, so the word is handed to its read"
+                    );
+                }
+                playing.through_the_pad = false;
+            }
+        }
+    }
+}
+
+/// Whether the line saying a game takes no word as a pad has been written, which it is once a launch.
+static SAID_NO_PAD: AtomicBool = AtomicBool::new(false);
+
+/// **What the bot's word hands to the game's read, and to orb's menus**: what it is pressing, unless that went
+/// onto the virtual pad — which is then read as a person's pad is, and handed nowhere. See
+/// [`Playing::through_the_pad`].
+fn handed_over() -> Option<u16> {
+    PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .filter(|playing| !playing.through_the_pad)
+        .and_then(|playing| playing.pressing)
 }
 
 /// Which of orb's own questions is up, if one is: what a recipe's step waits for, and what a trace records
 /// the frame under.
+fn on_the_question(runtime: &Runtime) -> Option<crate::game::OnTheQuestion> {
+    if let Some(menu) = &runtime.asking {
+        Some(menu.on_the_cursor())
+    } else if let Some((menu, _)) = &runtime.asking_resume {
+        Some(menu.on_the_cursor())
+    } else if let Some(menu) = &runtime.retry {
+        Some(menu.on_the_cursor())
+    } else if let Some((menu, _, _)) = &runtime.asking_replay {
+        Some(menu.on_the_cursor())
+    } else {
+        runtime
+            .choosing_replay
+            .as_ref()
+            .map(|menu| menu.on_the_cursor())
+    }
+}
+
+/// **Whether a launch presses its words through the virtual pad over `game`**, which is a launch asking for it
+/// over a game that can take a word as a pad — see `Game::pushed_for` — and what has a recipe's `answer` pressed
+/// rather than taken outright.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn presses_through_a_pad(game: &dyn Game) -> bool {
+    THROUGH_A_PAD.load(Ordering::Relaxed) && unsafe { game.pushed_for(0) }.is_some()
+}
+
 fn question_up(runtime: &Runtime) -> Option<Question> {
     if runtime.asking.is_some() {
         Some(Question::Mode)
@@ -1843,7 +1930,17 @@ pub(crate) unsafe fn the_frames_word(game: &dyn Game) -> Option<u16> {
         WORD_THIS_FRAME.store(0, Ordering::Relaxed);
         return Some(0);
     }
-    let word = pressing().map(|word| unsafe { noted(game, frame, held_back(game, word)) });
+    // **And where the bot presses through the virtual pad, the word is what the pads are doing** — the virtual
+    // one and the machine's own both, read the way th06's and th07's pad half reads them: this game's pad read is
+    // orb's to answer (`xinput_get_state`), so orb's sample of the pads is the read a person's pad goes through.
+    let through_the_pad = PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .is_some_and(|playing| playing.through_the_pad);
+    let word = handed_over()
+        .or_else(|| through_the_pad.then(|| unsafe { game.pad_word(joystick::reading(), true) }))
+        .map(|word| unsafe { noted(game, frame, held_back(game, word)) });
     WORD_THIS_FRAME.store(word.map_or(NO_WORD, i32::from), Ordering::Relaxed);
     word
 }
@@ -2552,7 +2649,15 @@ pub extern "C" fn init_d3d_device() {
 pub extern "system" fn get_input() -> u16 {
     let original: extern "system" fn() -> u16 =
         unsafe { std::mem::transmute(GET_INPUT.load(Ordering::Relaxed)) };
-    the_read(|| original())
+    // **The pads alone are what `Game::pad_word` makes of them**: orb's pad half with no keys in front of it where
+    // the game's pad half is orb's — th06's and th07's — and the game's own read of its pads made here where it is
+    // the game's, inside the read with its keyboard — th08's.
+    let pads_alone = || {
+        unsafe { chosen() }.map_or(0, |game| unsafe {
+            game.pad_word(joystick::reading(), DPAD_MOVES.load(Ordering::Relaxed))
+        })
+    };
+    the_read(|| original(), pads_alone)
 }
 
 /// **The same hook over a game whose read is the pad's half of it** — see `game::Read::PadHalf`, and th10,
@@ -2574,12 +2679,16 @@ pub extern "fastcall" fn get_input_with_the_keys(
     let added = unsafe { chosen() }.map_or(0, |game| unsafe {
         game.pad_word(joystick::reading(), DPAD_MOVES.load(Ordering::Relaxed))
     });
-    the_read(|| original(keys, 0, player, pad) | added)
+    // **The pads alone are the game's own half handed no keys**, which is what reads them.
+    the_read(
+        || original(keys, 0, player, pad) | added,
+        || original(0, 0, player, pad) | added,
+    )
 }
 
 /// [`get_input`]'s own work, with the game's read handed in as the one call that makes it — which is what
 /// differs between a read that is a function of nothing and one that folds a pad into the keys it is given.
-fn the_read(original: impl FnOnce() -> u16) -> u16 {
+fn the_read(original: impl FnOnce() -> u16, pads_alone: impl FnOnce() -> u16) -> u16 {
     // Nothing of orb's in a process the attach settled on no game in: every line below reads one, and
     // the game's own read is what this hook stands in front of. See [`GAME`].
     let Some(game) = (unsafe { chosen() }) else {
@@ -2668,7 +2777,7 @@ fn the_read(original: impl FnOnce() -> u16) -> u16 {
     if let Some(word) = the_press_a_hand_over_waits_for(game, frame) {
         return unsafe { noted(game, frame, word) };
     }
-    if let Some(word) = pressing() {
+    if let Some(word) = handed_over() {
         return unsafe { noted(game, frame, held_back(game, word)) };
     }
 
@@ -2679,6 +2788,13 @@ fn the_read(original: impl FnOnce() -> u16) -> u16 {
     // hands it an uninitialised stack buffer as the key state.
     if !active {
         INPUT_LOST.store(true, Ordering::Relaxed);
+        // **And the pads alone, where a virtual one is plugged in**, which is a launch playing itself with its window
+        // behind as a matter of course: what is kept from the game there is the keyboard — somebody typing into the
+        // window in front — and a pad is nothing anybody types with. Held back and noted like any read, the decide's
+        // edge carried across from the frame before.
+        if joystick::the_virtual_pad().is_some() {
+            return unsafe { noted(game, frame, held_back(game, pads_alone())) };
+        }
         // Nothing is being held back on the frames the game is being given nothing, and what it was
         // holding is forgotten with them: a button let go of behind the window would otherwise still
         // read as held on the frame it comes back on, and a press then is a press swallowed rather than

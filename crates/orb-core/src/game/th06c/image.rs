@@ -791,6 +791,13 @@ impl Image {
             .write::<u32>(super::GAME_MANAGER + super::game_manager::GUI_SCORE, score);
     }
 
+    /// The run's own field alone, which the stage callback leaves at nought and the stage's first update raises
+    /// back to the panel's — `0x14002548d` and `0x140023f71`.
+    pub fn the_runs_own_score_is(&self, score: u32) {
+        self.space()
+            .write::<u32>(super::GAME_MANAGER + super::game_manager::SCORE, score);
+    }
+
     pub fn the_score_the_panel_shows(&self) -> u32 {
         self.space()
             .read::<u32>(super::GAME_MANAGER + super::game_manager::GUI_SCORE)

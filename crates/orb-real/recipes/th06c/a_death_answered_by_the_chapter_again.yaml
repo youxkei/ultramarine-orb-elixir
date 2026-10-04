@@ -44,7 +44,14 @@
 # falls in is a thing of how well the rules play and of where the stage's own bullets are, and th06's case has
 # why a chapter bound ended on the wrong side of the death. The question itself cannot be waited for, the
 # rules answering the offer the frame it comes up.
-- play_until: { frames: 400 }
+#
+# **Eighteen hundred and not th06's four hundred**, th06nc's window, which stops before the midboss's arrival
+# at stage frame 2,009 so the death is in the stage's first chapter: a hit has to be there to be taken, and
+# th06c_dev's final session through the pad (2026-10-05) played four hundred frames from the stage's start
+# untouched — the rules walked at the first fairies from 192,368 and shot every one they reached before it
+# reached them, `the retry question never stood, so nothing was hit`.
+- play_until: { frames: 1800 }
+  give_up_after: 7200
 # And then a chapter past the one it died in, with no chance of being hit on the way: what the death has to be
 # answered by is the chapter again and the run carrying on out of it.
 - take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }

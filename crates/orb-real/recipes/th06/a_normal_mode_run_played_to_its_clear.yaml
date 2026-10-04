@@ -51,8 +51,12 @@
 # **And the name the ranking is registered under, typed rather than pressed for** — see `Step::Name`, and
 # the same step in `a_run_played_to_its_clear`: a tap at that entry writes whichever character its cursor
 # is on, eight times over.
+#
+# **Waited for through the staff roll**, for that case's reason: a session pressing through the pad came to the
+# name entry 6,665 frames after the ending was run out (f23443 to f30108 of its trace), where 3,600 gave the
+# step up first and the tap after it typed `AAAAAAAA`.
 - name: ORB
-  give_up_after: 3600
+  give_up_after: 9000
 # And the screens a finished run arrives on, walked by the same tap: the name entry, the stats, and this
 # game's own offer to save a replay, which orb writes past only for a run with chapters. No question of
 # orb's own is behind them — a run of this mode has no replay it keeps.

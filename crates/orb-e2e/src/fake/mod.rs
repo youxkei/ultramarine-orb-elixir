@@ -202,6 +202,43 @@ pub const FLUSH: &str = "flush";
 /// answers wait out.
 pub const READS_KEYS_AFTER: u32 = 30;
 
+/// **What pad is plugged in as a game starts**, which is what its startup decides how it reads one by: none, a
+/// winmm joystick 0 — the host's, [`A_WINMM_PADS_BUTTONS`] buttons over [`A_WINMM_PADS_TRAVEL`] — or one its
+/// DirectInput enumeration finds, which the laid-out game holds and an e2e test pushes. th08's and th10's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PluggedIn {
+    Nothing,
+    OnWinmm,
+    ThroughDirectInput,
+}
+
+/// The winmm pad [`PluggedIn::OnWinmm`] plugs in.
+pub const A_WINMM_PADS_BUTTONS: u32 = 16;
+pub const A_WINMM_PADS_TRAVEL: (u32, u32) = (0, 65535);
+
+/// **What the DirectInput pad a laid-out game holds is doing**: a button held per bit, and its two axes in the
+/// ±1000 the games' set-ups range them to.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct DirectInputPad {
+    pub buttons: u32,
+    pub x: i32,
+    pub y: i32,
+}
+
+/// **A `DIJOYSTATE2` of `pad`**, `size` bytes as `GetDeviceState` was asked for, the hat nowhere.
+pub fn the_state_of(pad: DirectInputPad, size: u32) -> Vec<u8> {
+    let mut state = vec![0u8; size as usize];
+    state[0..4].copy_from_slice(&pad.x.to_le_bytes());
+    state[4..8].copy_from_slice(&pad.y.to_le_bytes());
+    state[0x20..0x24].copy_from_slice(&u32::MAX.to_le_bytes());
+    for button in 0..32 {
+        if pad.buttons & 1 << button != 0 {
+            state[0x30 + button] = 0x80;
+        }
+    }
+    state
+}
+
 /// **The frame of the stage chapter `chapter` of `stage` began on**, the stage counted from one, as the
 /// newest of its own lines in `lines` said it — what a retry of it has to put the run back on.
 ///

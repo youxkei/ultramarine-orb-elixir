@@ -2761,6 +2761,23 @@ impl Game for Th06 {
     /// that reads a pad by number.
     unsafe fn add_pad_buttons(&self, _into: *mut std::ffi::c_void, _pad: Option<Reading>) {}
 
+    /// **The configuration's mapping read backwards**: each bit [`MAPPED_BUTTONS`] names held on its button,
+    /// focus on its own — which, where it is the shot's button, is that button held and the game's own count of
+    /// it doing the rest — and the four directions as the stick pushed to the end of its travel, past the dead
+    /// zone of both branches of the read.
+    unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
+        let button = |at: usize| unsafe { mem::read::<i16>(G_SUPERVISOR + at) };
+        Some(crate::joystick::pushed_by(
+            word,
+            MAPPED_BUTTONS
+                .iter()
+                .copied()
+                .chain([(supervisor::CFG_FOCUS_BUTTON, BUTTON_FOCUS)])
+                .map(|(at, bit)| (bit, button(at))),
+            (BUTTON_UP, BUTTON_DOWN, BUTTON_LEFT, BUTTON_RIGHT),
+        ))
+    }
+
     unsafe fn pad_word(&self, pad: Option<Reading>, hats: bool) -> u16 {
         let controller = unsafe { self.controller_state() };
         // Nothing held where there is nothing to read, rather than nothing done at all: the count of

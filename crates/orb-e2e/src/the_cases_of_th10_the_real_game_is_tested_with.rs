@@ -62,6 +62,9 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
         config.autoplay = Some(recipe);
         config.trace = Some(PathBuf::from(TRACE_FILE));
         config.log_level = LogLevel::Verbose;
+        // **Pressed through the virtual pad, as `cargo xtask real` launches every case** — so that a recipe whose
+        // press a pad cannot make fails here and not on the real game.
+        config.through_a_pad = true;
     }
 }
 

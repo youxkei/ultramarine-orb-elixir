@@ -109,6 +109,12 @@ pub struct Config {
     /// its buttons are that game's — and a text carried here is one an e2e test can hand over without a file
     /// to put it in. `--autoplay` is where the path is turned into this.
     pub autoplay: Option<String>,
+    /// **Whether a launch playing itself presses through a pad**, a virtual one orb's own code plugs in, rather
+    /// than handing its word to the game's read — `--through-a-pad`, and nothing unless `--autoplay` names a
+    /// recipe. What it is for is a launch played the way somebody at a pad plays it: every read a real pad is
+    /// read through answers the virtual one as well, so the game's own pad read, orb's mapping of each game's
+    /// buttons and orb's menus on a pad are all what the run goes through.
+    pub through_a_pad: bool,
     /// **Where to write down what every frame held, and nothing unless `--trace` names a file.** The same
     /// reason as [`Config::autoplay`]: a launch somebody plays is not one being checked, and a settings file
     /// cannot ask for the file a check reads. Relative to the game's own directory where it names no other.
@@ -576,6 +582,7 @@ impl Config {
             resume: true,
             sent_keys: false,
             autoplay: None,
+            through_a_pad: false,
             trace: None,
             shot_every: 0,
             trace_the_field_in: None,

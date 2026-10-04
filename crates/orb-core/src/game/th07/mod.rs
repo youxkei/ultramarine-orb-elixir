@@ -4151,6 +4151,22 @@ impl Game for Th07 {
         }
     }
 
+    /// **The mapping read backwards**: each of the word's nine bits held on the button its entry of
+    /// [`PAD_MAPPING`] names — the entries being in the word's own order, `0x1` through `0x100` — and the four
+    /// directions as the stick pushed to the end of its travel, which is what the read takes a direction from. The
+    /// menus' Enter (`0x1000`) has no button; every menu takes the shot's `0x1` beside it.
+    unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
+        let mapping = unsafe { mem::read::<[i16; 9]>(PAD_MAPPING) };
+        Some(crate::joystick::pushed_by(
+            word,
+            mapping
+                .iter()
+                .enumerate()
+                .map(|(entry, button)| (1u16 << entry, *button)),
+            (PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT),
+        ))
+    }
+
     /// Every pad orb sampled, as the whole of what the game's own pad read would have made of one — that
     /// read being hooked and not called through.
     ///

@@ -53,6 +53,14 @@ impl ModeMenu {
         self.question.update(keyboard, pad)
     }
 
+    /// Where its cursor is, for a launch pressing its answer through a pad — its one list.
+    pub fn on_the_cursor(&self) -> crate::game::OnTheQuestion {
+        crate::game::OnTheQuestion {
+            list: 0,
+            at: self.question.selection(),
+        }
+    }
+
     /// One of the two taken outright, for a launch playing itself — see [`Question::answered_outright`].
     pub fn answered_outright(&self, item: usize) -> Option<Answer> {
         self.question.answered_outright(item)

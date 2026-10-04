@@ -168,6 +168,14 @@ impl SaveMenu {
         })
     }
 
+    /// Where its cursor is, for a launch pressing its answer through a pad — its one list.
+    pub fn on_the_cursor(&self) -> crate::game::OnTheQuestion {
+        crate::game::OnTheQuestion {
+            list: 0,
+            at: self.selection,
+        }
+    }
+
     fn step(&mut self, pressed: &Pressed) -> Option<Answer> {
         self.selection = menu_ui::moved(self.selection, ANSWERS.len(), pressed);
         // A cancel is the answer that leaves nothing behind, which is what a cancel means everywhere else
@@ -442,6 +450,15 @@ impl WatchMenu {
     /// it: those are moves to the next list and not answers, the same as a decide on them. `None` too for an
     /// item this list has not got, which is a recipe naming one that is not there — said by the caller,
     /// which is the one place that knows both the number and the list.
+    /// Where its cursor is, for a launch pressing its answer through a pad: the list it is choosing out of —
+    /// the replays, a replay's stages, a stage's chapters or a chapter's attempts — and the item it is on there.
+    pub fn on_the_cursor(&self) -> crate::game::OnTheQuestion {
+        crate::game::OnTheQuestion {
+            list: self.choosing as u8,
+            at: self.at[self.choosing as usize],
+        }
+    }
+
     pub fn answered_outright(&mut self, item: usize) -> Option<Watched> {
         let count = self.items().len();
         if item >= count {

@@ -185,6 +185,10 @@ const BULLET_ANIMATION_BYTES: usize = 0x10;
 /// answers from is one number written twice, and a wrong one read off `Th08` would be a snapshot holding
 /// back the wrong bytes and a test agreeing with it.
 const SOUND_PLAYER: Range<usize> = 0x018b_8a68..0x018b_8a68 + 0x5224;
+/// **The DirectInput pad the input's set-up made, and its vtable**, where an e2e test has the enumeration find
+/// one: addresses of this file's own, the object a word and the vtable every slot up to `Poll`'s.
+const PAD_DEVICE: Range<usize> = 0x0460_0000..0x0460_0000 + 0x10;
+const PAD_DEVICE_VTABLE: Range<usize> = 0x0460_1000..0x0460_1000 + 26 * 4;
 
 /// **How far apart the sheets of two `.anm` slots are laid out**, and the three values a laid-out slot
 /// carries: a file pointer that is something rather than nothing, a texture and a block. Numbers of this
@@ -380,6 +384,8 @@ impl Image {
             &STAGE_INFO,
             &ENEMY_SCRIPTS,
             &BULLET_ANIMATIONS,
+            &PAD_DEVICE,
+            &PAD_DEVICE_VTABLE,
         ] {
             space.map(block.start, block.len(), Kind::Private);
         }
@@ -397,6 +403,10 @@ impl Image {
         // **The frame's own step, which is one where nothing is slowing the world down** — 0x425369
         // writes the 1.0, and a laid-out game with nothing there would say every laser grows by nothing.
         space.write::<f32>(super::G_FRAME_STEP, 1.0);
+        // **And the pad's mapping `th08.cfg` holds**, `2, 5, 4, 0, -1, -1, -1, -1, 1` — the copy of the install
+        // measured, `asm.md`'s *The window's own settings*: a laid-out game with nought there would have every
+        // bit of the word on pad button 0.
+        space.write::<[i16; 9]>(super::G_PAD_MAPPING, [2, 5, 4, 0, -1, -1, -1, -1, 1]);
         let image = Self { sim };
         image.the_teams_spec_says_what_the_sht_says();
         image.the_play_area_is_the_games_own();
@@ -411,6 +421,78 @@ impl Image {
 
     pub fn space(&self) -> &Space {
         self.sim.space()
+    }
+
+    /// **The pad's mapping**, as `th08.cfg` lays it at `0x17ce870` — see `Th08`'s `G_PAD_MAPPING`.
+    pub fn the_pad_is_mapped(&self, mapping: [i16; 9]) {
+        self.space()
+            .write::<[i16; 9]>(super::G_PAD_MAPPING, mapping);
+    }
+
+    pub fn the_pads_mapping(&self) -> [i16; 9] {
+        self.space().read::<[i16; 9]>(super::G_PAD_MAPPING)
+    }
+
+    /// **The caps of joystick 0 the startup check keeps** (0x43d108), which the winmm branch of the read measures
+    /// each axis against.
+    pub fn the_joysticks_caps_are(&self, caps: &orb_api::JoyCaps) {
+        self.space()
+            .write::<orb_api::JoyCaps>(super::G_JOYSTICK_CAPS, *caps);
+    }
+
+    /// Those caps' two axes' bounds, `(x_min, x_max, y_min, y_max)` — nought where the check found no joystick.
+    pub fn the_joysticks_axes(&self) -> (u32, u32, u32, u32) {
+        let caps = self
+            .space()
+            .read::<orb_api::JoyCaps>(super::G_JOYSTICK_CAPS);
+        (caps.x_min, caps.x_max, caps.y_min, caps.y_max)
+    }
+
+    /// **Whether the shot's button held is the focus as well**, the byte at `+0x13e` of `0x17ce758` (0x43ef50).
+    pub fn the_shot_held_is_the_focus(&self) -> bool {
+        self.space().read::<u8>(super::CFG_FOCUS_ON_THE_SHOT) != 0
+    }
+
+    /// And the count of frames it has been held, `0x164d51c` (0x43d1a3 through 0x43d215).
+    pub fn the_shot_is_held_for(&self) -> u16 {
+        self.space().read::<u16>(super::G_SHOT_HELD_FOR)
+    }
+
+    pub fn the_shot_has_been_held_for(&self, frames: u16) {
+        self.space().write::<u16>(super::G_SHOT_HELD_FOR, frames);
+    }
+
+    /// **A DirectInput pad found by the input's set-up**: the device at `[0x17ce76c]` with its vtable's `Acquire`,
+    /// `GetDeviceState` and `Poll` the functions given, and the configuration's two thresholds at the 600 its
+    /// defaults write (0x447812).
+    pub fn a_pad_is_found_through_directinput(
+        &self,
+        acquire: usize,
+        get_state: usize,
+        poll: usize,
+    ) {
+        let space = self.space();
+        space.write::<usize>(super::G_PAD_DEVICE, PAD_DEVICE.start);
+        space.write::<usize>(PAD_DEVICE.start, PAD_DEVICE_VTABLE.start);
+        for (slot, function) in [(7, acquire), (9, get_state), (25, poll)] {
+            space.write::<usize>(PAD_DEVICE_VTABLE.start + slot * 4, function);
+        }
+        space.write::<i16>(super::CFG_PAD_ACROSS, 600);
+        space.write::<i16>(super::CFG_PAD_DOWN, 600);
+    }
+
+    /// **The DirectInput pad the read reads, and the two thresholds its axes are read against** — `None` where
+    /// the set-up found none.
+    pub fn the_directinput_pad(&self) -> Option<(usize, i16, i16)> {
+        let space = self.space();
+        let device = space.read::<usize>(super::G_PAD_DEVICE);
+        (device != 0).then(|| {
+            (
+                device,
+                space.read::<i16>(super::CFG_PAD_ACROSS),
+                space.read::<i16>(super::CFG_PAD_DOWN),
+            )
+        })
     }
 
     /// The device orb draws through and the window it asks about, where the game's own

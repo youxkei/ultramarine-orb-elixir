@@ -1068,6 +1068,14 @@ sub-rank at `+0x197c` (`0x140024d10`), `+0x7c4`, `+0x17d0` and `+0x7bc`, and ste
 up by one. The lives, the bombs, the power and the rank are written nowhere in it, which is what a run is:
 six stages with one set of numbers walked through them.
 
+**And the callback's tail leaves the run's own score at nought**, whichever branch it came by:
+`0x14002548d` `mov DWORD PTR [rdi+0x7b0],r14d`, `r14d` nought since `0x1400242f3`. What carries the score
+across is the panel's `+0x7ac`, which the transition has just been given it, and the game manager's update
+raises `+0x7b0` back to it on the stage's first frame — `0x140023f5f` reads the panel's, `0x140023f71`
+writes it into the run's where it is the larger. So between the callback returning and that update the
+score is in `+0x7ac` alone: measured on a Normal run's stage 6 (2026-10-05), `+0x7ac` 55,221,580 on its
+frame 2 where a chapter written down off `+0x7b0` read nought.
+
 **The two seams.** The stage callback `0x1400242d0` puts the stage's numbers in place — the rank's bounds
 at `0x140024e7e`, the seed copied at `0x140024e9c` — and then calls the stage's own build `0x1400572d0`
 at `0x140024ea3`, the one call of it in the exe, with the stage in `ecx`; it answers nought where it built

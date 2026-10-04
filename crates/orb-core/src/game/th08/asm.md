@@ -1673,21 +1673,27 @@ that writes it. Measured over a whole run before orb did anything about it, the 
 word orb chose on the earlier of two frames 5,104 times and contradicted it 16. `Th08::hand_the_read_to_the_run`
 writes the pair at the read instead, which is th07's answer to the same gap.
 
-### The pad, which is WINMM's and not DirectInput8's
+### The pad, DirectInput8's where one was found and WINMM's otherwise
 
 **`0x43d0c0` asks whether there is one**: it builds a `JOYINFOEX` on its own stack with `dwSize = 0x34`
-and `dwFlags = 0xff`, calls `joyGetPosEx(0, …)` — `ds:0x4b423c` — and where that answers anything logs
-the string at `0x4b59b0` and returns 1. Where it answers nothing it calls
-`joyGetDevCapsA(0, 0x164d388, 0x194)` and returns 0, so the caps live at `0x164d388`.
+and `dwFlags = 0xff`, calls `joyGetPosEx(0, …)` — `ds:0x4b423c` — and where that fails logs the string at
+`0x4b59b0` and returns 1. Where it answers it calls `joyGetDevCapsA(0, 0x164d388, 0x194)` — `ds:0x4b4270` —
+and returns 0, so the caps live at `0x164d388`.
 
-**`0x43d120` reads it every frame** and folds it into the word it is handed in `cx`: it returns that word
-untouched where `[0x17ce76c]` is anything — the pad turned off — and where `joyGetPosEx` fails; otherwise
-it takes `dwButtons` at `+0x20` of the struct and hands it to 0x43d760 with each button's own bit, which
-is the same helper the configuration's six words go through.
+**`0x43d120` reads it every frame** and folds it into the word it is handed in `cx`, one of two ways.
+**Where `[0x17ce76c]` holds a device** — the DirectInput pad the input's set-up found, its axes ranged ±1000
+(`push 0xfffffc18` at 0x406c11) — it is `Poll` (`[edx+0x64]`, 0x43d3c1), `Acquire` while that answers
+`DIERR_INPUTLOST` (0x43d3f6), and `GetDeviceState` of `0x110` (0x43d48b): each button through 0x43d6e0 by its
+byte, and the two axes against the thresholds at `0x17ce888` and `0x17ce88a`, 600 by default (0x447812, 0x43d627
+through 0x43d6be). **Otherwise** it is `joyGetPosEx(0)` (0x43d15e), the word handed back untouched where that
+fails: `dwButtons` at `+0x20` through 0x43d760, and each axis past a quarter of the travel the caps at
+`0x164d388` give it from its middle (0x43d2dd through 0x43d39e). Neither looks at the hat. Either way the shot's
+button held is also the focus, `0x4`, after ten frames of it, where the byte at `+0x13e` of `0x17ce758` says so
+(0x43ef50; the count is `0x164d51c`).
 
-So **a pad reaches this game through WINMM and nothing else**, which is the call orb's own joystick hook
-answers for th06 and th07. `Th08::hooks` declines both pad hooks all the same — see that method, where
-the reason is written: a real pad works natively and orb's own d-pad does not reach a run of this game.
+So a pad reaches this game the way it reaches th10, through its own read; the winmm branch's call is the one
+orb's own joystick hook answers. `Th08::hooks` declines both pad hooks — see that method, where the reason is
+written: a real pad works natively and orb's own d-pad does not reach a run of this game.
 
 **There is one input word and not two.** `0x164d528` is written at four sites and no more: the
 supervisor's own read (0x4455f5), the same read OR'd into whatever is already there where
@@ -1711,22 +1717,26 @@ run's header. **`0x4477b1` is what reads it**, `__thiscall` on `0x17ce758` with 
 the file through 0x43e660, and writes its own defaults where that fails. So the file's offset *n* is
 `0x17ce870 + n`.
 
-**The first six words of it are the pad's buttons**, one per button of the game's own word, read off the
-fold at 0x43d170 — each word is handed to 0x43d760 with the bit it stands for:
+**The first nine words of it are the pad's buttons**, one per bit of the game's own word in its order, read
+off the folds at 0x43d17a through 0x43d2d8 and 0x43d4ac through 0x43d622 — each word is handed to 0x43d760
+(winmm) or 0x43d6e0 (DirectInput) with the bit it stands for:
 
 | file offset | in memory | bit |
 | --- | --- | --- |
-| 0 | `0x17ce870` | `0x1`, the shot — its own branch at 0x43d18x |
+| 0 | `0x17ce870` | `0x1`, the shot — its own branch for the focus after it |
 | 2 | `0x17ce872` | `0x2`, the bomb |
 | 4 | `0x17ce874` | `0x4`, the focus |
 | 6 | `0x17ce876` | `0x8`, the menu |
-| 8 | `0x17ce878` | `0x10` |
-| 10 | `0x17ce87a` | `0x20` |
+| 8 | `0x17ce878` | `0x10`, up |
+| 10 | `0x17ce87a` | `0x20`, down |
+| 12 | `0x17ce87c` | `0x40`, left |
+| 14 | `0x17ce87e` | `0x80`, right |
+| 16 | `0x17ce880` | `0x100`, the skip |
 
 Which is the layout `launcher::pad::Mapping::read` already reads — offset 0 as the decide and offsets 2
 and 6 as the two cancels — so that reader is right for this game. The copy of the install measured reads
 `02 00 05 00 04 00 00 00 ff ff ff ff ff ff ff ff`: the shot on pad button 2, the bomb on 5, the focus on
-4, the menu on 0, and `-1` for the six buttons nothing is assigned to.
+4, the menu on 0, and `-1` for the directions nothing is assigned to.
 
 Once read the rest is spread over the supervisor: the byte **`0x17ce892`** — `+0x13a` — is what
 0x447bc0 tests before printing `ウィンドウモードで起動します`, so it is **windowed**; the byte

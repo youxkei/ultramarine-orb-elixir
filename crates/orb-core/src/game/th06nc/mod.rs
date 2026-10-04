@@ -4159,12 +4159,18 @@ impl Game for Th06nc {
         frames >= grace - 1
     }
 
-    unsafe fn pad(&self, _pad: Option<Reading>) -> Pad {
-        Pad::default()
+    /// **th06c's, this game's word and pad being that one's bit for bit** — see `Th06c::pad`, `Th06c::pad_word`
+    /// and `Th06c::pushed_for`.
+    unsafe fn pad(&self, pad: Option<Reading>) -> Pad {
+        super::th06c::the_pad_of(unsafe { self.pad_word(pad, true) })
     }
 
-    unsafe fn pad_word(&self, _pad: Option<Reading>, _hats: bool) -> u16 {
-        0
+    unsafe fn pad_word(&self, pad: Option<Reading>, _hats: bool) -> u16 {
+        pad.map_or(0, super::th06c::the_word_of_a_sampled_pad)
+    }
+
+    unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
+        Some(super::th06c::pushed_as(word))
     }
 
     unsafe fn add_pad_buttons(&self, _into: *mut c_void, _pad: Option<Reading>) {}

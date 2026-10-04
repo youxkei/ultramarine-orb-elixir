@@ -624,6 +624,14 @@ fn attach() {
         Ok(()) => log!("joystick: read on a thread of orb's, out of the game's frame"),
         Err(error) => log!("joystick: {error}; the read stays in the game's frame"),
     }
+    // And the caps of joystick 0, for a launch pressing through a virtual pad and no other: the startup check reads
+    // them where a joystick answered, and every later read of the axes is measured against them.
+    if config.through_a_pad && config.autoplay.is_some() {
+        match unsafe { joystick::install_caps(exe) } {
+            Ok(()) => log!("joystick: the caps of joystick 0 are answered for the virtual pad"),
+            Err(error) => log!("joystick: {error}; the caps are winmm's"),
+        }
+    }
     if let Some(read) = &patches.joystick {
         // Always, and not called through: the pad half of the input read is orb's, for every pad the
         // machine has — see `orb_core::runtime::get_controller_input`. A launch that skipped it would be

@@ -411,6 +411,28 @@ const PAD_DOWN: u16 = 0x20;
 const PAD_LEFT: u16 = 0x40;
 const PAD_RIGHT: u16 = 0x80;
 
+/// **The pad's mapping**, the nine `i16` at the head of `th08.cfg`, one per bit of the word in its own order —
+/// the shot `0x1` through the skip `0x100` — handed to 0x43d760 (winmm) and 0x43d6e0 (DirectInput) with the bit
+/// it stands for (0x43d17a through 0x43d2d8, 0x43d4ac through 0x43d622); a negative one names none.
+const G_PAD_MAPPING: usize = 0x017c_e870;
+/// **The pad DirectInput found**, `[0x17ce76c]`, which the read takes instead of winmm wherever it is there
+/// (0x43d131) — `GetDeviceState` of `0x110` (0x43d48b), its axes ranged ±1000 (`push 0xfffffc18` at 0x406c11)
+/// and read against the thresholds at `0x17ce888` and `0x17ce88a`, 600 by default (0x447812, 0x43d627 through
+/// 0x43d6be).
+const G_PAD_DEVICE: usize = 0x017c_e76c;
+const CFG_PAD_ACROSS: usize = 0x017c_e888;
+const CFG_PAD_DOWN: usize = 0x017c_e88a;
+const PAD_RANGE: i32 = 1000;
+/// The `JOYCAPSA` of joystick 0 the startup check fills (0x43d108) — `x_min` at `+0x24`, as the read takes it
+/// (0x43d2e3) — the byte that has the shot's button held be the focus too (0x43ef50), and the count of frames it
+/// has been held (0x43d1a3).
+#[cfg(any(test, feature = "sim"))]
+const G_JOYSTICK_CAPS: usize = 0x0164_d388;
+#[cfg(any(test, feature = "sim"))]
+const CFG_FOCUS_ON_THE_SHOT: usize = 0x017c_e896;
+#[cfg(any(test, feature = "sim"))]
+const G_SHOT_HELD_FOR: usize = 0x0164_d51c;
+
 /// **What a run of this game is written down as**, which is every bit but the pause.
 ///
 /// **Not the game's own mask, which is no mask at all**: its replay writes `[0x164d528]` down whole, two
@@ -3340,15 +3362,94 @@ impl Game for Th08 {
                 .is_some_and(|settled| settled >= SETTLED_FRAMES)
     }
 
-    /// Nothing held: orb stands in front of none of this game's pad read, so a pad reaches it the way the
-    /// system gives it — see [`Th08::hooks`], where the read is written down and the two hooks that would
-    /// stand over it are declined.
-    unsafe fn pad(&self, _pad: Option<Reading>) -> Pad {
-        Pad::none()
+    /// **What the game's own read makes of the pads, with the hat as well** — the hat being a menu of orb's to
+    /// read, and a thumb on a pad going to a d-pad for a list. The game's read is frozen on the frames a menu of
+    /// orb's is up, so this is that read made here — see [`Th08::pad_word`]. Decide and cancel are what every
+    /// screen of the game takes them as, `0x1001` and `0xa`.
+    unsafe fn pad(&self, pad: Option<Reading>) -> Pad {
+        let own = unsafe { self.its_pad_device() }
+            .and_then(|(device, _)| unsafe { crate::joystick::the_state_of(device) });
+        let hat = own.map_or(0, |state| {
+            the_directions(crate::joystick::hat(state.hats[0]))
+        }) | pad.map_or(0, |reading| {
+            the_directions(crate::joystick::hat(reading.pov))
+        });
+        let word = unsafe { self.pad_word(pad, false) } | hat;
+        Pad {
+            up: word & PAD_UP != 0,
+            down: word & PAD_DOWN != 0,
+            decide: word & MENU_DECIDE != 0,
+            cancel: word & MENU_CANCEL != 0,
+            left: word & PAD_LEFT != 0,
+            right: word & PAD_RIGHT != 0,
+            shot: word & BUTTON_SHOT != 0,
+            bomb: word & BUTTON_BOMB != 0,
+            focus: word & BUTTON_FOCUS != 0,
+            skip: word & BUTTON_SKIP != 0,
+        }
     }
 
-    unsafe fn pad_word(&self, _pad: Option<Reading>, _hats: bool) -> u16 {
-        0
+    /// **The pads alone, as the game's own read (0x43d120) makes them**: the pad DirectInput found where there
+    /// is one, read through its own vtable, and the pad orb sampled otherwise — which is the read's winmm
+    /// branch, `joyGetPosEx(0)` answered out of that sample — each button by the mapping and each axis past
+    /// the device's threshold or a quarter of the sample's travel. **Not the hat, whatever `hats` says**: the
+    /// game's read never looks at it, and orb adds no d-pad to a run of this game.
+    ///
+    /// **Read on the frames the game's own read is not**: a menu of orb's, and a launch pressing through a pad
+    /// with its window behind, where the game's read of its keyboard is the thing kept from it — see
+    /// `runtime::the_read`. The focus the read makes of the shot held (0x43d1a3 through 0x43d215) is the game's
+    /// own count and not made here.
+    unsafe fn pad_word(&self, pad: Option<Reading>, _hats: bool) -> u16 {
+        let mapping = unsafe { mem::read::<[i16; 9]>(G_PAD_MAPPING) };
+        let mapped = |buttons: u32| {
+            mapping
+                .iter()
+                .enumerate()
+                .filter(|(_, button)| {
+                    u32::try_from(**button)
+                        .ok()
+                        .and_then(|button| 1u32.checked_shl(button))
+                        .is_some_and(|bit| buttons & bit != 0)
+                })
+                .fold(0u16, |word, (entry, _)| word | 1 << entry)
+        };
+        if let Some((device, _)) = unsafe { self.its_pad_device() } {
+            let Some(state) = (unsafe { crate::joystick::the_state_of(device) }) else {
+                return 0;
+            };
+            let threshold = |at: usize| i32::from(unsafe { mem::read::<i16>(at) });
+            let (across, down) = (threshold(CFG_PAD_ACROSS), threshold(CFG_PAD_DOWN));
+            let (x, y) = (state.axes[0], state.axes[1]);
+            return mapped(state.buttons_held())
+                | the_directions((y < -down, y > down, x < -across, x > across));
+        }
+        pad.map_or(0, |reading| {
+            let (up, down) = crate::joystick::axis(reading.y);
+            let (left, right) = crate::joystick::axis(reading.x);
+            mapped(reading.buttons) | the_directions((up, down, left, right))
+        })
+    }
+
+    /// **The mapping read backwards**: each of the word's nine bits held on the button its entry names, and the
+    /// four directions as the stick pushed to the end of its travel, past the dead zone of either branch of the
+    /// read. The menus' return (`0x1000`) has no button; every screen takes the shot's `0x1` beside it.
+    unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
+        let mapping = unsafe { mem::read::<[i16; 9]>(G_PAD_MAPPING) };
+        Some(crate::joystick::pushed_by(
+            word,
+            mapping
+                .iter()
+                .enumerate()
+                .map(|(entry, button)| (1u16 << entry, *button)),
+            (PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT),
+        ))
+    }
+
+    /// **The pad DirectInput found**, where there is one.
+    unsafe fn its_pad_device(&self) -> Option<(usize, i32)> {
+        mem::read_committed::<usize>(G_PAD_DEVICE)
+            .filter(|device| *device != 0)
+            .map(|device| (device, PAD_RANGE))
     }
 
     unsafe fn add_pad_buttons(&self, _into: *mut c_void, _pad: Option<Reading>) {}
@@ -4091,6 +4192,19 @@ impl Game for Th08 {
     fn stages_past_the_numbered(&self) -> &'static [&'static str] {
         &["extra"]
     }
+}
+
+/// The four directions as bits of the word the read builds — see [`PAD_UP`] and the three beside it.
+fn the_directions((up, down, left, right): (bool, bool, bool, bool)) -> u16 {
+    [
+        (up, PAD_UP),
+        (down, PAD_DOWN),
+        (left, PAD_LEFT),
+        (right, PAD_RIGHT),
+    ]
+    .into_iter()
+    .filter(|(pushed, _)| *pushed)
+    .fold(0, |word, (_, bit)| word | bit)
 }
 
 #[cfg(test)]

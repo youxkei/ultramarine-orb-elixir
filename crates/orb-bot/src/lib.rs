@@ -85,6 +85,13 @@ static PLAYING: Mutex<Option<Playing>> = Mutex::new(None);
 /// items in a moment.
 const A_TAP: u32 = 10;
 
+/// **Which of orb's retry lists is the ways on, and where on it going further back is** — `retry_ui`'s list 0,
+/// whose second item is 更に前からやり直す where the stage has a chapter behind the one lost and the stage's own
+/// start where it has none. The chapters behind are listed nearest first, and はい is the confirmation's first
+/// answer, so on either list after it the first item is the one.
+const WAYS: u8 = 0;
+const FURTHER_BACK: usize = 1;
+
 /// How often a step that has not ended says how long it has been going.
 ///
 /// **Which is what a launch nobody is watching needs of its log.** Three launches in a row sat on a screen the
@@ -109,6 +116,9 @@ struct Playing {
     /// is the question it named being *gone*, and a question that was never up is one to wait for. Without
     /// this the two are the same frame, and a step whose question never came up read as done.
     asked: bool,
+    /// **Which of the question's lists the decide was pressed on**, for a [`Step::Answer`] pressed through a pad:
+    /// what ends one is that list gone.
+    answer_pressed_on: Option<u8>,
     /// Whether the step now being carried out has seen the run under way, for a [`Step::Play`]: what ends one
     /// early is the run being *over*, and a run that has not started yet is not that. The frame a resume's
     /// answer lands on has the run wanted and no run built — th07 spends one such frame between the answer and
@@ -137,6 +147,12 @@ struct Playing {
     following: Option<u32>,
     /// And the attempt they were last handed — see [`hands_the_rules_their_attempt`].
     attempt: u32,
+    /// **Where the last offer to retry came up**, as the stage, the chapter and the stage frame the run was lost
+    /// on, and whether the one up was lost on the same three — what has the retry go a chapter further back.
+    lost_at: Option<(i32, u32, Option<u32>)>,
+    lost_again: bool,
+    /// Whether an offer to retry was up the frame before, which is what says a new one has come up.
+    retry_up: bool,
 }
 
 /// **The ways a run is played by where it is**: the places told and the ways named for a card, the fire after one,
@@ -529,6 +545,7 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
         hits: hits::TakingHits::default(),
         bombs: true,
         asked: false,
+        answer_pressed_on: None,
         in_run_seen: false,
         standing: None,
         written: Ways::default(),
@@ -539,6 +556,9 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
         dodging: None,
         following: None,
         attempt: 0,
+        lost_at: None,
+        lost_again: false,
+        retry_up: false,
     })
 }
 
@@ -993,6 +1013,9 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
     // is a mode whose whole content is that a death is retried, and a death lands in the middle of a step — so
     // no recipe can say when, and a bot that waited for one to say so would stop at its first death. Tapped
     // rather than held, a menu answering the frame a button goes down.
+    if reached.question != Some(Question::Retry) {
+        playing.retry_up = false;
+    }
     if reached.question == Some(Question::Retry) && !a_step_answers_the_retry(playing) {
         playing.frames += 1;
         // **And nothing pressed at an offer already answered.** Where the chapter was drawn to be given up
@@ -1001,7 +1024,51 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         if runtime::giving_the_run_up_at_the_retry() {
             return Some(0);
         }
-        return Some(if ((playing.frames - 1) / A_TAP).is_multiple_of(2) {
+        if !playing.retry_up {
+            playing.retry_up = true;
+            // **Not a death the rules walked into**, which is lost on the same frame every attempt by the same
+            // walk: the chapter further back starts the chapter's count of retries over, and the draw with it, so
+            // a chapter drawn to be hit in was drawn again and hit again — th06nc's `a_run_played_to_its_clear`
+            // (2026-10-05) was hit on purpose at 134.4,252.8 in stage 1's chapter 3 and sent back to chapter 2
+            // seven times before the launch was closed.
+            let lost = (!playing.hits.drawn_to_be_hit_in()).then_some((
+                reached.stage,
+                reached.chapter,
+                reached.stage_frames,
+            ));
+            playing.lost_again = lost.is_some() && playing.lost_at == lost;
+            playing.lost_at = lost;
+            if playing.lost_again {
+                log!(
+                    "autoplay: chapter {} of stage {} lost again on the stage frame it was lost on before, \
+                     so the retry goes a chapter further back",
+                    reached.chapter,
+                    reached.stage,
+                );
+            }
+        }
+        let tapped = ((playing.frames - 1) / A_TAP).is_multiple_of(2);
+        // **A chapter lost on the frame it was lost on the attempt before is one its own start cannot get out
+        // of**, so the retry goes a chapter further back rather than taking it again: a restore puts back the
+        // game and its generator and nothing of the rules is random, so a chapter begun where there is nowhere
+        // left to go is lost the same way every time. th06nc's Extra began its chapter 8 eight frames before a
+        // hit with the run boxed in on the floor by the left wall, and took it again thirty-five times on stage
+        // frame 9231 under the same generator before the launch was closed.
+        if playing.lost_again {
+            return Some(match reached.on_the_question.filter(|_| tapped) {
+                None => 0,
+                Some(on) => {
+                    let towards = match (on.list, on.at) {
+                        (WAYS, at) if at < FURTHER_BACK => "down",
+                        (WAYS, at) if at > FURTHER_BACK => "up",
+                        (WAYS, _) | (_, 0) => "decide",
+                        _ => "up",
+                    };
+                    game.button_bit(towards).unwrap_or(0)
+                }
+            });
+        }
+        return Some(if tapped {
             game.button_bit("decide").unwrap_or(0)
         } else {
             0
@@ -1350,6 +1417,40 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // be up — nothing else raises one — and ends once the answer has been taken, which is the frame the
         // block that answers it runs. Nothing is pressed while it waits: a press at one of these takes the
         // item the cursor is on, which is the item this step exists to say is not the one meant.
+        // **Pressed, where the launch presses through a pad**: towards the item down or up the list, and decide on it,
+        // tapped — as somebody looking at the question presses it. Over once the decide has been pressed on the
+        // item and the list it was pressed on is gone, which is the question answered or the next of its lists up.
+        Step::Answer { question, item, .. } if unsafe { runtime::presses_through_a_pad(game) } => {
+            let on = reached
+                .on_the_question
+                .filter(|_| reached.question == Some(*question));
+            let over = playing
+                .answer_pressed_on
+                .is_some_and(|list| on.is_none_or(|on| on.list != list));
+            let tapped = (playing.frames - 1) % (A_TAP * 2) < A_TAP;
+            let word = match on.filter(|_| !over && tapped) {
+                None => 0,
+                Some(on) => {
+                    let towards = match on.at.cmp(item) {
+                        std::cmp::Ordering::Less => "down",
+                        std::cmp::Ordering::Greater => "up",
+                        std::cmp::Ordering::Equal => {
+                            playing.answer_pressed_on = Some(on.list);
+                            "decide"
+                        }
+                    };
+                    game.button_bit(towards).unwrap_or(0)
+                }
+            };
+            if over {
+                log!(
+                    "autoplay: step {} of {} answered with item {item}, pressed",
+                    playing.at + 1,
+                    playing.steps.len(),
+                );
+            }
+            (word, over)
+        }
         Step::Answer { question, item, .. } => {
             let up = reached.question == Some(*question);
             if up && !playing.asked && !runtime::answering_a_question() {
@@ -1457,6 +1558,7 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         playing.at += 1;
         playing.frames = 0;
         playing.asked = false;
+        playing.answer_pressed_on = None;
         playing.in_run_seen = false;
         log!(
             "autoplay: step {} of {} {}",
@@ -1506,8 +1608,8 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{A_TAP, Playing, read_the_recipe, steer, the_word};
-    use orb_core::game::{Game, Question, Reached, th07::Th07};
+    use super::{A_TAP, FURTHER_BACK, Playing, WAYS, read_the_recipe, steer, the_word};
+    use orb_core::game::{Game, OnTheQuestion, Question, Reached, th07::Th07};
 
     /// The game these are read against, which is th07 for the reason every recipe test uses it: what a button
     /// name *is* is the game's, and this is the game whose bot the recipes were written for.
@@ -1541,6 +1643,7 @@ mod tests {
             card_frames: None,
             stage_frames: None,
             difficulty: None,
+            on_the_question: None,
         }
     }
 
@@ -1705,6 +1808,87 @@ mod tests {
             "the offer was not tapped for {A_TAP} frames and let go for as many",
         );
     }
+    /// **A chapter lost again on the stage frame it was lost on before is retried from a chapter further back**:
+    /// the second offer pressed down to 更に前からやり直す and decided there, the nearest chapter behind decided on,
+    /// and はい decided on its confirmation — where an offer lost on a frame of its own takes the chapter again.
+    #[test]
+    fn a_chapter_lost_again_on_the_same_frame_is_retried_from_a_chapter_further_back() {
+        // A wait, so that a frame with no offer up presses nothing and reads nothing of the game.
+        let mut playing = playing_to("- wait_until: { frames: 1000 }\n");
+        let button = |name: &str| GAME.button_bit(name).expect("th07 has the button");
+        let lost_on = |frame: u32, list: u8, at: usize| Reached {
+            stage_frames: Some(frame),
+            on_the_question: Some(OnTheQuestion { list, at }),
+            ..reached(Some(Question::Retry))
+        };
+        let gone = reached(None);
+
+        assert_eq!(
+            the_word(&mut playing, GAME, lost_on(9231, WAYS, 0)),
+            Some(button("decide")),
+            "the first offer did not take the chapter again",
+        );
+        the_word(&mut playing, GAME, gone);
+        assert_eq!(
+            the_word(&mut playing, GAME, lost_on(9300, WAYS, 0)),
+            Some(button("decide")),
+            "an offer lost on a frame of its own did not take the chapter again",
+        );
+        the_word(&mut playing, GAME, gone);
+
+        let pressed: Vec<_> = [
+            lost_on(9300, WAYS, 0),
+            lost_on(9300, WAYS, FURTHER_BACK),
+            lost_on(9300, 1, 0),
+            lost_on(9300, 2, 1),
+            lost_on(9300, 2, 0),
+        ]
+        .into_iter()
+        .map(|at| the_word(&mut playing, GAME, at))
+        .collect();
+        assert_eq!(
+            pressed,
+            ["down", "decide", "decide", "up", "decide"]
+                .map(|name| Some(button(name)))
+                .to_vec(),
+            "the offer lost again was not walked to the chapter behind",
+        );
+    }
+
+    /// **A chapter drawn to be hit in and lost again on the same stage frame is taken again**, the death being one
+    /// the rules walked into on purpose rather than one its start cannot get out of.
+    #[test]
+    fn a_chapter_drawn_to_be_hit_in_and_lost_again_on_the_same_frame_is_taken_again() {
+        // Told outright rather than by a `take_hits` step, which hands its frame to the rules and so reads the game.
+        let mut playing = playing_to("- wait_until: { frames: 1000 }\n");
+        playing.hits.told(crate::hits::Told {
+            chance: 1.0,
+            times_each_retry: 1.0,
+            gives_up: 0.0,
+        });
+        let decide = Some(GAME.button_bit("decide").expect("th07 has the button"));
+        let lost_on = |frame: u32| Reached {
+            stage_frames: Some(frame),
+            on_the_question: Some(OnTheQuestion { list: WAYS, at: 0 }),
+            ..reached(Some(Question::Retry))
+        };
+        let in_the_chapter = reached(None);
+
+        the_word(&mut playing, GAME, in_the_chapter);
+        the_word(&mut playing, GAME, in_the_chapter);
+        assert_eq!(
+            the_word(&mut playing, GAME, lost_on(9231)),
+            decide,
+            "the first offer did not take the chapter again",
+        );
+        the_word(&mut playing, GAME, in_the_chapter);
+        assert_eq!(
+            the_word(&mut playing, GAME, lost_on(9231)),
+            decide,
+            "the chapter drawn to be hit in was not taken again",
+        );
+    }
+
     // What is pressed with no offer up is the run played by the game's own rules, which reads where the game
     // keeps its numbers — so it is read against a laid-out game rather than here: `orb-e2e`'s
     // `the_bot_playing_th07`.

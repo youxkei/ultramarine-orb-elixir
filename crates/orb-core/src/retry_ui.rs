@@ -482,6 +482,17 @@ impl RetryMenu {
     /// start over and sent back to that stage, which no press can reach — the cursor starts on the chapter
     /// that was lost and a bot's tap of decide takes it. Without this the way to that chapter was the whole
     /// run played again, half an hour of autoplay for a file the next launch overwrites.
+    /// Where its cursor is, for a launch pressing its answer through a pad: the ways on, the chapters behind, or
+    /// the confirmation one of them asked, and the item it is on there.
+    pub fn on_the_cursor(&self) -> crate::game::OnTheQuestion {
+        let (list, at) = match self.showing {
+            Showing::Listing(Listing::Ways) => (0, self.way),
+            Showing::Listing(Listing::Chapters) => (1, self.chapter),
+            Showing::Confirming(..) => (2, self.answer),
+        };
+        crate::game::OnTheQuestion { list, at }
+    }
+
     pub fn answered_outright(&mut self, item: usize) -> Option<Choice> {
         match self.showing {
             Showing::Listing(Listing::Ways) => match self.ways.get(item).copied() {

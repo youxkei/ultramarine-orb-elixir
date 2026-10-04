@@ -301,6 +301,65 @@ mod pad {
     pub const X: u16 = 0x4000;
 }
 
+/// **The same buttons in the numbering orb's sampling gives an XInput pad's** — `A` 0, `B` 1, `X` 2 and `Start`
+/// 7, DirectInput's order (see `joystick`'s own table) — each with the bits of the word it presses. `A` both the
+/// shot and the decide, as [`Game::press_into_pad`] presses both on it.
+const SAMPLED_BUTTONS: [(i16, u16); 4] = [
+    (0, button::SHOT | button::DECIDE),
+    (1, button::BOMB),
+    (2, button::FOCUS),
+    (7, button::MENU),
+];
+
+/// **The word a pad orb sampled presses**, its buttons by [`SAMPLED_BUTTONS`] and the four directions off the
+/// d-pad and the left stick both, which [`Game::press_into_pad`] fills together.
+///
+/// `pub(crate)` for th06nc, whose word and pad are this game's bit for bit.
+pub(crate) fn the_word_of_a_sampled_pad(reading: Reading) -> u16 {
+    let buttons = SAMPLED_BUTTONS
+        .iter()
+        .filter(|(button, _)| reading.buttons & 1 << button != 0)
+        .fold(0, |word, (_, bits)| word | bits);
+    let (up, down, left, right) = crate::joystick::hat(reading.pov);
+    let (stick_up, stick_down) = crate::joystick::axis(reading.y);
+    let (stick_left, stick_right) = crate::joystick::axis(reading.x);
+    [
+        (up || stick_up, button::UP),
+        (down || stick_down, button::DOWN),
+        (left || stick_left, button::LEFT),
+        (right || stick_right, button::RIGHT),
+    ]
+    .into_iter()
+    .filter(|(held, _)| *held)
+    .fold(buttons, |word, (_, bit)| word | bit)
+}
+
+/// And the virtual pad pushed the way `word` is pressed, which that reads back.
+pub(crate) fn pushed_as(word: u16) -> crate::joystick::Pushed {
+    crate::joystick::pushed_by(
+        word,
+        SAMPLED_BUTTONS.map(|(button, bits)| (bits, button)),
+        (button::UP, button::DOWN, button::LEFT, button::RIGHT),
+    )
+}
+
+/// And that word as a menu of orb's reads a pad: the decide `A`, the cancel `B`.
+pub(crate) fn the_pad_of(word: u16) -> Pad {
+    let held = |bit: u16| word & bit != 0;
+    Pad {
+        up: held(button::UP),
+        down: held(button::DOWN),
+        decide: held(button::DECIDE),
+        cancel: held(button::BOMB),
+        left: held(button::LEFT),
+        right: held(button::RIGHT),
+        shot: held(button::SHOT),
+        bomb: held(button::BOMB),
+        focus: held(button::FOCUS),
+        skip: false,
+    }
+}
+
 /// **And the name it moves that window with afterwards**, which is what put a window orb had made in
 /// the corner back in the middle of a screen: this exe looks up `MonitorFromWindow`, `GetMonitorInfoW`,
 /// `GetSystemMetrics`, `ClientToScreen` and this together, which between them are a window centred on
@@ -3059,12 +3118,22 @@ impl Game for Th06c {
         frames >= grace - 1
     }
 
-    unsafe fn pad(&self, _pad: Option<Reading>) -> Pad {
-        Pad::default()
+    /// **The pads orb samples, for a menu of orb's** — the word [`Th06c::pad_word`] reads off them, the decide
+    /// being `A` and the cancel `B`, as every screen of the game takes them.
+    unsafe fn pad(&self, pad: Option<Reading>) -> Pad {
+        the_pad_of(unsafe { self.pad_word(pad, true) })
     }
 
-    unsafe fn pad_word(&self, _pad: Option<Reading>, _hats: bool) -> u16 {
-        0
+    /// **The pads orb samples, as the word [`Game::press_into_pad`] would have pressed** — read for a launch
+    /// pressing through a pad, whose word comes off the pads rather than the bot: see `runtime::the_frames_word`.
+    unsafe fn pad_word(&self, pad: Option<Reading>, _hats: bool) -> u16 {
+        pad.map_or(0, the_word_of_a_sampled_pad)
+    }
+
+    /// **The word pressed on a pad, as [`Game::press_into_pad`] presses it** — the same buttons, numbered the way
+    /// orb's sampling numbers an XInput pad's.
+    unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
+        Some(pushed_as(word))
     }
 
     unsafe fn add_pad_buttons(&self, _into: *mut c_void, _pad: Option<Reading>) {}
@@ -3513,7 +3582,13 @@ impl Th06c {
     unsafe fn numbers(&self) -> resume::Numbers {
         let manager = at(GAME_MANAGER);
         resume::Numbers {
-            score: mem::read_committed::<u32>(manager + game_manager::SCORE).unwrap_or(0),
+            // **The panel's field and not the run's**, which is where the score stands when a stage is written
+            // down: the stage callback copies the run's into the panel's (`0x140024cf5`) and leaves the run's
+            // at nought in its tail (`0x14002548d`), and only the stage's first update raises it back
+            // (`0x140023f71`). Read off the run's, every stage after the first was written down with no
+            // score — a Normal run's stage 6 as nought where its panel held 55,221,580 (2026-10-05) — and a
+            // chapter of it played back without the extra lives that score had paid for.
+            score: mem::read_committed::<u32>(manager + game_manager::GUI_SCORE).unwrap_or(0),
             seed: mem::read_committed::<u16>(manager + game_manager::RANDOM_SEED).unwrap_or(0),
             point_items: mem::read_committed::<u16>(manager + game_manager::POINT_ITEMS)
                 .unwrap_or(0),

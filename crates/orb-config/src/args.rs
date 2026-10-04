@@ -259,6 +259,12 @@ pub struct Options {
     #[arg(long, require_equals = true, value_name = "RECIPE", help_heading = FAULT)]
     autoplay: Option<PathBuf>,
 
+    /// press through a pad: the run is played on a virtual pad orb plugs in, which every read of a
+    /// pad answers — the game's own, and orb's — so the run goes through what a person at a pad
+    /// goes through rather than having its word handed to the game
+    #[arg(long, requires = "autoplay", help_heading = FAULT)]
+    through_a_pad: bool,
+
     /// write down what every frame held — the run's state as the game's memory has it, the word it
     /// was played with, which question of orb's own was up, and the log's lines — as MessagePack
     /// records to this file, beside the game where the path names no directory, for a check to read
@@ -494,6 +500,9 @@ impl Config {
         // handed on would be a second thing to have gone wrong by the time anything could say so, and the
         // launcher is where a file that will not open is still worth a word about. A recipe that cannot be
         // read at all leaves this as nothing, which is a launch that plays nothing and says why.
+        if options.through_a_pad {
+            self.through_a_pad = true;
+        }
         if let Some(recipe) = &options.autoplay {
             match std::fs::read_to_string(recipe) {
                 Ok(text) => self.autoplay = Some(text),
@@ -659,6 +668,15 @@ mod tests {
         // The collecting pass is nobody's to watch and nothing of it reads a pad, so a recipe is what starts
         // the replay there.
         assert!(Options::from_command_line("--collect --autoplay=recipe.yaml").is_ok());
+    }
+
+    /// **A pad pressed through is a recipe's**, and nobody's launch has one: what pushes it is the run a launch
+    /// plays itself.
+    #[test]
+    fn a_pad_is_pressed_through_only_by_a_launch_playing_itself() {
+        assert!(Options::from_command_line("--through-a-pad").is_err());
+        assert!(Options::from_command_line("--autoplay=recipe.yaml --through-a-pad").is_ok());
+        assert!(!with("").through_a_pad);
     }
 
     /// A speed given by hand wins over the one the pass chose, whichever order they come in:

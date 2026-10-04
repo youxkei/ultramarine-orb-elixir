@@ -31,6 +31,7 @@ use orb_core::game::th08::image::{Image, Scene, Screen};
 
 use orb_sim::keys;
 
+pub use super::{A_WINMM_PADS_BUTTONS, A_WINMM_PADS_TRAVEL, DirectInputPad, PluggedIn};
 use super::{
     DRAW, Display, Launch, Launched, PRESENT, Presented, SOUND, UPDATE, WINDOW, Work, scratch,
 };
@@ -586,6 +587,10 @@ pub struct Fake {
     /// Whether the driver behind this game's device refuses to stretch a present — see
     /// [`Fake::refuses_to_stretch_on_a_present`].
     refuses_to_stretch: Cell<bool>,
+    /// **The DirectInput pad this file holds**, where the launch plugged one in — see [`PluggedIn`].
+    directinput_pad: Cell<DirectInputPad>,
+    /// **What the read made of the pads alone** on the last read it made — see [`Fake::the_pads_share_of_the_read`].
+    pads_share: Cell<u16>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory.
     _installed: orb_api::Installed,
 }
@@ -627,15 +632,17 @@ struct Host {
     ui_language: Option<u16>,
     monitor: bool,
     device: bool,
+    pad: PluggedIn,
 }
 
 impl Host {
-    /// What an ordinary launch has: the machine's own language, a panel to lay a window out against, and a
-    /// device made before orb is attached.
+    /// What an ordinary launch has: the machine's own language, a panel to lay a window out against, a device
+    /// made before orb is attached, and no pad plugged in as the game starts.
     const ORDINARY: Self = Self {
         ui_language: None,
         monitor: true,
         device: true,
+        pad: PluggedIn::Nothing,
     };
 }
 
@@ -663,6 +670,22 @@ impl Fake {
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
         Self::attach_declaring(display, Host::ORDINARY, name, &[], work, settings)
+    }
+
+    /// And with a pad plugged in as the game starts — see [`PluggedIn`] — the launch otherwise the one
+    /// [`Fake::attach_configured`] makes.
+    pub fn attach_with_a_pad(
+        pad: PluggedIn,
+        display: Display,
+        name: &str,
+        work: Work,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
+        let host = Host {
+            pad,
+            ..Host::ORDINARY
+        };
+        Self::attach_declaring(display, host, name, &[], work, settings)
     }
 
     /// And on a host that will not say where its panel is — **no monitor declared**, which is a window orb has
@@ -759,6 +782,8 @@ impl Fake {
         // Kept before the attach takes the rest of it: what plays the run is installed after the attach —
         // the log being what a refused recipe has to speak through — and by then the config has moved.
         let recipe = config.autoplay.clone();
+        // Whether orb writes over the caps' import entry as well as the position's — see `orb::joystick`.
+        let caps_through_orb = config.through_a_pad && config.autoplay.is_some();
         // **No `font.ttf` beside this game's exe**, th08 keeping its fonts inside `th08.dat` as th07 does:
         // the face is there for the harness's own device and gone before orb reaches for one.
         let font = dir.join("font.ttf");
@@ -851,6 +876,8 @@ impl Fake {
             goes_on_building_for: Cell::new(0),
             build: Cell::new(Build::Idle),
             refuses_to_stretch: Cell::new(false),
+            directinput_pad: Cell::new(DirectInputPad::default()),
+            pads_share: Cell::new(0),
             _installed: installed,
         });
         RUNNING.set(&raw const *fake);
@@ -904,8 +931,64 @@ impl Fake {
             // before's — `the_run_of_th08_left_behind`'s cancel.
             unsafe { orb_core::runtime::plays_the_run(None) };
         }
+        match host.pad {
+            PluggedIn::Nothing => {}
+            PluggedIn::OnWinmm => fake.sim().joystick().attach(
+                A_WINMM_PADS_BUTTONS,
+                A_WINMM_PADS_TRAVEL.0,
+                A_WINMM_PADS_TRAVEL.1,
+            ),
+            PluggedIn::ThroughDirectInput => fake.image.a_pad_is_found_through_directinput(
+                its_pad_acquires as *const () as usize,
+                its_pad_is_read as *const () as usize,
+                its_pad_is_polled as *const () as usize,
+            ),
+        }
+        fake.checks_for_a_joystick(caps_through_orb);
         fake.frame_takes(work);
         fake
+    }
+
+    /// **The startup's check for a joystick, 0x43d0c0**: `joyGetPosEx(0)` through the import orb writes over,
+    /// and where that answers, `joyGetDevCapsA(0)` through its own import into the `JOYCAPSA` at `0x164d388` —
+    /// orb's where orb writes over that entry too.
+    fn checks_for_a_joystick(&self, caps_through_orb: bool) {
+        let mut info = orb_api::JoyInfo {
+            size: size_of::<orb_api::JoyInfo>() as u32,
+            flags: orb_core::joystick::RETURN_ALL,
+            ..orb_api::JoyInfo::default()
+        };
+        if unsafe { orb_core::joystick::answer(0, &mut info) } != orb_api::joyerr::NOERROR {
+            return;
+        }
+        let caps = match caps_through_orb {
+            true => {
+                let mut caps = orb_api::JoyCaps::default();
+                let answered = unsafe {
+                    orb_core::joystick::caps_answer(
+                        0,
+                        &mut caps,
+                        size_of::<orb_api::JoyCaps>() as u32,
+                    )
+                };
+                (answered == orb_api::joyerr::NOERROR).then_some(caps)
+            }
+            false => orb_api::joystick::caps(0),
+        };
+        if let Some(caps) = caps {
+            self.image.the_joysticks_caps_are(&caps);
+        }
+    }
+
+    /// **Pushes the DirectInput pad this file holds**, which the game's own read answers from on its next frame.
+    pub fn pushes_its_directinput_pad(&self, pad: DirectInputPad) {
+        self.directinput_pad.set(pad);
+    }
+
+    /// **What the game's own read made of the pads on its last read**, the keyboard's word left out — which is
+    /// where a press made on a pad shows up and a word handed to the read does not.
+    pub fn the_pads_share_of_the_read(&self) -> u16 {
+        self.pads_share.get()
     }
 
     /// This game's memory, for an e2e test that reads back what a frame of orb's did to it.
@@ -2622,18 +2705,122 @@ unsafe extern "thiscall" fn puts_the_fog_out(_supervisor: usize) {
 /// another program sent is a key this game reads, and a read the host refuses leaves the game with nothing
 /// held rather than with what a stack buffer happened to hold.
 ///
-/// **And no pad half after it**, unlike th07's: `Th08::hooks` declines the pad, this game's own read being
-/// DirectInput8 and not read.
+/// **And the pad folded in after it**, 0x43d120 — see [`the_pads_share`] — the game's own and not orb's,
+/// `Th08::hooks` declining the pad hooks.
 extern "system" fn input() -> u16 {
     let fake = running();
     let state = fake.sim().keyboard().state();
-    MAP.iter()
+    let keys = MAP
+        .iter()
         .filter(|(key, _)| {
             state
                 .as_ref()
                 .is_some_and(|state| state[*key as usize] & 0x80 != 0)
         })
-        .fold(0, |word, (_, bit)| word | bit)
+        .fold(0, |word, (_, bit)| word | bit);
+    let pads = the_pads_share();
+    fake.pads_share.set(pads);
+    keys | pads
+}
+
+/// **The pad's fold, 0x43d120**, one of two ways. Where the input's set-up found a DirectInput pad, through the
+/// device's own vtable — `Poll` (0x43d3c1), an `Acquire` where that fails (0x43d3f6), and `GetDeviceState` of
+/// `0x110` (0x43d48b), each held button's byte its top bit and the two axes against the configuration's
+/// thresholds (0x43d627 through 0x43d6be). Otherwise `joyGetPosEx(0)` through the import orb writes over
+/// (0x43d15e), each axis past a quarter of the travel the startup check's caps give it (0x43d2dd through
+/// 0x43d39e). The mapping's nine buttons each into its bit either way, and the shot's button held ten frames the
+/// focus too where the configuration says so (0x43d1a3 through 0x43d215); the hat never looked at.
+fn the_pads_share() -> u16 {
+    let image = &running().image;
+    let mapping = image.the_pads_mapping();
+    let directions = |up: bool, down: bool, left: bool, right: bool| {
+        [(up, 0x10), (down, 0x20), (left, 0x40), (right, 0x80)]
+            .into_iter()
+            .filter(|(held, _)| *held)
+            .fold(0u16, |word, (_, bit)| word | bit)
+    };
+    let (buttons, stick) = if let Some((device, across, down)) = image.the_directinput_pad() {
+        let slot = |index: usize| {
+            let vtable = image.space().read::<usize>(device);
+            image
+                .space()
+                .read::<usize>(vtable + index * size_of::<usize>())
+        };
+        let poll: unsafe extern "system" fn(usize) -> i32 =
+            unsafe { std::mem::transmute(slot(25)) };
+        if unsafe { poll(device) } < 0 {
+            let acquire: unsafe extern "system" fn(usize) -> i32 =
+                unsafe { std::mem::transmute(slot(7)) };
+            unsafe { acquire(device) };
+            return 0;
+        }
+        let read: unsafe extern "system" fn(usize, u32, *mut u8) -> i32 =
+            unsafe { std::mem::transmute(slot(9)) };
+        let mut state = [0u8; 0x110];
+        if unsafe { read(device, 0x110, state.as_mut_ptr()) } < 0 {
+            return 0;
+        }
+        let axis = |at: usize| {
+            i32::from_le_bytes([state[at], state[at + 1], state[at + 2], state[at + 3]])
+        };
+        let (x, y) = (axis(0), axis(4));
+        let (across, down) = (i32::from(across), i32::from(down));
+        let held = (0..32)
+            .filter(|button| state[0x30 + button] & 0x80 != 0)
+            .fold(0u32, |mask, button| mask | 1 << button);
+        (
+            held,
+            directions(y < -down, y > down, x < -across, x > across),
+        )
+    } else {
+        let mut pad = orb_api::JoyInfo {
+            size: size_of::<orb_api::JoyInfo>() as u32,
+            flags: orb_core::joystick::RETURN_ALL,
+            ..orb_api::JoyInfo::default()
+        };
+        if unsafe { orb_core::joystick::answer(0, &mut pad) } != orb_api::joyerr::NOERROR {
+            return 0;
+        }
+        let (x_min, x_max, y_min, y_max) = image.the_joysticks_axes();
+        let pushed = |at: u32, low: u32, high: u32| {
+            let quarter = high.wrapping_sub(low) >> 2;
+            let middle = low.wrapping_add(high) >> 1;
+            (
+                at < middle.wrapping_sub(quarter),
+                middle.wrapping_add(quarter) < at,
+            )
+        };
+        let (left, right) = pushed(pad.x, x_min, x_max);
+        let (up, down) = pushed(pad.y, y_min, y_max);
+        (pad.buttons, directions(up, down, left, right))
+    };
+    let held = |entry: usize| {
+        u32::try_from(mapping[entry])
+            .ok()
+            .and_then(|button| 1u32.checked_shl(button))
+            .is_some_and(|bit| buttons & bit != 0)
+    };
+    let mut word = (0..9)
+        .filter(|entry| held(*entry))
+        .fold(0u16, |word, entry| word | 1 << entry);
+    if image.the_shot_held_is_the_focus() {
+        let count = image.the_shot_is_held_for();
+        match held(0) {
+            true => {
+                let count = (count + 1).min(20);
+                image.the_shot_has_been_held_for(count);
+                if count >= 10 {
+                    word |= 0x4;
+                }
+            }
+            false if count > 10 => {
+                image.the_shot_has_been_held_for(count - 10);
+                word |= 0x4;
+            }
+            false => image.the_shot_has_been_held_for(0),
+        }
+    }
+    word | stick
 }
 
 /// **The job the build calls three instructions past its seed's copy**, at 0x409b20: nothing of its own,
@@ -2721,10 +2908,31 @@ extern "thiscall" fn stops_the_music(_stream: usize) -> i32 {
     0
 }
 
-/// And its own `joyGetPosEx`, which is never called: `Th08::hooks` declines the pad, so nothing here ever
-/// reads one.
-unsafe extern "system" fn joystick_position(_device: u32, _into: *mut orb_api::JoyInfo) -> u32 {
-    orb_api::joyerr::PARMS
+/// **winmm's own `joyGetPosEx`, which the import held before orb wrote over it** — the host's, which is what
+/// `joystick::answer` falls through to for a read it has no sample for.
+unsafe extern "system" fn joystick_position(device: u32, into: *mut orb_api::JoyInfo) -> u32 {
+    if into.is_null() {
+        return orb_api::joyerr::PARMS;
+    }
+    let (result, info) = orb_api::joystick::position(device, unsafe { (*into).flags });
+    unsafe { *into = info };
+    result
+}
+
+/// **The DirectInput pad this file holds**: acquired whenever asked, polled as a pad that is there, and its state
+/// what an e2e test last pushed.
+unsafe extern "system" fn its_pad_acquires(_device: usize) -> i32 {
+    0
+}
+
+unsafe extern "system" fn its_pad_is_polled(_device: usize) -> i32 {
+    0
+}
+
+unsafe extern "system" fn its_pad_is_read(_device: usize, size: u32, into: *mut u8) -> i32 {
+    let state = super::the_state_of(running().directinput_pad.get(), size);
+    unsafe { std::ptr::copy_nonoverlapping(state.as_ptr(), into, state.len()) };
+    0
 }
 
 /// And its read of the pad's buttons by number, declined for the same reason.

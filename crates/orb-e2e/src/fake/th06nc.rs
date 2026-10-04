@@ -139,6 +139,43 @@ const PAUSE: u16 = 0x0400;
 const MENU_DECIDE: u16 = SHOT | ENTER;
 const MENU_CANCEL: u16 = BOMB;
 
+/// **The pad's half of the word, `0x140012f00`**, which the compose ends in: `XInputGetState` through the name
+/// it looked up (`0x1400abd40`) — orb's own answer, `runtime::xinput_get_state` — and its buttons ORed into the
+/// keyboard's bits from `0x140012fd3` on. `A` carries the bits `Z` does and `B` those `X` does, `X` the focus,
+/// `Start` the pause and the d-pad the four directions: what `Th06nc::press_into_pad` presses each with, which a
+/// real case's run has played on. The focus the half makes of a pad's held one (`[0x140abad70]`) is the game's
+/// own count and not laid out here.
+fn the_pads_word() -> u16 {
+    let mut pad = [0u8; 16];
+    if unsafe { orb_core::runtime::xinput_get_state(0, pad.as_mut_ptr()) } != 0 {
+        return 0;
+    }
+    let buttons = u16::from_le_bytes([pad[4], pad[5]]);
+    [
+        (PAD_A, SHOT | ENTER | 0x8000),
+        (PAD_B, BOMB | 0x200),
+        (PAD_X, FOCUS),
+        (PAD_START, PAUSE),
+        (PAD_UP, UP),
+        (PAD_DOWN, DOWN),
+        (PAD_LEFT, LEFT),
+        (PAD_RIGHT, RIGHT),
+    ]
+    .into_iter()
+    .filter(|(button, _)| buttons & button != 0)
+    .fold(0, |word, (_, bits)| word | bits)
+}
+
+/// XInput's own bits for the buttons [`the_pads_word`] reads.
+const PAD_A: u16 = 0x1000;
+const PAD_B: u16 = 0x2000;
+const PAD_X: u16 = 0x4000;
+const PAD_START: u16 = 0x0010;
+const PAD_UP: u16 = 0x0001;
+const PAD_DOWN: u16 = 0x0002;
+const PAD_LEFT: u16 = 0x0004;
+const PAD_RIGHT: u16 = 0x0008;
+
 /// **The main menu's ten items**, of which orb has a question over the first two — see `asm.md`'s own
 /// table, read off launches: a fresh launch's taps of down went `0, 2, 3 … 9`, the Extra stepped over
 /// while it is locked.
@@ -548,7 +585,7 @@ impl Fake {
         // keyboard read, the factory whose swapchains orb takes, and the two the window is made and moved
         // through — see [`Fake::creates_its_window`], which is what asks for those. The pad is left out
         // for the reason th06c's fake leaves it out, answering it through `runtime::xinput_get_state`
-        // itself.
+        // itself — see [`the_pads_word`].
         unsafe {
             orb_core::runtime::answers_the_lookup_of(orb_core::runtime::Lookups {
                 read: Some(KEYBOARD_READ),
@@ -1107,7 +1144,8 @@ impl Fake {
             .iter()
             .filter(|(index, _)| keys[*index] & 0x80 != 0)
             .fold(0u16, |word, (_, bits)| word | bits);
-        self.image.the_run_acts_on_the_word(u32::from(word));
+        self.image
+            .the_run_acts_on_the_word(u32::from(word | the_pads_word()));
     }
 
     fn pressed(&self, mask: u16) -> bool {

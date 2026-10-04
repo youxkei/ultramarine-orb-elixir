@@ -80,7 +80,11 @@ mod a_region_a_restore_of_th06nc_cannot_write;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_run_of_th06c_played_twice;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_run_of_th06c_pressed_through_a_pad;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_run_of_th06nc_played_twice;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_run_of_th06nc_pressed_through_a_pad;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_span_of_th06nc_held_back_by_its_source;
 #[cfg(all(test, target_arch = "x86_64"))]
@@ -279,11 +283,19 @@ mod a_region_a_restore_of_th08_cannot_write;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_region_a_restore_of_th10_cannot_write;
 #[cfg(all(test, target_arch = "x86"))]
+mod a_run_of_th06_pressed_through_a_pad;
+#[cfg(all(test, target_arch = "x86"))]
 mod a_run_of_th07_played_twice;
+#[cfg(all(test, target_arch = "x86"))]
+mod a_run_of_th07_pressed_through_a_pad;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_run_of_th08_played_twice;
 #[cfg(all(test, target_arch = "x86"))]
+mod a_run_of_th08_pressed_through_a_pad;
+#[cfg(all(test, target_arch = "x86"))]
 mod a_run_of_th10_played_twice;
+#[cfg(all(test, target_arch = "x86"))]
+mod a_run_of_th10_pressed_through_a_pad;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_stage_transition;
 #[cfg(all(test, target_arch = "x86"))]

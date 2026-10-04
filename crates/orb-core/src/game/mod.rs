@@ -2000,6 +2000,31 @@ pub trait Game {
     /// the length its own screen walks.
     unsafe fn add_pad_buttons(&self, into: *mut c_void, pad: Option<Reading>);
 
+    /// **The virtual pad pushed the way `word` is pressed**, for a launch pressing through a pad
+    /// (`Config::through_a_pad`): each bit held on the button this game's own mapping names for it, and each
+    /// direction as the stick pushed all the way — the inverse of what the game's read makes of a pad. A bit no
+    /// button is mapped to is left unpressed, the way a person's pad cannot press it either.
+    ///
+    /// `None` for a game whose own read of a pad orb has not read, or whose menus of orb's read no pad: a launch
+    /// over it hands its word to the game's read as it would without the pad, and says so.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, the mapping being read out of the game's memory.
+    unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
+        let _ = word;
+        None
+    }
+
+    /// **The DirectInput pad this game holds, and the range it set its axes to** — `None` where its enumeration
+    /// found none, or where the game reads no pad through DirectInput: what `joystick::stand_in_front_of` is
+    /// handed, so that a virtual pad reaches a game reading the device rather than winmm.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn its_pad_device(&self) -> Option<(usize, i32)> {
+        None
+    }
+
     /// Gives the run up, and says whether there was one to give up.
     ///
     /// For the retry menu's third choice. Asked of the game rather than done by hand, because
@@ -3123,6 +3148,20 @@ pub struct Reached {
     /// **The run's difficulty, as the game counts it**, `State::difficulty`, and nothing off a run — which the
     /// autoplay engine's ways are written for, a chapter of one difficulty's stage being no chapter of another's.
     pub difficulty: Option<i32>,
+    /// **Where the cursor of the question of orb's up is**, and nothing where none is up — what a recipe's
+    /// `answer` presses its way to where the launch presses through a pad, as somebody looking at the question
+    /// would.
+    pub on_the_question: Option<OnTheQuestion>,
+}
+
+/// **Which of a question's lists is showing, and the item its cursor is on** — counted from nought as a recipe's
+/// `answer` counts an item. The list is a number of the question's own: what it says is only whether it is the
+/// list the cursor was on a frame before, which is what an answer pressed through a pad is over by once its
+/// decide has taken an item.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct OnTheQuestion {
+    pub list: u8,
+    pub at: usize,
 }
 
 /// The questions of orb's own a recipe can wait for, by the names it writes them as.

@@ -67,6 +67,10 @@ const ITEMS: Range<usize> = 0x0450_0000..0x0450_0000 + 0x21_cec0;
 const PLAYER: Range<usize> = 0x0480_0000..0x0480_0000 + 0x4478;
 const LASERS: Range<usize> = 0x0486_0000..0x0486_0000 + 0x45c;
 const PAUSE: Range<usize> = 0x0487_0000..0x0487_0000 + 0x2c8;
+/// **The DirectInput pad the input's set-up made, and its vtable**, where an e2e test has the enumeration find
+/// one (0x43baf0): addresses of this file's own, the object a word and the vtable every slot up to `Poll`'s.
+const PAD_DEVICE: Range<usize> = 0x0493_0000..0x0493_0000 + 0x10;
+const PAD_DEVICE_VTABLE: Range<usize> = 0x0493_1000..0x0493_1000 + 26 * 4;
 /// **The replay manager**, `0xb5` words its constructor zeroes (0x428f4d through 0x428f54).
 const REPLAY_MANAGER: Range<usize> = 0x0492_0000..0x0492_0000 + 0xb5 * 4;
 const ENEMY_MANAGER: Range<usize> = 0x0482_0000..0x0482_0000 + 0x68;
@@ -478,6 +482,8 @@ impl Image {
             &TRACKS,
             &THE_STAGE_BEFORE,
             &REPLAY_MANAGER,
+            &PAD_DEVICE,
+            &PAD_DEVICE_VTABLE,
         ] {
             space.map(block.start, block.len(), Kind::Private);
         }
@@ -867,6 +873,65 @@ impl Image {
     /// skip, negative for none — see `Th10`'s `G_PAD_MAPPING`.
     pub fn the_pads_mapping(&self) -> [i16; 9] {
         self.space().read::<[i16; 9]>(super::G_PAD_MAPPING)
+    }
+
+    /// And mapped otherwise, as a `th10.cfg` read over the exe's own maps it (0x4208ff through 0x420934).
+    pub fn the_pad_is_mapped(&self, mapping: [i16; 9]) {
+        self.space()
+            .write::<[i16; 9]>(super::G_PAD_MAPPING, mapping);
+    }
+
+    /// **The caps of joystick 0 the startup check keeps** (0x44a11b): `joyGetDevCapsA(0)` into the `JOYCAPSA` at
+    /// `0x4918b8`, which the winmm branch of the read measures each axis against.
+    pub fn the_joysticks_caps_are(&self, caps: &orb_api::JoyCaps) {
+        self.space()
+            .write::<orb_api::JoyCaps>(super::G_JOYSTICK_CAPS, *caps);
+    }
+
+    /// Those caps' two axes' bounds, `(x_min, x_max, y_min, y_max)` — nought where the check found no joystick.
+    pub fn the_joysticks_axes(&self) -> (u32, u32, u32, u32) {
+        let caps = self
+            .space()
+            .read::<orb_api::JoyCaps>(super::G_JOYSTICK_CAPS);
+        (caps.x_min, caps.x_max, caps.y_min, caps.y_max)
+    }
+
+    /// **A DirectInput pad found by the input's set-up**: the device at `[0x491c3c]` with its vtable's `Acquire`,
+    /// `GetDeviceState` and `Poll` the functions given, bit `0x400` of the input's flags set (0x43bac5 through
+    /// 0x43badd), and the configuration's two thresholds at the 600 its defaults write (0x418c4d).
+    pub fn a_pad_is_found_through_directinput(
+        &self,
+        acquire: usize,
+        get_state: usize,
+        poll: usize,
+    ) {
+        let space = self.space();
+        space.write::<usize>(super::G_PAD_DEVICE, PAD_DEVICE.start);
+        space.write::<usize>(PAD_DEVICE.start, PAD_DEVICE_VTABLE.start);
+        for (slot, function) in [
+            (super::DEVICE_ACQUIRE, acquire),
+            (super::DEVICE_GET_STATE, get_state),
+            (super::DEVICE_POLL, poll),
+        ] {
+            space.write::<usize>(PAD_DEVICE_VTABLE.start + slot * 4, function);
+        }
+        let flags = space.read::<u32>(super::G_INPUT_FLAGS);
+        space.write::<u32>(super::G_INPUT_FLAGS, flags | super::PAD_THROUGH_DIRECTINPUT);
+        space.write::<i16>(super::CFG_PAD_ACROSS, 600);
+        space.write::<i16>(super::CFG_PAD_DOWN, 600);
+    }
+
+    /// **The DirectInput pad the read reads, and the two thresholds its axes are read against** — `None` where the
+    /// input's flags say there is none.
+    pub fn the_directinput_pad(&self) -> Option<(usize, i16, i16)> {
+        let space = self.space();
+        (space.read::<u32>(super::G_INPUT_FLAGS) & super::PAD_THROUGH_DIRECTINPUT != 0).then(|| {
+            (
+                space.read::<usize>(super::G_PAD_DEVICE),
+                space.read::<i16>(super::CFG_PAD_ACROSS),
+                space.read::<i16>(super::CFG_PAD_DOWN),
+            )
+        })
     }
 
     pub fn the_keys_read(&self, word: u16) {

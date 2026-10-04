@@ -214,6 +214,14 @@ impl ResumeMenu {
         CHOICES.get(item).copied()
     }
 
+    /// Where its cursor is, for a launch pressing its answer through a pad — its one list.
+    pub fn on_the_cursor(&self) -> crate::game::OnTheQuestion {
+        crate::game::OnTheQuestion {
+            list: 0,
+            at: self.selection,
+        }
+    }
+
     fn step(&mut self, pressed: &Pressed) -> Option<Answer> {
         self.selection = menu_ui::moved(self.selection, CHOICES.len(), pressed);
         if pressed.cancel.is_some() && self.cancels == Cancels::TheRun {

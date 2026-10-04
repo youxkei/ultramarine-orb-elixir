@@ -76,6 +76,8 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
         config.autoplay = Some(recipe);
         config.trace = Some(PathBuf::from(TRACE_FILE));
         config.log_level = LogLevel::Verbose;
+        // **Pressed through the virtual pad, as `cargo xtask real` launches every case.**
+        config.through_a_pad = true;
     }
 }
 

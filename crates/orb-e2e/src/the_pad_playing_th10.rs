@@ -10,16 +10,15 @@
 //! does nothing in the game while driving orb's own menus, and `dpad_moves` is what closes that — the direction
 //! the hat points added to the word the pad half answered, in the bits that word names the directions by.
 
-use crate::fake::th10::Fake;
+use crate::fake::th10::{A_WINMM_PADS_TRAVEL, Fake, PluggedIn};
 use crate::fake::{Display, Launched, Work, in_its_own_process};
 use orb_config::LogLevel;
 
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// A pad on the host, as th07's file declares one.
-const PAD_BUTTONS: u32 = 16;
-const PAD_TRAVEL: (u32, u32) = (0, 65535);
+/// The travel of the pad the launch plugs in — see `PluggedIn::OnWinmm`.
+const PAD_TRAVEL: (u32, u32) = A_WINMM_PADS_TRAVEL;
 
 /// Where a hat points, in the hundredths of a degree clockwise from straight up that a pad reports one in.
 const HAT_LEFT: u32 = 27_000;
@@ -44,9 +43,11 @@ fn centred() -> u32 {
     (PAD_TRAVEL.0 + PAD_TRAVEL.1) / 2
 }
 
-/// A run with a pad on the host and orb's own thread having read it once.
+/// A run with a pad on the host since the game started — the startup check is what measures its axes, a pad
+/// plugged in later being measured against zeros — and orb's own thread having read it once.
 fn playing(name: &str, settings: impl FnOnce(&mut orb_config::Config)) -> Box<Fake> {
-    let game = Fake::attach_configured(
+    let game = Fake::attach_with_a_pad(
+        PluggedIn::OnWinmm,
         Display::agreed(120),
         name,
         Work::wandering(WORK_US),
@@ -56,9 +57,6 @@ fn playing(name: &str, settings: impl FnOnce(&mut orb_config::Config)) -> Box<Fa
         },
     );
     let log = game.log();
-    game.sim()
-        .joystick()
-        .attach(PAD_BUTTONS, PAD_TRAVEL.0, PAD_TRAVEL.1);
     game.frames_until_a_thread("the pad named", || log.said("joystick: winmm 0 is"));
     game.fires_at_the_player(false);
     game.its_title_menu_is_up();

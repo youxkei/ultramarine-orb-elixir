@@ -9,7 +9,7 @@
 //! The thread that takes the samples, what a sample means, and why the call this exists to move is off
 //! the game's frame at all are [`orb_core::joystick`]'s.
 
-use orb_core::joystick::{JoyGetPosEx, answer, install_over};
+use orb_core::joystick::{JoyGetPosEx, answer, caps_answer, install_over};
 
 use crate::hook;
 
@@ -27,5 +27,23 @@ pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
         )
     }?;
     install_over(unsafe { std::mem::transmute::<usize, JoyGetPosEx>(previous) });
+    Ok(())
+}
+
+/// And its `joyGetDevCapsA`, at [`caps_answer`], for a launch with a virtual pad plugged in. Nothing is kept of
+/// the entry replaced: what the caps of a real joystick are is read through `orb_api::joystick::caps`, which is
+/// the same call.
+///
+/// # Safety
+/// As [`install`].
+pub unsafe fn install_caps(module: usize) -> Result<(), hook::Error> {
+    unsafe {
+        hook::install_import(
+            module,
+            "WINMM.dll",
+            "joyGetDevCapsA",
+            hook::address(caps_answer as _),
+        )
+    }?;
     Ok(())
 }

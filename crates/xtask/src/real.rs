@@ -314,7 +314,16 @@ pub fn real(args: Vec<String>) -> ExitCode {
             format!("--keep-in={}", windows_path(&base_dir)),
             format!("--autoplay={}", windows_path(&case_dir.join("recipe.yaml"))),
             format!("--trace={}", windows_path(&case_dir.join("trace.msgpack"))),
+            // **And every chapter the run was hit in kept beside the trace**, because a hit is what a way is
+            // measured against and the run that took it is the one place it happens: a chapter picked up again
+            // plays the same way every time, so only the kept one says whether another way gets through it.
+            // th06c's stage 6 hit a no-hit case twice in one session and in none of fifteen attempts after it.
+            format!("--keep-hits-in={}", windows_path(&case_dir.join("hits"))),
             "--log=verbose".to_owned(),
+            // **Pressed through the virtual pad**, so that a case plays the game the way somebody at a pad does:
+            // through the game's own read of one and through orb's menus' — and a game that takes no word as a
+            // pad has its word handed over as before, and its log says so.
+            "--through-a-pad".to_owned(),
         ]);
         // The flag where one was given, and the case's own otherwise.
         match speed.is_empty() {

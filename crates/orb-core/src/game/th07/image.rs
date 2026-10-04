@@ -353,6 +353,11 @@ impl Image {
         self.sim.space()
     }
 
+    /// **The pad mapped otherwise**, as a `th07.cfg` read over the defaults maps it — see `Th07`'s `PAD_MAPPING`.
+    pub fn the_pad_is_mapped(&self, mapping: [i16; 9]) {
+        self.space().write::<[i16; 9]>(super::PAD_MAPPING, mapping);
+    }
+
     /// The device orb draws through and the window it asks about, where the game's own
     /// `IDirect3D8::CreateDevice` left them.
     ///

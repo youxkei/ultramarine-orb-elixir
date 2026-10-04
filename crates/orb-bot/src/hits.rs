@@ -104,6 +104,12 @@ impl TakingHits {
         self.retried
     }
 
+    /// Whether the attempt in flight was drawn to be hit in — and so, at an offer to retry, whether the death it
+    /// answers is one the rules walked into.
+    pub fn drawn_to_be_hit_in(&self) -> bool {
+        self.drawn
+    }
+
     /// **What the rules do about the hazards this frame**, with the draw for a chapter made as it starts.
     ///
     /// **The offer to retry going down is the chapter being started again.** A retry puts back the chapter it
@@ -283,6 +289,7 @@ mod tests {
             card_frames: None,
             stage_frames: None,
             difficulty: None,
+            on_the_question: None,
         }
     }
 
