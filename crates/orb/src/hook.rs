@@ -83,15 +83,13 @@ pub fn address(function: *const ()) -> usize {
     function as usize
 }
 
-/// Redirects `target` to `hook` and returns the address to call for the
-/// original behaviour.
+/// **Whether [`install`] would take `target`**: the prologue long enough for the jump and the bytes there the
+/// ones expected — what an install list asks of every patch before it writes over any of them, so that a
+/// mismatch leaves the game as it was found rather than half of orb in it.
 ///
 /// # Safety
-/// `target` must point at the given `prologue`, and every one of those bytes
-/// must be safe to execute from a different address. Callers must not let the
-/// game execute `target` while this runs; during `DllMain` of a suspended
-/// process that is automatic.
-pub unsafe fn install(target: usize, prologue: &[u8], hook: usize) -> Result<usize, Error> {
+/// `target` must be readable for `prologue.len()` bytes.
+pub unsafe fn can_install(target: usize, prologue: &[u8]) -> Result<(), Error> {
     if prologue.len() < JMP_LENGTH {
         return Err(Error::PrologueTooShort);
     }
@@ -102,6 +100,19 @@ pub unsafe fn install(target: usize, prologue: &[u8], hook: usize) -> Result<usi
             found: found.to_vec(),
         });
     }
+    Ok(())
+}
+
+/// Redirects `target` to `hook` and returns the address to call for the
+/// original behaviour.
+///
+/// # Safety
+/// `target` must point at the given `prologue`, and every one of those bytes
+/// must be safe to execute from a different address. Callers must not let the
+/// game execute `target` while this runs; during `DllMain` of a suspended
+/// process that is automatic.
+pub unsafe fn install(target: usize, prologue: &[u8], hook: usize) -> Result<usize, Error> {
+    unsafe { can_install(target, prologue) }?;
 
     let trampoline = unsafe {
         VirtualAlloc(
@@ -182,6 +193,11 @@ pub unsafe fn install_import(
         {
             return Err(Error::Protect);
         }
+        // **The original answered after the slot is written, for the caller to keep**, which leaves a moment a
+        // call through the slot reaches a replacement with nothing kept: every install of this is made from
+        // `DllMain` under the launcher's suspended main thread, before anything of the game's runs, so there
+        // is no caller to be in it. A swap made with the game running keeps its original first — see
+        // `orb_core::window::hook_device` and `orb_core::joystick::stand_in_front_of`.
         let original = orb_api::mem::read::<usize>(slot);
         orb_api::mem::write(slot, replacement);
         VirtualProtect(
@@ -192,6 +208,29 @@ pub unsafe fn install_import(
         );
         Ok(original)
     }
+}
+
+/// Whether every one of `functions` is an import of `dll` that `module`'s table has a slot for, naming the first
+/// that is not — asked of a whole list before any of it is written, for [`can_install`]'s reason: an attach that
+/// found the third missing with the first two swapped would leave the game half patched under a line saying orb
+/// is doing nothing.
+///
+/// # Safety
+/// `module` must be a module mapped into this process.
+pub unsafe fn can_install_imports(
+    module: usize,
+    dll: &str,
+    functions: &[&str],
+) -> Result<(), Error> {
+    for function in functions {
+        if unsafe { crate::pe::import_slot(module, dll, function) }.is_none() {
+            return Err(Error::ImportNotFound {
+                dll: dll.to_owned(),
+                function: (*function).to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 unsafe fn write_jmp(at: usize, to: usize) {
@@ -373,6 +412,37 @@ mod tests {
             module.in_the_slot(),
             RESOLVED,
             "a swap that found nothing wrote over the slot it did find",
+        );
+    }
+
+    /// **And a list of imports is asked about whole before any of it is written**, which is what lets an
+    /// attach leave a game whose table lacks one of them as it found it: the one missing is named, and the
+    /// slots of the ones it has are left as the loader wrote them.
+    #[test]
+    fn a_list_with_an_import_the_module_has_not_got_is_refused_whole() {
+        let module = Module::synthesized();
+        assert!(
+            unsafe { super::can_install_imports(module.base(), "winmm.dll", &["joyGetPosEx"]) }
+                .is_ok(),
+            "the import this module has was refused",
+        );
+        let asked = unsafe {
+            super::can_install_imports(
+                module.base(),
+                "winmm.dll",
+                &["joyGetPosEx", "joyGetDevCapsA"],
+            )
+        };
+        match asked {
+            Err(super::Error::ImportNotFound { function, .. }) => {
+                assert_eq!(function, "joyGetDevCapsA");
+            }
+            other => panic!("a list with an import that is not there answered {other:?}"),
+        }
+        assert_eq!(
+            module.in_the_slot(),
+            RESOLVED,
+            "asking about the list wrote over a slot",
         );
     }
 }

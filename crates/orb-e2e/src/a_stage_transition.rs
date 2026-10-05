@@ -79,11 +79,18 @@ fn loses_a_life(game: &Fake) {
     game.frames_until("the stage killable again", killable + 60, || {
         game.state().stage_frames >= killable
     });
+    let lives = game.state().lives;
     game.dies();
-    // **Two frames, the life going after the death rather than with it**: the frames a bomb is taken in run
-    // out on the first and the game takes the life on the second — see `Fake::update_the_player`.
-    game.frames(2);
+    // **Waited on, the life going after the death rather than with it**: the frames a bomb is taken in run out
+    // first and the dying state stands thirty updates after them before the life goes (0x428c48, the `cmp
+    // $0x1e` at 0x428d16) — see `Fake::update_the_player`.
+    game.frames_until("the life taken", A_DEATH_TAKES, || {
+        game.state().lives < lives
+    });
 }
+
+/// How many frames a death is given to take its life in: its window, the dying state's thirty, and some.
+const A_DEATH_TAKES: u32 = 60;
 
 /// Every open of the score file that was for reading.
 fn reads(opens: &[Open]) -> Vec<String> {

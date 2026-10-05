@@ -237,6 +237,43 @@ fn a_replay_of_th07_is_named_by_the_games_own_entry() {
     });
 }
 
+/// The phase a whole run's end brings that screen up in, which is its name entry — the screen's own number.
+const THE_NAME_ENTRY: i32 = 0xa;
+/// And the one a practice run's end asks for, 0x44a302's 0x12 where bit 0 of 0x62f648 is set — which the screen's
+/// own added callback 0x449b05 turns into the replay offer, 0xb, before anything has drawn it.
+const A_PRACTICE_RUNS_END: i32 = 0x12;
+
+/// **And a practice run's end is offered a replay and no name entry**: a practice score is kept by the added
+/// callback itself, against the stage's record, and the screen goes straight to the offer — which in this mode
+/// is orb's to take off.
+#[test]
+fn a_finished_practice_run_of_th07_goes_to_the_replay_offer_without_a_name_entry() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-screen-a-practice-run-ends-at",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.practises_a_stage();
+        game.frames(STANDS_FOR);
+
+        // The run over, and the screen its own end arrives on.
+        let from = log.written();
+        game.the_run_ends_at_its_own_screen();
+        let phase = game.image().the_phase_the_screen_is_in();
+        assert!(
+            phase != THE_NAME_ENTRY && phase != A_PRACTICE_RUNS_END,
+            "the screen a practice run ended at came up in {phase:#x}, before the replay offer",
+        );
+        game.frames_until("the offer taken off", STANDS_FOR, || {
+            log.said_since(from, "replay: the offer to save one was taken off")
+        });
+    });
+}
+
 /// And a finished legacy run's, whose offer nothing writes past: the screen walks all of itself out, and the
 /// file it writes on the way down is the game's own.
 ///

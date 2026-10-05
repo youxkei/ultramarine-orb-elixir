@@ -47,10 +47,13 @@ const KEY_TABLE_PAGE: Range<usize> = 0x1_402b_c000..0x1_402b_d000;
 /// code the game keeps that key at — read off the table at `0x1402bc0b0`, whose `A` is `0x41 -> 0x1e`.
 /// The nine orb presses and no others, since what the table is for here is orb's writes reaching the
 /// buffer the game plays off.
+///
+/// **The focus is `VK_LSHIFT` and not `VK_SHIFT`**, which this table has no entry for at all: its 110 entries
+/// hold the shifts as `0xa0 -> 0x2a` and `0xa1 -> 0x36`.
 const KEYS: [(u16, u16); 9] = [
     (0x5a, 0x2c), // Z
     (0x58, 0x2d), // X
-    (0x10, 0x2a), // Shift
+    (0xa0, 0x2a), // Left shift
     (0x1b, 0x01), // Escape
     (0x0d, 0x1c), // Enter
     (0x26, 0xc8), // Up
@@ -60,6 +63,17 @@ const KEYS: [(u16, u16); 9] = [
 ];
 /// What ends that table, `cmp WORD PTR [rcx],0xffff` at the walk's head.
 const NO_MORE_KEYS: u16 = 0xffff;
+
+/// **`th06.cfg`'s pad bindings at the game's defaults**, `0x1403e0290`: the shot `A` (12), the bomb `B` (13),
+/// the focus the right shoulder (9), the conversation skip `X` (14) and the pause `Start` (4), each a
+/// `wButtons` bit number at its offset of the supervisor.
+const PAD_BINDINGS: [(usize, i16); 5] = [
+    (super::supervisor::CONFIG_PAD_SHOT, 12),
+    (super::supervisor::CONFIG_PAD_BOMB, 13),
+    (super::supervisor::CONFIG_PAD_FOCUS, 9),
+    (super::supervisor::CONFIG_PAD_SKIP, 14),
+    (super::supervisor::CONFIG_PAD_PAUSE, 4),
+];
 
 /// **The blocks the game takes off its heap that orb reaches**, each a base of this file's choosing and the
 /// length the game's own where one is known.
@@ -91,6 +105,9 @@ const SWAPCHAIN: Range<usize> = 0x1_5014_0000..0x1_5014_1000;
 /// **The renderer**, a block off the heap as the real one is, as long as `super::THE_RENDERERS_BLOCK` — the
 /// laid-out game keeps nothing of it but the batch its draws queue their sprites into.
 const RENDERER: Range<usize> = 0x1_5015_0000..0x1_5015_0000 + super::THE_RENDERERS_BLOCK;
+
+/// The configuration's byte that has the pause show the field behind it — see [`Image::is_paused`].
+const THE_PAUSE_SHOWS_THE_FIELD: usize = 0x1_40bc_2914;
 /// **And its vtable, which has to be inside [`CODE`]**: `super::look_for_the_swapchain` will not call
 /// through a pointer whose vtable is anywhere but a mapped image — see `orb_api::mem::vtable_in_image`,
 /// which is what tells an object from a field that merely reads as one. Far enough into the page that the
@@ -173,6 +190,9 @@ const SCENE_RUN: i32 = 2;
 const SCENE_REBUILDING: i32 = 3;
 const SCENE_RANKING: i32 = 6;
 const SCENE_RUN_OVER: i32 = 7;
+const SCENE_A_REPLAY_OVER: i32 = 8;
+/// The configuration's music played as the wav tracks — see `super::supervisor::CONFIG_MUSIC`.
+pub const MUSIC_AS_WAV: u8 = 1;
 const SCENE_ENDING: i32 = 10;
 
 /// **The front end's screens**, by the number its state holds: read off a launch's own `front end:` lines
@@ -198,6 +218,15 @@ pub const RESULT_TYPING_A_NAME: i32 = 9;
 /// And one, the state the ranking the title's Score item asks for stands in — a launch's own
 /// `score: the ranking is up — ... state=1` line — whose one decide is the way out.
 pub const RESULT_RANKING: i32 = 1;
+/// **And the two either side of it**: the build it stands in for `0x14` updates first (state 0), and the way out
+/// its seventh item takes (state 2), which asks the supervisor for the front end once past `0x3b` updates —
+/// with the menu's seven items and the one of them that leaves.
+pub const RESULT_RANKING_COMING_UP: i32 = 0;
+pub const RESULT_RANKING_GOING: i32 = 2;
+pub const RESULT_RANKING_COMES_UP_AFTER: i32 = 0x14;
+pub const RESULT_RANKING_GOES_AFTER: i32 = 0x3b;
+pub const RESULT_RANKING_ITEMS: i32 = 7;
+pub const RESULT_RANKING_THE_WAY_OUT: i32 = 6;
 pub const RESULT_STATS: i32 = 15;
 pub const RESULT_STATS_FADING: i32 = 16;
 pub const RESULT_SAVE_REPLAY_QUESTION: i32 = 10;
@@ -208,6 +237,18 @@ pub const RESULT_LEAVING: i32 = 17;
 pub const RESULT_STATS_TAKE_A_PRESS_AFTER: i32 = 0x5a;
 pub const RESULT_STATS_FADE_FOR: i32 = 0x1e;
 pub const RESULT_QUESTION_COMES_UP_AFTER: i32 = 30;
+/// **The name entry's grid**, sixteen across and six down, as the case 9 of 0x14004ff40 indexes it — the
+/// spaces in it being cells the cursor steps over — and its end item and the cell before it that types a space.
+pub const RESULT_GRID: &[u8; 96] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZ.,:;\\@abcdefghijklmnopqrstuvwxyz+-/*=%0123456789(){}[]<>#!?'\"$      --";
+pub const RESULT_GRID_ACROSS: i32 = 16;
+pub const RESULT_THE_END_ITEM: i32 = super::result_screen::THE_END_ITEM;
+pub const RESULT_TYPES_A_SPACE: i32 = 0x5e;
+pub const RESULT_NAME_BYTES: i32 = super::result_screen::NAME_BYTES as i32;
+/// The updates the entry takes no key for, `0x1d <` against its count, and the places a ranking holds — a run
+/// placed below them is asked for no name (`9 <` against 0x14004e750's answer).
+pub const RESULT_THE_ENTRY_TAKES_A_KEY_AFTER: i32 = 0x1d;
+pub const RESULT_PLACES_RANKED: usize = 10;
 
 /// The stage the game counts from: one, `0x140027255` multiplying it by a thousand into `Stage * 1000`.
 const STAGE_COUNTS_FROM: i32 = 1;
@@ -264,10 +305,15 @@ impl Image {
         space.map(RENDERER.start, RENDERER.len(), Kind::Private);
         let image = Self { sim };
         image.space().write::<usize>(HEAP_GIVEN, HEAP_FIRST_BLOCK);
-        // The renderer, made at startup as the real one's is, before anything is drawn.
+        // The renderer, made at startup as the real one's is, before anything is drawn — with no capture of the
+        // field asked for, which is what its own constructor leaves (0x140001b5c).
         image
             .space()
             .write::<usize>(super::THE_RENDERER, RENDERER.start);
+        image.space().write::<i32>(
+            RENDERER.start + super::THE_CAPTURE_ASKED_FOR,
+            super::NO_CAPTURE_ASKED_FOR,
+        );
         // The table the game's own read maps a virtual key through, which is what orb's writes into the
         // game's keys go through too.
         let mut entry = super::THE_TABLE_OF_KEYS;
@@ -394,16 +440,45 @@ impl Image {
         SCENE_RUN_OVER
     }
 
+    /// The state a replay played to its end asks for, which the supervisor answers with the title.
+    pub fn scene_of_a_replay_over(&self) -> i32 {
+        SCENE_A_REPLAY_OVER
+    }
+
     pub fn scene_of_an_ending(&self) -> i32 {
         SCENE_ENDING
     }
 
     /// The lives and the bombs a run starts with, out of the configuration the supervisor keeps: the
     /// game's own defaults, `02 03` at `0x140059935`.
+    ///
+    /// **And the pad bound as the game's defaults bind it**, `0x1403e0290`'s `12, 13, 9, 14, 4` with nothing
+    /// swapped — see [`super::supervisor::CONFIG_PAD_SHOT`].
     pub fn the_configuration_gives(&self, lives: u8, bombs: u8) {
         let space = self.space();
         space.write::<u8>(super::SUPERVISOR + super::supervisor::CONFIG_LIVES, lives);
         space.write::<u8>(super::SUPERVISOR + super::supervisor::CONFIG_BOMBS, bombs);
+        space.write::<u8>(
+            super::SUPERVISOR + super::supervisor::CONFIG_MUSIC,
+            MUSIC_AS_WAV,
+        );
+        for (at, number) in PAD_BINDINGS {
+            space.write::<i16>(super::SUPERVISOR + at, number);
+        }
+        space.write::<u8>(
+            super::SUPERVISOR + super::supervisor::CONFIG_DECIDE_SWAPPED,
+            0,
+        );
+    }
+
+    /// The `wButtons` bit numbers the configuration binds, in [`PAD_BINDINGS`]' order: the shot, the bomb,
+    /// the focus, the skip and the pause — and whether the decide and the cancel are swapped.
+    pub fn the_pad_bindings(&self) -> ([i16; 5], bool) {
+        let space = self.space();
+        (
+            PAD_BINDINGS.map(|(at, _)| space.read::<i16>(super::SUPERVISOR + at)),
+            space.read::<u8>(super::SUPERVISOR + super::supervisor::CONFIG_DECIDE_SWAPPED) != 0,
+        )
     }
 
     // ---- the chains ----
@@ -614,6 +689,29 @@ impl Image {
         }
         self.space()
             .write_bytes(RESULT_SCREEN.start + super::result_screen::NAME, &bytes);
+    }
+
+    pub fn the_characters_typed_are(&self, typed: i32) {
+        self.space()
+            .write::<i32>(RESULT_SCREEN.start + super::result_screen::TYPED, typed);
+    }
+
+    pub fn the_entrys_cursor_is_on(&self, cell: i32) {
+        self.space()
+            .write::<i32>(RESULT_SCREEN.start + super::result_screen::CURSOR, cell);
+    }
+
+    /// The byte the entry holds at `index`, a space where nothing is typed.
+    pub fn the_entrys_byte_at(&self, index: usize) -> u8 {
+        self.space()
+            .read::<u8>(RESULT_SCREEN.start + super::result_screen::NAME + index)
+    }
+
+    pub fn the_entrys_byte_is(&self, index: usize, byte: u8) {
+        self.space().write::<u8>(
+            RESULT_SCREEN.start + super::result_screen::NAME + index,
+            byte,
+        );
     }
 
     pub fn the_name_the_entry_holds(&self) -> String {
@@ -918,9 +1016,50 @@ impl Image {
     }
 
     /// The pause menu and the continue menu, which are the two flags a run stops on.
+    ///
+    /// **And the field behind it asked for**, where the configuration says the pause shows it: the menu
+    /// writes the request `3` and the field's rectangle into the renderer (0x1400093b8 through 0x1400093e0),
+    /// under `[0x140bc2914]` — see `super::CAPTURES_THE_FIELD`.
     pub fn is_paused(&self) {
-        self.space().write::<u8>(
+        let space = self.space();
+        space.write::<u8>(
             super::GAME_MANAGER + super::game_manager::IS_IN_GAME_MENU,
+            1,
+        );
+        if space.read::<u8>(THE_PAUSE_SHOWS_THE_FIELD) != 0 {
+            let asked = RENDERER.start + super::THE_CAPTURE_ASKED_FOR;
+            for (at, word) in [
+                (0, 3),
+                (0x4, 0x20),
+                (0x8, 0x10),
+                (0xc, 0x180),
+                (0x10, 0x1c0),
+            ] {
+                space.write::<i32>(asked + at, word);
+            }
+        }
+    }
+
+    /// The configuration's byte that has the pause show the field behind it, `[0x140bc2914]`.
+    pub fn the_pause_shows_the_field(&self) {
+        self.space().write::<u8>(THE_PAUSE_SHOWS_THE_FIELD, 1);
+    }
+
+    /// The capture of the field the renderer has asked for, `-1` for none — see `super::CAPTURES_THE_FIELD`.
+    pub fn the_capture_asked_for(&self) -> i32 {
+        self.space()
+            .read::<i32>(RENDERER.start + super::THE_CAPTURE_ASKED_FOR)
+    }
+
+    /// And the game's own capture of the field, `0x140007620`, which orb calls where the wait would have.
+    pub fn hands_over_the_capture(&self, capture: usize) {
+        super::set_captures_the_field(capture);
+    }
+
+    /// The continue question, which a death with no life to take puts up (0x14004aa5a).
+    pub fn the_continue_question_is_up(&self) {
+        self.space().write::<u8>(
+            super::GAME_MANAGER + super::game_manager::IS_IN_RETRY_MENU,
             1,
         );
     }
@@ -943,10 +1082,14 @@ impl Image {
             != 0
     }
 
-    /// The byte that holds everything, which a death's own animation sets.
+    /// The byte that holds everything, which an enemy's script alone writes — a death does not.
     pub fn everything_is_held(&self, held: bool) {
         self.space()
             .write::<u8>(super::EVERYTHING_HELD, u8::from(held));
+    }
+
+    pub fn everything_is_held_now(&self) -> bool {
+        self.space().read::<u8>(super::EVERYTHING_HELD) != 0
     }
 
     // ---- the playback ----
@@ -961,6 +1104,16 @@ impl Image {
         let space = self.space();
         space.write::<u8>(super::A_REPLAY_IS_PLAYING, 0);
         space.write::<u8>(super::THE_PLAYBACK_IS_THE_DEMO, 0);
+    }
+
+    /// The playback flag alone put down, which is what the supervisor's way from a run to the title writes
+    /// (0x140058330's moves from 2 to 1 and to 8), the demo's byte beside it left as it was.
+    pub fn the_playback_flag_is_down(&self) {
+        self.space().write::<u8>(super::A_REPLAY_IS_PLAYING, 0);
+    }
+
+    pub fn is_a_replay_playing(&self) -> bool {
+        self.space().read::<u8>(super::A_REPLAY_IS_PLAYING) != 0
     }
 
     /// The replay manager a run makes as it starts, and its count of the stage's frames — the field a
@@ -1047,7 +1200,8 @@ impl Image {
             .write::<u8>(super::PLAYER + super::player::STATE, PLAYER_PLAYING);
     }
 
-    /// The hit landed, with the frames a bomb is still taken in under it.
+    /// The hit landed, with the frames a bomb is still taken in under it and the count put to nought, as
+    /// 0x14004c690's hit puts it.
     pub fn the_player_has_been_hit(&self, a_bomb_is_taken_for: i32) {
         let space = self.space();
         space.write::<u8>(super::PLAYER + super::player::STATE, PLAYER_HIT);
@@ -1055,6 +1209,13 @@ impl Image {
             super::PLAYER + super::player::A_BOMB_STILL_TAKES_IT_BACK,
             a_bomb_is_taken_for,
         );
+        space.write::<i32>(super::PLAYER + super::player::UNTOUCHABLE, 0);
+    }
+
+    /// The count under the player, in whatever state it stands.
+    pub fn the_players_count_is(&self, count: i32) {
+        self.space()
+            .write::<i32>(super::PLAYER + super::player::UNTOUCHABLE, count);
     }
 
     pub fn the_frames_a_bomb_is_still_taken_in(&self, frames: i32) {
@@ -1065,8 +1226,9 @@ impl Image {
     }
 
     /// The player walking back in, with `untouchable` on the count under them: the game's own register
-    /// leaves 120 there at a stage's build (`0x14004a14c`) and its death leaves nothing, and no state but
-    /// [`super::player::INVULNERABLE`] reads that field — see `the_player_a_stage_of_th06c_starts`.
+    /// leaves 120 there at a stage's build (`0x14004a14c`) and its death leaves nothing. The walk-in reads
+    /// it to end at thirty (`0x14004aaeb`), the hit reads it too (`0x14004a93e`), and
+    /// [`super::player::INVULNERABLE`] counts it down — see `the_player_a_stage_of_th06c_starts`.
     pub fn the_player_is_coming_back(&self, untouchable: i32) {
         let space = self.space();
         space.write::<u8>(super::PLAYER + super::player::STATE, PLAYER_COMING_BACK);
@@ -1467,6 +1629,27 @@ impl Image {
     }
 
     // ---- the music ----
+
+    /// The lives and the bombs the configuration gives a run, as [`Self::the_configuration_gives`] wrote them.
+    pub fn the_configuration_now(&self) -> (u8, u8) {
+        let space = self.space();
+        (
+            space.read::<u8>(super::SUPERVISOR + super::supervisor::CONFIG_LIVES),
+            space.read::<u8>(super::SUPERVISOR + super::supervisor::CONFIG_BOMBS),
+        )
+    }
+
+    /// How the configuration has the music played — see `super::supervisor::CONFIG_MUSIC`.
+    pub fn the_music_is_played_as(&self, mode: u8) {
+        self.space()
+            .write::<u8>(super::SUPERVISOR + super::supervisor::CONFIG_MUSIC, mode);
+    }
+
+    pub fn the_music_is_played_as_wav(&self) -> bool {
+        self.space()
+            .read::<u8>(super::SUPERVISOR + super::supervisor::CONFIG_MUSIC)
+            == MUSIC_AS_WAV
+    }
 
     /// Which track is playing, and whether: the statics the frame's catch-up reads.
     pub fn plays_the_track(&self, track: i32) {

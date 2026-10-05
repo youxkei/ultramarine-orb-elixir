@@ -36,6 +36,55 @@ fn naming(game: &Fake, track: &str) -> usize {
         .count()
 }
 
+/// **A stage's song is a command in the sound's queue and not a play made there and then**: the stage's start asks
+/// for it through 0x420b10, which queues kind 2 (0x43e460), and 0x43ddf0 walks a kind 2 a phase a run — the play
+/// at phase 4, its fifth, and the command out of the queue on the run that finds phase 7.
+#[test]
+fn a_stage_of_th10_queues_its_song_and_the_sound_plays_it_runs_later() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th10-the-song-queued",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Normal,
+        );
+        game.fires_at_the_player(false);
+        game.its_title_menu_is_up();
+        game.image().the_stream_plays_the_track(THE_BOSSS_TRACK);
+        game.is_in_a_run();
+        game.frames_until("the stage's song asked for", 240, || {
+            game.image().the_sound_queue_holds_a_command()
+        });
+        assert_eq!(
+            game.image().the_track_the_stream_is_on(),
+            Some(THE_BOSSS_TRACK),
+            "the stage's song was played on the run it was asked for",
+        );
+        let mut runs = 0;
+        while game.image().the_track_the_stream_is_on() != Some(THE_STAGES_TRACK) {
+            game.frame();
+            runs += 1;
+            assert!(runs <= A_PLAY_TAKES, "the stage's song never came on");
+        }
+        assert!(
+            runs >= A_PLAY_IS_HEARD_AFTER,
+            "the stage's song came on {runs} run(s) after it was asked for, before the play's phase",
+        );
+        assert!(
+            game.image().the_sound_queue_holds_a_command(),
+            "the play left the queue on the run it was heard on",
+        );
+        game.frames_until("the play out of the queue", A_PLAY_TAKES, || {
+            !game.image().the_sound_queue_holds_a_command()
+        });
+    });
+}
+
+/// The runs a play takes to be heard after the one it was asked on, and to leave the queue: phase 4 is the fifth
+/// run, and phase 7 the eighth.
+const A_PLAY_IS_HEARD_AFTER: u32 = 3;
+const A_PLAY_TAKES: u32 = 8;
+
 #[test]
 fn the_log_of_th10_names_the_track_being_heard_once_per_change_of_it() {
     in_its_own_process(|| {

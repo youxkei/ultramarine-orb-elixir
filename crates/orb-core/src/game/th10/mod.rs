@@ -39,8 +39,10 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 /// **How many hits the run has taken, which is orb's count and not the game's** — see
-/// [`Th10::read_state`], which moves it. This exe keeps no such count: nothing of the run's numbers is
-/// stepped by a hit or a death but the lives (0x426a15).
+/// [`Th10::read_state`], which moves it. This exe keeps no such count: no field of the run's numbers counts
+/// a death. The death takes a life (0x426a15), a third of the faith above 5000 (0x426a22) and `0x400` off the
+/// word at `0x474c98` (0x426cb6), and the dying state takes `0x40` off the power (0x425ab6) — none of them a
+/// count.
 static DEATHS: AtomicI32 = AtomicI32::new(0);
 /// Whether the player was in [`PLAYER_STATE_HIT`] on the frame before, which is what makes the count above
 /// move once per hit rather than once per frame of one.
@@ -198,6 +200,12 @@ const SOUND_DEVICE_BYTES: usize = 4;
 /// **The queue of the sound's commands**, whose head is the command being carried out and nought for none
 /// (0x43de0d through 0x43de18).
 const SOUND_COMMANDS: usize = 0x1f88;
+/// **Its 31 slots of `0x10c` bytes**, each `{kind, argument, phase, name}` (0x43e460 through 0x43e4c5), and the kind
+/// 0x420b10 queues a song's play as, its argument the song's slot.
+const SOUND_COMMAND_SLOTS: usize = 31;
+const SOUND_COMMAND_BYTES: usize = 0x10c;
+const SOUND_COMMAND_ARGUMENT: usize = 0x4;
+const SOUND_A_PLAY: u32 = 2;
 /// **The music's stream**, a `new(0x78)` 0x44d6a0 builds (0x44cb2d, 0x44cb51): the `new(4)` block holding its
 /// `IDirectSoundBuffer` at `+0x4` (0x44d6a3 through 0x44d6b9), and the source it reads through at `+0xc`, a
 /// `new(0x94)` whose `+0x90` is the record of `thbgm.fmt` being read (0x44c969, 0x44c984).
@@ -293,7 +301,8 @@ const CAMERA_VIEWPORT: usize = 0xcc;
 const G_A_CAMERA_IS_SET: usize = 0x0049_1fb0;
 
 /// **The fog**, which the frame sets off under its scene: `0x420cd0` entered with the supervisor in `edi`,
-/// and the byte [`G_FOG_FORCED`] forced to `0xff` before it (0x4394c2, 0x4394cc).
+/// and the dword [`G_FOG_FORCED`] forced to `0xff` before it (0x4394c2, 0x4394cc), so that it draws the queue,
+/// puts that dword at nought and sets the fog off on every frame (0x420cd6 through 0x420cfa).
 const SET_THE_FOG: usize = 0x0042_0cd0;
 handed_over!(SET_THE_FOG_AT, the_fogs_set, set_the_fogs_set, SET_THE_FOG);
 const G_SUPERVISOR: usize = 0x0049_1c28;
@@ -418,14 +427,15 @@ const PLAYER_UNHITTABLE_FOR: usize = 0x4310;
 /// through 0x424d28).
 const PLAYER_UNHITTABLE_BEFORE: usize = 0x430c;
 const PLAYER_UNHITTABLE_AS_A_FLOAT: usize = 0x4314;
-/// **The current count of the player's three timers a frame steps**: the shot's at `+0x460` — held at -1 while
+/// **The current count of the player's three timers a frame steps**: the shot's at `+0x464` — held at -1 while
 /// no enemy is up or a conversation is (0x4262ce through 0x42631f), 0 on the first frame the shot is held and
-/// round 0 to 15 while it stays held (0x4281d0) — the state's at `+0x474`, and the one at `+0x48c` every update
-/// steps (0x4261f2), which holds the focus off for its first four frames (0x4251ca). Each is a timer of the
-/// game's whose previous count is the word before.
+/// round 0 to 15 while it stays held (0x4281d0) — the state's at `+0x478`, and the one at `+0x48c` every update
+/// steps (0x4261f2), which holds the focus off for its first four frames (`cmp [edi+0x48c],0x4` at 0x425177).
+/// Each is a timer of the game's whose previous count is the word before and whose float is the word after —
+/// `+0x490` is the last one's float, which an `int` read of it gives the bits of.
 const PLAYER_SHOT_TIMER: usize = 0x464;
 const PLAYER_STATE_TIMER: usize = 0x478;
-const PLAYER_UPDATE_TIMER: usize = 0x490;
+const PLAYER_UPDATE_TIMER: usize = 0x48c;
 /// **The player's shots in flight**, `0x80` of `0x5c` bytes from `+0x49c`, each free while its `+0x40` is
 /// nought (0x427ebe). Its first `0x44` bytes are its own — its age, where it is, its speed and angle, its
 /// state — and past them two sprites and a homing target, which are pointers into the heap.
@@ -597,8 +607,11 @@ const REPLAY_BUILT: usize = 0x0042_9610;
 const REPLAY_BUILT_PROLOGUE: &[u8] = &[0x6a, 0xff, 0x68, 0x6b, 0x56, 0x46, 0x00];
 
 /// **The input**, `0x6a` bytes a player the read fills: the word this frame at `+0x0`, the frame before's at
-/// `+0x2` and the buttons gone down this frame at `+0x6` (0x44a8bd through 0x44a926). The menus read the
-/// last of these; the run reads a copy of the first that the replay's own job makes at priority `0xb`
+/// `+0x2`, the buttons gone down this frame at `+0x6` and those let go at `+0x8` (0x44a8bd through 0x44a926),
+/// and an auto-repeat word at `+0x4` off sixteen counters from `+0xa`, a button held firing in it on its 26th
+/// frame and every eighth after (0x44a8d2 through 0x44a90a). The menus take decide and cancel off the buttons
+/// gone down and move their cursors on those and the repeat together (0x422d1c, 0x42d52b); the run reads a
+/// copy of the first that the replay's own job makes at priority `0xb`
 /// (0x4297d0), after this read and before the player's move at `0x10` — so the player moves on the frame's
 /// own keys.
 const G_INPUT: usize = 0x0047_4e30;
@@ -719,8 +732,9 @@ const DIFFICULTY_EXTRA: i32 = 4;
 /// from its first frame (0x42d516) — entering it zeroes those frames (0x42c633), so they say nothing of it.
 const TITLE_STEP_READING: i32 = 2;
 
-/// **The game object**, `0x60` bytes 0x4180e0 builds for each stage: its flags — `0x10` while the pause
-/// menu is up (0x422af4, 0x422c38) — and `+0x5c`, `1` for a replay being played (0x41811d).
+/// **The game object**, `0x60` bytes 0x4180e0 builds for each stage: its flags — `0x10` from the pause
+/// menu's opening (0x422af4), the game over (0x423244) and a run ended by its clear (0x4233e4), which only the
+/// pause menu's resume takes off (0x422c38) — and `+0x5c`, `1` for a replay being played (0x41811d).
 const G_GAME: usize = 0x0047_7810;
 const GAME_FLAGS: usize = 0x58;
 const GAME_PAUSED: u32 = 0x10;
@@ -1519,10 +1533,29 @@ impl Game for Th10 {
     /// track a chapter taken at the stage's start reads can be the song before — and every midboss would then be
     /// a change. Nothing in the attract demo, whose build loads neither slot (0x417ba6), and nothing before a
     /// stage has loaded one.
+    ///
+    /// **And a play still in the manager's queue answers before the record does**: both songs are asked for as
+    /// plays (0x420b10 queues kind 2, at the stage's start 0x4183e1 and before the stage's boss 0x416a9c), which
+    /// the manager's own frame call walks a phase a run — and a playback runs no frame of the game's, so
+    /// through one the record stays on whatever song was playing before. The last play queued is what the
+    /// game has asked to hear, its argument the slot.
     fn the_fights_own_song_is_playing(&self) -> Option<bool> {
         let flags = mem::read_committed::<u32>(G_RUN_FLAGS)?;
         if flags & RUN_IS_THE_DEMO != 0 {
             return None;
+        }
+        let queued = (0..SOUND_COMMAND_SLOTS)
+            .map(|slot| G_SOUND_MANAGER + SOUND_COMMANDS + slot * SOUND_COMMAND_BYTES)
+            .map_while(|at| {
+                mem::read_committed::<u32>(at)
+                    .filter(|kind| *kind != 0)
+                    .map(|kind| (kind, at))
+            })
+            .filter(|(kind, _)| *kind == SOUND_A_PLAY)
+            .last();
+        if let Some((_, at)) = queued {
+            let slot = mem::read_committed::<u32>(at + SOUND_COMMAND_ARGUMENT)?;
+            return Some(slot as usize == THE_FIGHTS_SONG);
         }
         let fights = name_at(
             G_SOUND_MANAGER + SOUND_SONGS + THE_FIGHTS_SONG * SONG_PATH_BYTES,
@@ -1660,11 +1693,17 @@ impl Game for Th10 {
         false
     }
 
+    /// **Nothing done, and not because there is no device**: on the settings th10 comes with it reads its keys
+    /// through a DirectInput keyboard held `DISCL_FOREGROUND` (0x43b8d0), which the system takes away while the
+    /// window is behind — but the read acquires it again on *any* failed `GetDeviceState` (0x44a766, then 0x44a77a
+    /// or 0x44a78e), not only the one report of the loss. And orb's hook is the pad's half of that read (0x44a190),
+    /// called after the keyboard's: an `Acquire` from here would come after the game's own, on the frame already
+    /// lost to it.
     unsafe fn acquire_input(&self) -> bool {
         true
     }
 
-    /// **The settings' bit that says the keyboard is DirectInput's let go of, and the device unacquired**: the
+    /// **The input flags' bit that says the keyboard is DirectInput's let go of, and the device unacquired**: the
     /// read takes `GetKeyboardState` (0x44a636) wherever bit 0x200 of `[0x491ff4]` is clear (0x44a628), and every
     /// read of the device at `[0x491c38]` is behind that same test (0x44a754, 0x44ab31, 0x44ae85) — so the device
     /// is left in place rather than released, nothing of the game's testing its pointer.
@@ -1711,7 +1750,7 @@ impl Game for Th10 {
     }
 
     /// **The scene begun, and what the frame does inside it before its draw chain**: the queue put back at
-    /// its start, the fog's byte forced and the fog set.
+    /// its start, the fog's dword forced and the fog set.
     unsafe fn begin_drawing(&self, _device: Device) {
         let Some(device) = Self::object(G_D3D_DEVICE) else {
             return;
@@ -1760,8 +1799,10 @@ impl Game for Th10 {
         false
     }
 
-    /// **The player's own countdown put back up**, the one every hit and both of the player's tests ask is
-    /// nought before they take anything (0x426756, 0x426950) — see [`PLAYER_UNHITTABLE_FOR`].
+    /// **The player's own countdown put back up**, the one both of the player's tests ask is nought before they
+    /// take the hit (0x426756, 0x426950) — see [`PLAYER_UNHITTABLE_FOR`]. The lasers' test refuses outright while
+    /// it is above nought; the bullets' still answers 1, so a bullet that touches the player is cancelled all
+    /// the same (0x426756 through 0x426766, 0x4064ad).
     unsafe fn make_invulnerable(&self) {
         let Some(player) = Self::object(G_PLAYER) else {
             return;

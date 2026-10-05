@@ -23,7 +23,7 @@ use orb_config::LogLevel;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// How long each stage of these runs is, in the game's own frames: past the 270 a stage begins with, so that
+/// How long each stage of these runs is, in the game's own frames: past the 241 a stage begins with, so that
 /// a hit waiting inside one is a hit the player's own state would otherwise take — see
 /// `the_player_a_stage_of_th06nc_starts`.
 const STAGE_FRAMES: u32 = 330;
@@ -42,10 +42,11 @@ const A_HIT_BECOMES_A_DEATH: u32 = 8 + 2;
 /// an ending by default, and the frames it takes are all inside the one the ending came up on.
 const THE_ENDING: &str = "ending skipped";
 
-/// The state a hit lands in, and how many frames of a stage go by before the player is in it: the walk-in's
-/// thirty and the `0xf0` behind it, which `the_player_a_stage_of_th06nc_starts` reads off the exe.
+/// The state a hit lands in, and how many frames of a stage of the laid-out game go by before the player is
+/// in it: the one update of state 1 and the `0xf0` of state 3 behind it — see
+/// `the_player_a_stage_of_th06nc_starts`, the register's count being already past state 1's thirty.
 const PLAYING: u8 = 0;
-const A_STAGES_FIRST_FRAMES: u32 = 30 + 0xf0;
+const A_STAGES_FIRST_FRAMES: u32 = 1 + 0xf0;
 
 /// A launch in a run, with `--clear`'s two halves that these are about and not its other two.
 ///
@@ -130,7 +131,7 @@ fn a_clear_on_demand_of_th06nc_reaches_its_ending_with_no_death_in_it() {
 ///
 /// **The state and not the count**, because there are two states nothing can be hit in and `--clear` reaches
 /// only one of them: `make_invulnerable` writes 3 over a player who is playing or already untouchable and
-/// leaves a walk-in alone, so the frames after a stage boundary are the walk-in's own 1. What the hit at
+/// leaves state 1 alone, so the frames after a stage boundary are state 1's own. What the hit at
 /// `0x14006c1b5` asks is whether the byte is nought, and the claim is that it never is.
 #[test]
 fn a_clear_on_demand_of_th06nc_leaves_its_player_in_no_state_a_hit_can_land_in() {

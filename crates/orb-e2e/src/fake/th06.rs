@@ -529,8 +529,9 @@ const REPLAY_QUESTION_DRAWN_AT: i32 = 60;
 pub const SPEED: f32 = 4.0;
 
 /// Half the player's own box on each axis, which is what the game's hit test is given and what a bot carries
-/// to a move. This game's own number: the real one is the shot's and differs by character, and what an e2e test
-/// reads of it is that a bullet inside it is a hit and one outside it is not.
+/// to a move. This game's own number: the real one is 1.25 on each axis for every shot type, which
+/// `Player::AddedCallback` writes at 0x429dc2 and 0x429dcf, and what an e2e test reads of it is that a bullet
+/// inside it is a hit and one outside it is not.
 pub const PLAYER_HALF: f32 = 4.0;
 
 /// **The stage's own fire**, where an e2e test asked for it — see [`Fake::fires_at_the_player`]: a shot every
@@ -591,16 +592,18 @@ const SHAKE_PIXELS: u16 = 8;
 /// same state every update of a `--clear` run, and the measurement for it is beside that constant.
 const SPAWNS_WITH: i32 = 120;
 const SPAWNING_ENDS_AT: i32 = 30;
+/// **The updates a death is shown dying for once its window is out**, `cmp $0x1e` at 0x428d16.
+const DYING_FOR: i32 = 30;
 pub const INVULNERABLE_AFTER_SPAWNING: i32 = 240;
 
 /// **The frames a bomb is still taken in after a hit**, which is `respawnTimer` and this game's own deathbomb
-/// window: `Player::AddedCallback` leaves a run's first life 8 of them and the respawn leaves 6, and
-/// `Player::OnUpdate` takes one off for each frame the player spends dead.
-///
-/// Both here because a hit taken on the life a run starts with is the one an e2e test drives, and a window
-/// that was 6 there would be a window a frame count could not be checked against.
-pub const A_BOMB_IS_TAKEN_FOR: i32 = 8;
-const A_BOMB_IS_TAKEN_FOR_AFTER_A_RESPAWN: i32 = 6;
+/// window: `Player::OnUpdate` takes one off for each frame the player spends dead. 6 on every life, a run's
+/// first included — see [`A_RUNS_FIRST_LIFE_IS_LEFT`].
+pub const A_BOMB_IS_TAKEN_FOR: i32 = 6;
+/// **And the 8 `Player::AddedCallback` leaves there** (0x42a09c), which is never a window: the stage's first
+/// update takes the spawning branch, which writes nought (0x428f19) and then [`A_BOMB_IS_TAKEN_FOR`] as it
+/// hands over to the invulnerable state (0x428f9e).
+const A_RUNS_FIRST_LIFE_IS_LEFT: i32 = 8;
 
 /// How far above the arcade region's foot a stage puts the player, which is th06's own:
 /// `Player::AddedCallback` measures `arcadeRegionSize.x / 2` across and `arcadeRegionSize.y - 64` down.
@@ -1790,8 +1793,8 @@ impl Fake {
         self.with_the_sound(|sound| sound.plays_on(bytes));
     }
 
-    /// What the plate a spell card's name is shown on says, which is the last name baked into its sprite
-    /// — by the card's own declaration, or by a chapter being put back inside one.
+    /// What the plate a spell card's name is shown on says, which is the last name baked into the name's own
+    /// sprite — by the card's own declaration, or by a chapter being put back inside one.
     ///
     /// Read instead of the screen, because a laid-out game draws no sprite of its own: what an e2e test
     /// can say is which string was baked, and the plate showing it is the game's own drawing.
@@ -2964,6 +2967,9 @@ impl Fake {
         if (self.hit.take() || self.bullet.get() || struck) && killable {
             run.deaths += 1;
             self.image.player(Player::Dying);
+            // `Player::Die`'s own: the timer under the state put back to nought (0x4277d1), which the dying
+            // counts up from once its window is out.
+            self.image.set_invulnerable_frames(0);
         }
         // And the shot this frame fires, where the stage is firing and a wave past the first is on: the walk
         // spawns after it has moved what is there, so nothing fired this frame is tested this frame.
@@ -3230,8 +3236,8 @@ impl Fake {
     /// `Player::OnUpdate`, at chain priority 7: the player's state moved on one frame.
     ///
     /// The invulnerable state is the one that expires, and it expires *here* — at the end of the same
-    /// update, 0x428... onwards — which is why `make_invulnerable` writes the frames left and not only
-    /// the state: a state written with the frames the last respawn left under it is a player who is
+    /// update, 0x428fd8 onwards, with the state written back to normal at 0x42900d — which is why
+    /// `make_invulnerable` writes the frames left and not only the state: a state written with the frames the last respawn left under it is a player who is
     /// killable again by the time the bullets are checked at priority 11.
     ///
     /// **Two `if`s and not two arms of one match**, because that is what the game has and the difference is
@@ -3244,42 +3250,58 @@ impl Fake {
         // A bomb pressed while it stands writes the invulnerable state over the dead one and the life is
         // never taken, which is the whole of what a deathbomb is.
         //
-        // What is not here is the animation the real game spends afterwards — 30 frames dying and 30
-        // spawning — because orb freezes the game on the frame the death is settled, so nothing but a retry
-        // or a run given up ever follows one, and a retry puts the player back with the rest of `.data`.
+        // And then the frames the game spends after it, 30 dying and 30 spawning, which orb in Pointdevice mode
+        // freezes before — it settles the death on the frame the window runs out — and a legacy run plays.
+        //
+        // **The bomb is taken before the state is looked at**, `Player::OnUpdate`'s gate at 0x42896d standing in
+        // front of the dying branch: `respawnTimer` not nought, no bomb going already (`+0x75c8`, 0x42893a), a
+        // bomb in hand (0x42897a) and the button gone down this frame (0x42898b through 0x4289b6) — so a bomb
+        // goes off in a normal or an invulnerable state as much as in a dying one, the 6 a respawn leaves
+        // standing under both. Spawning is the one it is not taken in, that branch putting the field to nought.
+        let bombed = self.image.respawn_timer() > 0
+            && self.shake_frames.get() <= 0
+            && run.bombs > 0
+            && self.pressed(Th06.button_bit("bomb").unwrap_or(0));
+        if bombed {
+            self.bombs();
+            // Read back rather than taken off here, [`bombs`](Fake::bombs) having spent it: `run` was read at
+            // the top of this frame, so the count it holds is the one before that.
+            run.bombs = self.image.playing_now().bombs;
+            self.image.player(Player::Invulnerable);
+            self.image
+                .set_invulnerable_frames(a_bomb_keeps_the_player_untouchable_for());
+        }
+        // **And the dying itself once the window is out**: 0x428c48 steps the timer `Player::Die` put back to
+        // nought, and the update it reaches [`DYING_FOR`] (0x428d16) writes the spawning state (0x428d23) and
+        // takes the life (0x428ded) — the spawning branch below then leaves the player its thirty frames and the
+        // 240 after them, as at a stage's start.
         if self.image.player_now() == Player::Dying {
-            let window = self.image.respawn_timer();
-            // **And a bomb to spend it on**, which the game asks for in the same condition: nothing is taken
-            // in a window a run has no bomb left for.
-            let bombed =
-                window > 0 && run.bombs > 0 && self.pressed(Th06.button_bit("bomb").unwrap_or(0));
-            match (window, bombed) {
-                (_, true) => {
-                    self.bombs();
-                    // Read back rather than taken off here, [`bombs`](Fake::bombs) having spent it: `run`
-                    // was read at the top of this frame, so the count it holds is the one before that.
-                    run.bombs = self.image.playing_now().bombs;
-                    self.image.player(Player::Invulnerable);
-                    self.image
-                        .set_invulnerable_frames(INVULNERABLE_AFTER_SPAWNING);
+            match self.image.respawn_timer() {
+                0 => {
+                    let dying = self.image.invulnerable_frames() + 1;
+                    if dying < DYING_FOR {
+                        self.image.set_invulnerable_frames(dying);
+                    } else {
+                        run.lives -= 1;
+                        self.image.player(Player::Spawning);
+                        self.image.set_invulnerable_frames(0);
+                    }
                 }
-                (0, _) => {
-                    run.lives -= 1;
-                    self.image.player(Player::Normal);
-                    self.image
-                        .set_respawn_timer(A_BOMB_IS_TAKEN_FOR_AFTER_A_RESPAWN);
-                }
-                (left, _) => self.image.set_respawn_timer(left - 1),
+                left => self.image.set_respawn_timer(left - 1),
             }
         }
         // The spawning branch, whose own test is `30 <= invulnerabilityTimer.AsFrames()`: a stage's start
         // satisfies it at once, so the state lasts this one update and what it leaves under the next one is
         // [`INVULNERABLE_AFTER_SPAWNING`] rather than the count the callback wrote.
+        // And the window a bomb is taken in put back with it, as that branch does every update: nought at
+        // 0x428f19, and [`A_BOMB_IS_TAKEN_FOR`] at 0x428f9e on the update it hands over.
         if self.image.player_now() == Player::Spawning {
+            self.image.set_respawn_timer(0);
             if self.image.invulnerable_frames() >= SPAWNING_ENDS_AT {
                 self.image.player(Player::Invulnerable);
                 self.image
                     .set_invulnerable_frames(INVULNERABLE_AFTER_SPAWNING);
+                self.image.set_respawn_timer(A_BOMB_IS_TAKEN_FOR);
             } else {
                 self.image
                     .set_invulnerable_frames(self.image.invulnerable_frames() + 1);
@@ -3447,7 +3469,7 @@ impl Fake {
     /// Together here because they are together in the game: `EnemyManager::RunEclInstruction` calls
     /// `Gui::SetSpellcardName` at 0x409636 and copies the name into the record at 0x409720, out of the
     /// same declaration. What tells them apart is where each ends up — the record is memory a snapshot
-    /// holds, and the plate is a sprite.
+    /// holds, and the name on the plate is a sprite.
     fn declares_the_card(&self, card: i32, name: &str) {
         self.image.starts_the_card(card, name);
         *self.card_plate.borrow_mut() = name.to_owned();
@@ -3822,9 +3844,10 @@ impl Fake {
         // [`update_the_player`](Fake::update_the_player).
         self.image.player(Player::Spawning);
         self.image.set_invulnerable_frames(SPAWNS_WITH);
-        // And the frames a bomb is taken in, which the same callback writes: a hit is not a death while
-        // this stands, so a stage laid out without it is one where every hit is settled the frame it lands.
-        self.image.set_respawn_timer(A_BOMB_IS_TAKEN_FOR);
+        // And the frames a bomb is taken in, which the same callback writes — never a window, the stage's
+        // first update writing nought and then [`A_BOMB_IS_TAKEN_FOR`] over it. See
+        // [`A_RUNS_FIRST_LIFE_IS_LEFT`].
+        self.image.set_respawn_timer(A_RUNS_FIRST_LIFE_IS_LEFT);
         // And what the player moves by and is hit inside, which the same callback leaves in the player's
         // own fields: the step [`moved`] takes, so that what a bot projects a move by is what the move is,
         // and the box the stage's own fire is tested against. This game's own numbers — see [`SPEED`] and
@@ -4092,7 +4115,7 @@ extern "fastcall" fn own_render(_window: *mut c_void) -> i32 {
 /// What this game does in it is ask for a window — through orb's own rewrite, which is where the ask it
 /// makes is replaced. Reached from orb's hook over this function, so the setting the game was configured
 /// with has already been overruled by the time the ask happens.
-extern "C" fn game_window_create(_instance: *mut c_void) {
+extern "C" fn game_window_create(_instance: *mut c_void) -> i32 {
     let fake = running();
     let window = unsafe {
         orb_core::window::create_window_ex_a(
@@ -4111,6 +4134,7 @@ extern "C" fn game_window_create(_instance: *mut c_void) {
         )
     };
     fake.window.set(orb_api::Hwnd(window as usize));
+    0
 }
 
 /// The game's own `joyGetPosEx`, as its import table held it before orb replaced the entry: winmm's,
@@ -4334,7 +4358,9 @@ extern "C" fn pad_buttons() -> *mut c_void {
     std::ptr::null_mut()
 }
 
-extern "C" fn init_d3d_device() {}
+extern "C" fn init_d3d_device() -> i32 {
+    0
+}
 
 /// `Chain::Cut` (0x41cde0): the element unlinked, which is one of the three calls into the game orb makes
 /// that an e2e test reaches — a screen shake still running at a stage move is taken down through it.
@@ -4621,29 +4647,40 @@ fn drawn_from(seed: u16) -> u16 {
     seed.wrapping_mul(0x9d5d).wrapping_add(0x6f7f)
 }
 
+/// **How long a bomb keeps the player from being hit**, by the run's shot type: each of the four bombs writes
+/// its own count over the invulnerability timer — Reimu A's 360 at 0x40530c, Reimu B's 200 at 0x406213,
+/// Marisa A's 300 at 0x4067a3 and Marisa B's 360 at 0x406f3b — a deathbomb's as much as any other's.
+fn a_bomb_keeps_the_player_untouchable_for() -> i32 {
+    const BY_SHOT_TYPE: [i32; 4] = [360, 200, 300, 360];
+    let run = the_run();
+    let shot_type =
+        usize::try_from(run.character * 2 + run.shot_type).expect("a shot type of four");
+    BY_SHOT_TYPE[shot_type]
+}
+
 /// Where the buttons of a frame leave the player, held inside the box the game holds them in.
 ///
 /// [`PLAYER_AREA_TOP_LEFT`] and [`PLAYER_AREA_SIZE`] and not the arcade region's, which is what
 /// `Player::HandlePlayerInputs` clamps `positionCenter` to.
+///
+/// **A direction with two bits in it moves by the diagonal step on each axis**, the speed at `+0x9fc` that
+/// `Player::AddedCallback` writes as the straight one over √2 — not the straight step on each, which is a
+/// move √2 longer than the one orb is told a diagonal is.
 fn moved((x, y): (f32, f32), word: u16) -> (f32, f32) {
-    let moved = |at: f32, less: bool, more: bool, from: f32, span: f32| {
-        let at = at - if less { SPEED } else { 0.0 } + if more { SPEED } else { 0.0 };
-        at.clamp(from, from + span)
+    let across = i32::from(word & button::RIGHT != 0) - i32::from(word & button::LEFT != 0);
+    let down = i32::from(word & button::DOWN != 0) - i32::from(word & button::UP != 0);
+    let step = match across != 0 && down != 0 {
+        true => SPEED / 2.0_f32.sqrt(),
+        false => SPEED,
     };
     (
-        moved(
-            x,
-            word & button::LEFT != 0,
-            word & button::RIGHT != 0,
+        (x + across as f32 * step).clamp(
             PLAYER_AREA_TOP_LEFT.0,
-            PLAYER_AREA_SIZE.0,
+            PLAYER_AREA_TOP_LEFT.0 + PLAYER_AREA_SIZE.0,
         ),
-        moved(
-            y,
-            word & button::UP != 0,
-            word & button::DOWN != 0,
+        (y + down as f32 * step).clamp(
             PLAYER_AREA_TOP_LEFT.1,
-            PLAYER_AREA_SIZE.1,
+            PLAYER_AREA_TOP_LEFT.1 + PLAYER_AREA_SIZE.1,
         ),
     )
 }

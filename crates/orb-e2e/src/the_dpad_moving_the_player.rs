@@ -121,6 +121,31 @@ fn the_dpad_on_the_controller_the_game_polls_moves_the_player() {
     });
 }
 
+/// **And a corner of the d-pad moves the player along both axes by the diagonal step**, which is what
+/// `Player::HandlePlayerInputs` (0x427860) takes for a direction with two bits in it — the speed at `+0x9fc`,
+/// the straight one over √2 — and not the straight step on each.
+#[test]
+fn a_corner_of_the_dpad_moves_the_player_by_the_diagonal_step() {
+    in_its_own_process(|| {
+        let game = playing("dpad-on-a-corner", |_| {});
+        let at = player(&game);
+        game.push(Pushed {
+            hat: DOWN_AND_LEFT,
+            ..Pushed::none()
+        });
+        game.frames(HELD);
+        let step = SPEED / 2.0_f32.sqrt() * HELD as f32;
+        let now = player(&game);
+        assert!(
+            (now.0 - (at.0 - step)).abs() < 0.01 && (now.1 - (at.1 + step)).abs() < 0.01,
+            "the d-pad's corner moved the player from {at:?} to {now:?} and not by {step} on each axis",
+        );
+    });
+}
+
+/// Down and to the left, halfway between the two.
+const DOWN_AND_LEFT: u32 = 22500;
+
 /// And the d-pad of a pad winmm has, where the game's own enumeration found no controller: the other
 /// device entirely, sampled on a thread of orb's own.
 #[test]

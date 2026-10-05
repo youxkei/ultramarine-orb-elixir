@@ -8,8 +8,9 @@
 //!
 //! **So this is th07's, from version 1.** th06 is released and its file is frozen at what shipped; this one
 //! is not released and can say what a run of *this* game is. What it does not carry is th06's vocabulary:
-//! there is no rank in it, no count of power items and no count of extra lives paid for, because this game
-//! reads none of the three — its own extra lives are paid for out of the cherry.
+//! no count of power items, and th06's rank and extra lives only in this game's own shapes — the rank is a
+//! static of its own, and the extra lives are given by the point items, counted against thresholds of
+//! their own.
 //!
 //! **And the generator of every frame is not optional here.** A file without them is a run nothing can be held
 //! to: the buttons play back into a stage that is no longer the same stage and what shows up is a death
@@ -26,9 +27,9 @@ use crate::resume::{Kept, MAX_STAGE_FRAMES};
 
 /// **The numbers a stage of th07 starts with, which is what a stage of it needs to be played again.**
 ///
-/// This game's own, and nothing of another game's: there is no rank here, no count of power items and no
-/// count of extra lives the score has paid for, because th07 reads none of the three — its own extra lives
-/// are paid for out of the cherry below.
+/// This game's own, and nothing of another game's: there is no count of power items and no count of extra
+/// lives the score has paid for, because th07 reads neither — its own extra lives are given by the point
+/// items, which the two below the score count — and its rank is the static at the end.
 ///
 /// **The cherry is three numbers and a baseline they are counted from**, and the baseline is the run's rather
 /// than the stage's: 0x42e3da draws it as the run is made. Each of the three is kept here as a count from it,
@@ -37,14 +38,19 @@ use crate::resume::{Kept, MAX_STAGE_FRAMES};
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Numbers {
     pub score: u32,
-    /// The score the panel is drawing, which the game's own teardown and every way out of its pause menu catch
-    /// up with the one above: a stage resumed without it draws the number the front end left and counts up to
+    /// The score the panel is drawing, which the game's own teardown and the continue menu's ways out of a run
+    /// catch up with the one above: a stage resumed without it draws the number the front end left and counts up to
     /// the run's from there.
     pub score_shown: u32,
-    /// How far the point value has climbed and how many items its next step wants — th07's own point system.
-    /// A stage resumed at a first stage's step is a stage whose items are worth a first stage's.
-    pub point_value_step: u32,
-    pub point_value_next: u32,
+    /// How many extends the point items have given and how many items the next one wants — th07's own extend.
+    /// A stage resumed with a first stage's thresholds is a stage whose items give an extend where a first
+    /// stage's would.
+    ///
+    /// `alias` for the names they were written under while they were read as a point value.
+    #[serde(alias = "point_value_step")]
+    pub extends_given: u32,
+    #[serde(alias = "point_value_next")]
+    pub items_for_the_next_extend: u32,
     /// What the generator was seeded with as the stage began. The whole of why the buttons alone are not
     /// enough: the game takes this from wherever the generator had got to, so a stage played again from a
     /// different seed is a different stage.
@@ -80,22 +86,24 @@ pub struct Numbers {
     /// it is what the numbers already meant.
     #[serde(default)]
     pub border: bool,
-    /// **The number the shot is scaled by**, `[0x62f8a4]` — see `Th07::SHOTS_OWN_NUMBER`.
+    /// **The rank**, `[0x62f8a4]` — see `Th07::RANK`.
     ///
-    /// A run's build fills it out of the per-shot table at 0x42e3a4, inside the block 0x42e89b jumps over, so a
-    /// stage the run walked into carries whatever the stage before it left and a stage a resume builds gets the
-    /// table's figure. What writes it while a run is played is the stage's own script, through the address the
-    /// dispatcher at 0x40ecf1 hands out — which is why no absolute store in the exe mentions it.
+    /// A run's build fills it out of the table by difficulty at 0x42e3a4, inside the block 0x42e89b jumps over,
+    /// so a stage the run walked into carries whatever the stage before it left and a stage a resume builds gets
+    /// the table's starting figure. What moves it while a run is played is 0x42f4aa and 0x42f526, through
+    /// `[ecx+0x9634]` — which is why no absolute store in the exe mentions it.
     ///
-    /// And it is read every frame the player is updated, four of the nine sites with `fimul`: 0x412bab works out
-    /// `current + (target - current) * this / 0x498a84` and writes it back where it came from. So twice the
-    /// number is a world whose player walks at twice the speed, and the same stage 2 held 0x20 entered by a
-    /// transition against 0x10 built by a resume.
+    /// And the ECL runner 0x410520 reads it as an enemy fires: 0x412ad4 and 0x412b3c scale the bullet counts,
+    /// and 0x412bab and 0x412c04, with `fimul`, the speeds, each as `low + (high - low) * rank / 32` added to
+    /// what the instruction asked for. So a higher rank is more bullets and faster ones, and the same stage 2
+    /// held 0x20 entered by a transition against 0x10 built by a resume.
     ///
     /// `default` for the reason the border above is: a file written before this field is one whose runs had
     /// whatever a build left, and nothing is what such a file has always been read as.
-    #[serde(default)]
-    pub shots_own_number: u32,
+    ///
+    /// `alias` for the name it was written under while it was read as a number of the shot's.
+    #[serde(default, alias = "shots_own_number")]
+    pub rank: u32,
 }
 
 /// Those numbers as the bytes the machinery carries about — see `Game::run_state`, which is where the shape
@@ -131,8 +139,8 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
     let numbers = decode_state(&saved.state).unwrap_or(Numbers {
         score: 0,
         score_shown: 0,
-        point_value_step: 0,
-        point_value_next: 0,
+        extends_given: 0,
+        items_for_the_next_extend: 0,
         seed: 0,
         point_items: 0,
         power: 0,
@@ -146,7 +154,7 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
         captured: 0,
         award_step: 0,
         border: false,
-        shots_own_number: 0,
+        rank: 0,
     });
     let written = Written {
         version: VERSION,
@@ -168,8 +176,8 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
         start: WrittenStart {
             score: numbers.score,
             shown: numbers.score_shown,
-            point_value_step: numbers.point_value_step,
-            point_value_next: numbers.point_value_next,
+            extends_given: numbers.extends_given,
+            items_for_the_next_extend: numbers.items_for_the_next_extend,
             seed: numbers.seed,
             points: numbers.point_items,
             power: numbers.power,
@@ -183,7 +191,7 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
             captured: numbers.captured,
             award_step: numbers.award_step,
             border: numbers.border,
-            shots_own_number: numbers.shots_own_number,
+            rank: numbers.rank,
         },
         landing: saved.landing.clone(),
         buttons: changes(&saved.buttons),
@@ -232,8 +240,8 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
         state: encode_state(&Numbers {
             score: written.start.score,
             score_shown: written.start.shown,
-            point_value_step: written.start.point_value_step,
-            point_value_next: written.start.point_value_next,
+            extends_given: written.start.extends_given,
+            items_for_the_next_extend: written.start.items_for_the_next_extend,
             seed: written.start.seed,
             point_items: written.start.points,
             power: written.start.power,
@@ -247,7 +255,7 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
             captured: written.start.captured,
             award_step: written.start.award_step,
             border: written.start.border,
-            shots_own_number: written.start.shots_own_number,
+            rank: written.start.rank,
         }),
         at,
         chapter: written.chapter.number,
@@ -349,11 +357,13 @@ struct WrittenChapter {
 #[serde(deny_unknown_fields)]
 struct WrittenStart {
     score: u32,
-    /// The one the panel is drawing, and the two behind the count of point items: how far their value has
-    /// climbed and how many the next step of it wants.
+    /// The one the panel is drawing, and the two behind the count of point items: how many extends they have
+    /// given and how many items the next one wants.
     shown: u32,
-    point_value_step: u32,
-    point_value_next: u32,
+    #[serde(alias = "point_value_step")]
+    extends_given: u32,
+    #[serde(alias = "point_value_next")]
+    items_for_the_next_extend: u32,
     #[serde(with = "hex")]
     seed: u16,
     points: u16,
@@ -377,10 +387,10 @@ struct WrittenStart {
     /// which is what those files have always been put back as.
     #[serde(default)]
     border: bool,
-    /// And the number the shot is scaled by — see [`Numbers::shots_own_number`]. `default` for the same reason
-    /// the border above has one.
-    #[serde(default)]
-    shots_own_number: u32,
+    /// And the rank — see [`Numbers::rank`]. `default` for the same reason the border above has one, and
+    /// `alias` for the name a file written before it was read as the rank holds it under.
+    #[serde(default, alias = "shots_own_number")]
+    rank: u32,
 }
 
 /// A number written the way every line of the log that mentions this one writes it. The seed is the
@@ -453,8 +463,8 @@ mod tests {
             state: encode_state(&Numbers {
                 score: 36_662_377,
                 score_shown: 36_662_370,
-                point_value_step: 12,
-                point_value_next: 5_320,
+                extends_given: 12,
+                items_for_the_next_extend: 5_320,
                 seed: 0x4ccc,
                 point_items: 993,
                 power: 128,
@@ -468,7 +478,7 @@ mod tests {
                 captured: 11,
                 award_step: 19,
                 border: true,
-                shots_own_number: 0x20,
+                rank: 0x20,
             }),
             at: 12,
             chapter: 14,

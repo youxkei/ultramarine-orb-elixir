@@ -32,12 +32,13 @@ fn wanted_from(game: &Fake, at: (f32, f32)) -> Option<(f32, f32)> {
     })
 }
 
-/// **Once its chasers are all gone the rules wait the card out at the bottom middle**, a quarter of the field
-/// up from its floor — the laid-out field being `448` high, `336` — from the bottom right they were left in.
+/// **Once its chasers are all gone the rules wait the card out at the bottom middle**, a quarter of the box the
+/// player is held to up from its floor — that box being `416` high from `16` (the game manager's `+0xd280`),
+/// `328` — from the bottom right they were left in.
 #[test]
 fn the_rules_of_th06nc_wait_the_card_out_low_in_the_middle_under_and_then_there_were_none() {
     in_its_own_process(|| {
-        const THE_BOTTOM_MIDDLE_A_QUARTER_UP: (f32, f32) = (192.0, 336.0);
+        const THE_BOTTOM_MIDDLE_A_QUARTER_UP: (f32, f32) = (192.0, 328.0);
         let game = Fake::attach_configured(
             Display::agreed(120),
             "th06nc-and-then-there-were-none-waited-out",

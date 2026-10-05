@@ -22,26 +22,27 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use orb_api::mem;
 
 use super::{
-    BEAM_ANCHOR_ALONG, BEAM_ANCHOR_SLACK, BEAM_BEHAVIOURS, BEAM_LENGTH, BEAM_NARROWEST, BOMBS,
-    BULLET_ACCELERATES, BULLET_ACCELERATION, BULLET_ACCELERATION_FRAMES,
-    BULLET_ACCELERATION_FRAMES_RUN, BULLET_BEHAVIOURS, BULLET_BYTES, BULLET_FRAMES, BULLET_HITS,
-    BULLET_KIND, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS, BULLET_SPRITE, BULLET_STEP,
+    A_LASER_PAST_ITS_NEAR_END_TESTS, BEAM_ANCHOR_ALONG, BEAM_ANCHOR_SLACK, BEAM_BEHAVIOURS,
+    BEAM_LENGTH, BEAM_NARROWEST, BOMBS, BULLET_ACCELERATES, BULLET_ACCELERATION,
+    BULLET_ACCELERATION_FRAMES, BULLET_ACCELERATION_FRAMES_RUN, BULLET_BEHAVIOURS, BULLET_BYTES,
+    BULLET_FRAMES, BULLET_HITS, BULLET_KIND, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS,
+    BULLET_SPRITE, BULLET_SPRITE_OF_THE_FOURTH_KIND, BULLET_SPRITE_OF_THE_THIRD_KIND, BULLET_STEP,
     BULLET_UNTESTED, BULLETS_AT, CARD_PAYS_ITS_LEAST_UNDER, CARD_TIME_LEFT, ENEMIES_AT,
     ENEMY_ALIVE, ENEMY_ANGLE, ENEMY_ATTACK_FRAMES, ENEMY_BOX_BYTES, ENEMY_BOX_EVERY,
     ENEMY_BOX_FLAGS, ENEMY_BOX_OF_ITS_SIZE, ENEMY_BOX_SKIPPED, ENEMY_BOXES, ENEMY_BOXES_AT,
     ENEMY_BOXES_TAPER, ENEMY_BYTES, ENEMY_FAMILIAR, ENEMY_FIRST_BOX, ENEMY_FRAMES, ENEMY_POSITION,
     ENEMY_SCRIPT, ENEMY_SIZE, ENEMY_SLOTS, ENEMY_SOLID, ENEMY_UNTESTED,
     FAMILIARS_PASSED_THROUGH_BY, G_BOXES_SKIPPED_WHILE, G_BULLET_MANAGER, G_CHARACTER,
-    G_ENEMY_MANAGER, G_FRAME_STEP, G_GAME_MANAGER, G_ITEM_MANAGER, G_PLAYER, G_SPELL_CARD,
-    G_TEAM_SPEC, GAUGE, GAUGE_HUMAN_END, ITEM_CLASS, ITEM_LIST, ITEM_NEXT, ITEM_POSITION,
-    ITEM_REACH, ITEM_SLOTS, ITEM_UNREACHABLE, LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING,
-    LASER_FAR, LASER_GROWS, LASER_LIVE_AT, LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS,
-    LASER_TIMER, LASER_WIDTH, LASERS_AT, PLAYER_BOUNDS_HEIGHT, PLAYER_BOUNDS_LEFT,
-    PLAYER_BOUNDS_TOP, PLAYER_BOUNDS_WIDTH, PLAYER_BOX_FAR, PLAYER_BOX_NEAR, PLAYER_HIT,
-    PLAYER_NORMAL, PLAYER_POSITION, PLAYER_STATE, POWER, SCRIPT_BEAM_ANCHOR, SCRIPT_BEHAVIOUR,
-    SPEC_POWER_FULL, SPEED_DIAGONAL, SPEED_FOCUSED_DIAGONAL, SPEED_FOCUSED_STRAIGHT,
-    SPEED_STRAIGHT, SPRITE_CASE, SPRITE_ELAPSED, SPRITE_FLAGS, SPRITE_NEVER_ENDS, SPRITE_SCRIPT,
-    SPRITE_WAIT, TIME_ORBS, TIME_ORBS_WANTED, Th08,
+    G_ENEMY_MANAGER, G_FRAME_STEP, G_GAME_MANAGER, G_ITEM_MANAGER, G_OTHER_SPEC, G_PLAYER,
+    G_SPELL_CARD, G_TEAM_SPEC, GAUGE, GAUGE_HUMAN_END, ITEM_CLASS, ITEM_LIST, ITEM_NEXT,
+    ITEM_POSITION, ITEM_REACH, ITEM_SLOTS, ITEM_UNREACHABLE, LASER_ALIVE, LASER_ANGLE, LASER_BYTES,
+    LASER_FADING, LASER_FAR, LASER_GROWS, LASER_LIVE_AT, LASER_NEAR, LASER_ORIGIN, LASER_PHASE,
+    LASER_SLOTS, LASER_STOPS_HITTING_AT, LASER_TIMER, LASER_WIDTH, LASERS_AT, PLAYER_BOUNDS_HEIGHT,
+    PLAYER_BOUNDS_LEFT, PLAYER_BOUNDS_TOP, PLAYER_BOUNDS_WIDTH, PLAYER_BOX_FAR, PLAYER_BOX_NEAR,
+    PLAYER_HIT, PLAYER_NORMAL, PLAYER_POSITION, PLAYER_STATE, POWER, SCRIPT_BEAM_ANCHOR,
+    SCRIPT_BEHAVIOUR, SPEC_POWER_FULL, SPEED_DIAGONAL, SPEED_FOCUSED_DIAGONAL,
+    SPEED_FOCUSED_STRAIGHT, SPEED_STRAIGHT, SPRITE_CASE, SPRITE_ELAPSED, SPRITE_FLAGS,
+    SPRITE_NEVER_ENDS, SPRITE_SCRIPT, SPRITE_WAIT, TIME_ORBS, TIME_ORBS_WANTED, Th08,
 };
 use crate::game::{Beam, FIRES_WHEN_NOTHING_SAYS, Frame, Hazard, Kind, Pickup, Worth};
 use crate::trace;
@@ -261,8 +262,8 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             mem::read_committed::<usize>(context + SCRIPT_BEHAVIOUR).and_then(|behaviour| {
                 BEAM_BEHAVIOURS
                     .iter()
-                    .find(|(it, _)| *it == behaviour)
-                    .map(|(_, width)| *width)
+                    .find(|(it, _, _)| *it == behaviour)
+                    .map(|(_, width, from)| (*width, *from))
             })
         };
         if let Some(context) =
@@ -279,8 +280,10 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
                 || (ax - angle.cos() * BEAM_ANCHOR_ALONG).abs() < BEAM_ANCHOR_SLACK
                     && (ay - angle.sin() * BEAM_ANCHOR_ALONG).abs() < BEAM_ANCHOR_SLACK)
         {
-            let width = firing.unwrap_or(BEAM_NARROWEST);
-            let (x, y) = unsafe { position(enemy + ENEMY_POSITION) };
+            // An armed beam not yet firing is read off the position: which behaviour it will run, and so which
+            // field it is laid from, is not said until it runs.
+            let (width, from) = firing.unwrap_or((BEAM_NARROWEST, ENEMY_POSITION));
+            let (x, y) = unsafe { position(enemy + from) };
             into.beams.push(Beam {
                 slot,
                 origin: (x - ax, y - ay),
@@ -362,11 +365,12 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         let boxes = usize::try_from(boxes).unwrap_or(0);
         for along in (ENEMY_FIRST_BOX..boxes).step_by(ENEMY_BOX_EVERY) {
             let at = enemy + ENEMY_BOXES_AT + along * ENEMY_BOX_BYTES;
-            // **Tapered where that byte says so**, which is `size * along / boxes`: the far end of a
-            // long enemy is narrower than its head, and a bot told the head's width all the way down
-            // would keep out of a lane the game would have let it through.
+            // **Tapered where that byte says so**, which the game works out as `size - size * along /
+            // boxes` (0x42cfe0 through 0x42d03a): the far end of a long enemy is narrower than its head,
+            // and a bot told the head's width all the way down would keep out of a lane the game would
+            // have let it through.
             let taper = match flagged & ENEMY_BOXES_TAPER != 0 {
-                true => along as f32 / boxes as f32,
+                true => 1.0 - along as f32 / boxes as f32,
                 false => 1.0,
             };
             into.hazards.push(Hazard {
@@ -420,14 +424,14 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         // but its last — see [`BULLET_SPRITE`]: there the bullet moves the divided share and nothing more,
         // and read at the ending frame's multiple instead a wall of them is three times too fast.
         let of_it = Th08.how_much_of_its_step_a_bullet_takes(state);
-        let of_it = match (2..=4).contains(&state) && !unsafe { a_spawn_may_end(bullet) } {
+        let of_it = match (2..=4).contains(&state) && !unsafe { a_spawn_may_end(bullet, state) } {
             true => of_it - 1.0,
             false => of_it,
         };
         into.hazards.push(Hazard {
             // **Hitting in one of the five kinds and in none of the others** — see [`BULLET_HITS`]: the
             // box test that takes a life has one caller and it is kind 1's, the spawn kinds asking only
-            // whether the boxes overlap and kind 5 asking nothing. Called dangerous whichever kind it
+            // whether the bullet is inside one of the player's erasing circles and kind 5 asking nothing. Called dangerous whichever kind it
             // was in before this reading, which is a bot that will not fly through a mesh of them
             // coming out.
             //
@@ -463,13 +467,31 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         }
         let phase = unsafe { mem::read::<u8>(laser + LASER_PHASE) };
         let frames = unsafe { mem::read::<i32>(laser + LASER_TIMER) };
+        // **Going out and past the frame it stops hitting on**, which is nothing to step out of: 0x43205e
+        // tests the player only while the count is under [`LASER_STOPS_HITTING_AT`].
+        if phase >= LASER_FADING
+            && frames >= unsafe { mem::read::<i32>(laser + LASER_STOPS_HITTING_AT) }
+        {
+            continue;
+        }
+        // **Seven tenths of the reach once the near end is past nought**, centred between the two ends —
+        // see [`A_LASER_PAST_ITS_NEAR_END_TESTS`].
+        let near = unsafe { mem::read::<f32>(laser + LASER_NEAR) };
+        let far = unsafe { mem::read::<f32>(laser + LASER_FAR) };
+        let (near, far) = match near > 0.0 {
+            true => {
+                let short = (far - near) * (1.0 - A_LASER_PAST_ITS_NEAR_END_TESTS) / 2.0;
+                (near + short, far - short)
+            }
+            false => (near, far),
+        };
         into.beams.push(Beam {
             slot,
             origin: unsafe { position(laser + LASER_ORIGIN) },
             angle: unsafe { mem::read::<f32>(laser + LASER_ANGLE) },
             frames,
-            near: unsafe { mem::read::<f32>(laser + LASER_NEAR) },
-            far: unsafe { mem::read::<f32>(laser + LASER_FAR) },
+            near,
+            far,
             // **The rate and not the field**, this game scaling the reach it works out per frame by
             // [`G_FRAME_STEP`] — 0x431bcf.
             grows: unsafe { mem::read::<f32>(laser + LASER_GROWS) }
@@ -478,8 +500,8 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             // 0x44a7b6 halves that again, so a quarter each side is what the game tests.
             half_across: unsafe { mem::read::<f32>(laser + LASER_WIDTH) } / 2.0 / 2.0,
             // **Nothing to wait for outside the first phase.** [`LASER_LIVE_AT`] is asked only while the
-            // warning line is growing (0x431e75); once it fires, and while it fades, the game tests the
-            // player every frame.
+            // warning line is growing (0x431e75); once it fires the game tests the player every frame, and
+            // while it fades only while the count is under `[laser+0x580]` (0x43205e).
             fires_in: if phase == 0 {
                 (unsafe { mem::read::<i32>(laser + LASER_LIVE_AT) }) - frames
             } else {
@@ -518,10 +540,18 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
 /// one thing 0x45ea00 can be asked without walking the animation's script. Everything else answers `true`,
 /// which is the frame a spawning bullet adds its whole step as well as its share.
 ///
+/// **Off the sprite of the kind it is in**, each spawning kind waiting on one of its own: kind 2 on
+/// [`BULLET_SPRITE`], kind 3 on `+0x548` (0x4318f8) and kind 4 on `+0x7ec` (0x431a09), each handed to 0x45ea00.
+///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn a_spawn_may_end(bullet: usize) -> bool {
-    let sprite = bullet + BULLET_SPRITE;
+unsafe fn a_spawn_may_end(bullet: usize, state: u16) -> bool {
+    let sprite = bullet
+        + match state {
+            3 => BULLET_SPRITE_OF_THE_THIRD_KIND,
+            4 => BULLET_SPRITE_OF_THE_FOURTH_KIND,
+            _ => BULLET_SPRITE,
+        };
     let Some(script) = mem::read_committed::<usize>(sprite + SPRITE_SCRIPT).filter(|it| *it != 0)
     else {
         return true;
@@ -543,8 +573,8 @@ unsafe fn a_spawn_may_end(bullet: usize) -> bool {
 ///
 /// **The two the shared vocabulary has no name for go over as [`Worth::Other`]**, which ranks them below
 /// everything named: class 6 is worth score off the graze and class 7 is what a cancelled bullet leaves,
-/// three at a time, so a bot that crossed a screen for one of those would be crossing it for a thousandth
-/// of what a life is worth. `Other` is what `orb_bot::steer` goes for only where it costs nothing.
+/// one or two a bullet (0x431634 through 0x43168f), so a bot that crossed a screen for one of those
+/// would be crossing it for a thousandth of what a life is worth. `Other` is what `orb_bot::steer` goes for only where it costs nothing.
 fn worth(class: u8) -> Worth {
     match class {
         0 => Worth::Power,
@@ -609,26 +639,28 @@ unsafe fn player_box() -> (f32, f32) {
     )
 }
 
-/// **The four speeds, out of the team's own `.sht`** — straight, diagonal, and the two focused.
+/// **The four speeds, out of the active member's own `.sht`** — straight, diagonal, and the two focused.
 ///
 /// A launch measured them as 4.00, 2.83, 2.00 and 1.41 and the same launch found all four in this
-/// object; see `SPEED_STRAIGHT` in `th08/mod.rs`. [`A_PROBE`] where one cannot be read, a bot that
-/// stood still being worse than one that moved by a guess.
+/// object; see `SPEED_STRAIGHT` in `th08/mod.rs` — **and the focused pair out of the other member's**,
+/// [`G_OTHER_SPEC`], which is where the game itself takes it (0x44b4ab through 0x44b62f). [`A_PROBE`] where
+/// one cannot be read, a bot that stood still being worse than one that moved by a guess.
 ///
 /// # Safety
 /// Must run on the game's main thread.
 unsafe fn steps() -> (f32, f32, f32, f32) {
-    let spec = mem::read_committed::<usize>(G_TEAM_SPEC).filter(|it| *it != 0);
-    let step = |at: usize| {
-        spec.and_then(|spec| mem::read_committed::<f32>(spec + at))
+    let step = |of: usize, at: usize| {
+        mem::read_committed::<usize>(of)
+            .filter(|it| *it != 0)
+            .and_then(|spec| mem::read_committed::<f32>(spec + at))
             .filter(|speed| speed.is_finite() && *speed > 0.0)
             .unwrap_or(A_PROBE)
     };
     (
-        step(SPEED_STRAIGHT),
-        step(SPEED_DIAGONAL),
-        step(SPEED_FOCUSED_STRAIGHT),
-        step(SPEED_FOCUSED_DIAGONAL),
+        step(G_TEAM_SPEC, SPEED_STRAIGHT),
+        step(G_TEAM_SPEC, SPEED_DIAGONAL),
+        step(G_OTHER_SPEC, SPEED_FOCUSED_STRAIGHT),
+        step(G_OTHER_SPEC, SPEED_FOCUSED_DIAGONAL),
     )
 }
 

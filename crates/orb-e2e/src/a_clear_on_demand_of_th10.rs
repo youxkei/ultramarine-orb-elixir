@@ -2,8 +2,9 @@
 //!
 //! What `--clear` is for is reaching a result screen without half an hour of playing well. What makes it work
 //! on this game is `Th10::make_invulnerable`, called before every one of the game's own updates: the player's
-//! own countdown at `+0x4310` put back up to 2, which every hit and both of the player's tests ask is nought
-//! before they take anything (0x426756, 0x426950) — and which the player's job counts one down a frame
+//! own countdown at `+0x4310` put back up to 2, which both of the player's tests ask is nought before they take
+//! the hit (0x426756, 0x426950) — a bullet touching the player still cancelled, the bullets' test answering 1
+//! either way (0x426766) — and which the player's job counts one down a frame
 //! (0x425e46), so it never reaches nought inside an update.
 //!
 //! **And what makes these tests say anything is fire that would really land**: the laid-out stage's own

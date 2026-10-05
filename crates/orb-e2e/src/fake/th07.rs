@@ -81,6 +81,13 @@ const MAP: [(u8, u16); 7] = [
 /// being 続ける.
 const MENU_BUTTON: u16 = 0x8;
 const MENU_DECIDE: u16 = 0x1;
+/// The pause menu's three states this game's e2e tests walk — setting up, on 続ける, and going down — and the
+/// timer its first item and its going down wait on. The menu's own numbers.
+const PAUSE_MENU_SETTING_UP: i32 = 0;
+const PAUSE_MENU_ON_ITS_FIRST_ITEM: i32 = 1;
+const PAUSE_MENU_CLOSING: i32 = 4;
+const PAUSE_MENU_TAKES_A_DECIDE_FROM: i32 = 4;
+const PAUSE_MENU_CLOSES_AT: i32 = 0x14;
 /// And what its front end reads as *back* — the bomb and the menu button, which is `Th07`'s `MENU_CANCEL` —
 /// and the four directions, as the word's own bits.
 const MENU_CANCEL: u16 = 0x2 | MENU_BUTTON;
@@ -139,12 +146,17 @@ const TITLE_ITEM_SCORE: i32 = 4;
 
 /// The two phases a screen of the front end is in, as `Th07` reads them: the one its build runs in and the one
 /// its items are read in — and how long each screen is up before it moves to the second. The title's gate is the
-/// count itself against ten (0x4557b6, `SETTLED_FRAMES`) and the shot select's is the phase written at thirty
+/// count itself against ten (0x455c6d, `SETTLED_FRAMES`) and the shot select's is the phase written at thirty
 /// (0x459bbb) — see `Th07::menu_takes_a_press`.
 const PHASE_BUILDING: i32 = 0;
 const PHASE_ITEMS: i32 = 1;
 const TITLE_TAKES_A_PRESS_AFTER: i32 = 10;
 const A_SCREEN_TAKES_A_PRESS_AFTER: i32 = 30;
+/// And the phase the title's last item sends the front end to, the updates it waits in before it asks for the
+/// end of the game (its timer passing 0x3b), and that scene, the supervisor's -1.
+const PHASE_ENDING_THE_GAME: i32 = 2;
+const THE_WAY_DOWN_WAITS_FOR: i32 = 0x3b;
+const SCENE_THE_GAME_ENDS: i32 = -1;
 
 /// **The script of a stage this game plays on its own**, which is a stage a run started from its own front end
 /// gets and a stage an e2e test placed does not: the frames of the stage its midboss arrives on, puts its card
@@ -211,6 +223,13 @@ const ROLL_UPDATES: i32 = 10;
 /// Public because an e2e test about what such an update does has to run enough of them to reach one.
 pub const SLOWED_EVERY: u32 = 5;
 
+/// The frames a play the game was asked for takes to leave the player's own queue, a run of the sound a frame:
+/// 0x44c9c0's kind 2 walks one phase a run and the eighth run takes it out — which is what orb waits on before it
+/// does anything more about the sound of a chapter it has put back.
+pub const A_PLAY_TAKES: u32 = 8;
+/// And the live bullets that slowing starts at, the `cmp` against 0x80 at 0x42e17a.
+const BULLETS_THE_SLOWDOWN_STARTS_AT: i32 = 0x80;
+
 /// The two arrow keys orb's own menus do not read, so `orb_sim::keys` does not name them — the four it does
 /// read come from there, which is what makes an e2e test pressing `Z` at one of orb's questions and this game
 /// reading its shot key the same key by construction.
@@ -236,10 +255,10 @@ pub const BOMBS: f32 = 3.0;
 pub const POWER: f32 = 96.0;
 pub const SCORE: u32 = 1_234_560;
 
-/// **What a build leaves the shot's own number at**, which is the figure the per-shot table holds for the shot
-/// above: what a launch of th07 read out of a stage 2 its resume had built. A stage the run walked into carries
+/// **What a build leaves the rank at**, which is the starting figure the table by difficulty holds for the
+/// difficulty above: what a launch of th07 read out of a stage 2 its resume had built. A stage the run walked into carries
 /// its own instead — see `Fake::builds_the_stage`.
-pub const A_BUILDS_OWN_NUMBER: u32 = 0x10;
+pub const A_BUILDS_OWN_RANK: u32 = 0x10;
 
 /// How long the title menu has been up when an e2e test presses at it: past the ten frames the game's own
 /// update refuses a press over, which is what `Th07::menu_takes_a_press` reads.
@@ -386,9 +405,14 @@ pub struct Fake {
     /// And how many times its own transition has put the screen a run ends on the chain, which is a screen
     /// somebody sees — see [`Fake::result_screens`].
     result_screens: Cell<u32>,
+    /// The game's own pause menu's state and timer, `[menu+0x0]` and `[menu+0x4]` of 0x402780's object — see
+    /// [`Fake::walks_its_pause_menu`]. Kept here and not laid out, nothing of orb's reading that object.
+    pause_menu: Cell<(i32, i32)>,
     /// The word the player's own job found in the word the run acts on, which is what a frame is played with —
     /// see [`Fake::the_player_read`].
     the_player_read: Cell<u16>,
+    /// And last frame's word beside it, as that job found it — see [`Fake::word_the_run_acted_on`].
+    the_player_read_before: Cell<u16>,
     /// The seed the last build settled on for its stage — see [`Fake::settles_a_seed_for_the_stage`], which is
     /// where the next one comes from.
     seed: Cell<u16>,
@@ -472,6 +496,9 @@ pub struct Fake {
     /// `FRONT_END_CURSOR`, and every screen between an item and a run writes its own list's item into it: the
     /// item the title was left on is gone by the time a run ends, and the real game reads it again there.
     left_the_title_on: Cell<i32>,
+    /// The updates the front end has spent on its way down to the end of the game, once the title's last item
+    /// was decided — see [`Fake::walks_its_front_end`].
+    ending_the_game_for: Cell<Option<i32>>,
     /// And whether the front end is still walking back into the practice flow, which takes a screen a frame —
     /// see [`Fake::walks_back_into_the_practice_flow`].
     coming_back_through_the_practice_screens: Cell<bool>,
@@ -489,6 +516,10 @@ pub struct Fake {
     /// And whether it stands in front of the read that screen makes — see [`Fake::reads_the_pad_buttons`].
     reads_the_pad_by_number: bool,
     word: Cell<u16>,
+    /// Whether the last update was one the game skipped, which is 0x62627d — see [`Fake::update`] — and the word
+    /// before the one the read left, 0x4b9e54, which that skip leaves where it was.
+    read_held_over: Cell<bool>,
+    read_before: Cell<u16>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory.
     _installed: orb_api::Installed,
 }
@@ -700,6 +731,7 @@ impl Fake {
         let _ = image.hands_over_the_music();
         image.hands_over_the_text_baking();
         image.lays_out_its_score_files_image();
+        image.its_play_records_are_tagged_at_its_start();
         // Where the game is installed, which is where orb writes its log.
         image.sim().set_host_exe(launch.dir().join(EXE));
         // The display, in front of orb being attached: `configure` reads the desktop's own rate before
@@ -735,7 +767,9 @@ impl Fake {
             answers: Cell::new(CHAIN_CARRIED_ON),
             fog_told: Cell::new(0),
             result_screens: Cell::new(0),
+            pause_menu: Cell::new((PAUSE_MENU_SETTING_UP, 0)),
             the_player_read: Cell::new(0),
+            the_player_read_before: Cell::new(0),
             // Not nothing, so the first stage of a launch is built out of a seed like every other one.
             seed: Cell::new(0x4d2f),
             heard_playing_back: Cell::new(0),
@@ -764,6 +798,7 @@ impl Fake {
             // anything has been left: `front end: screen 0, cursor on item 0` on the first frame of every
             // case's trace.
             left_the_title_on: Cell::new(TITLE_ITEM_START),
+            ending_the_game_for: Cell::new(None),
             coming_back_through_the_practice_screens: Cell::new(false),
             difficulty: Cell::new(DIFFICULTY),
             character_chosen: Cell::new(CHARACTER),
@@ -775,6 +810,8 @@ impl Fake {
             panel_tile: Cell::new(true),
             boss: Cell::new(false),
             word: Cell::new(0),
+            read_held_over: Cell::new(false),
+            read_before: Cell::new(0),
             _installed: installed,
         });
         RUNNING.set(&raw const *fake);
@@ -787,7 +824,12 @@ impl Fake {
                     update,
                     draw,
                     input,
-                    stage_building,
+                    // A `fastcall` of one, which `runtime::stage_building_in_ecx` calls through as one — the
+                    // field's own type being the one every other game's build has.
+                    stage_building: std::mem::transmute::<
+                        extern "fastcall" fn(i32) -> i32,
+                        extern "C" fn(i32) -> i32,
+                    >(stage_building),
                     stage_begun,
                     unlocks_read,
                     ranking_read: fake.image.its_score_file_gather(),
@@ -798,7 +840,11 @@ impl Fake {
                     create_window,
                     create_file,
                     stop_recording,
-                    create_game_window,
+                    // Handed its instance in `ecx`, as `runtime::create_game_window_in_ecx` calls it.
+                    create_game_window: std::mem::transmute::<
+                        extern "fastcall" fn(*mut c_void) -> i32,
+                        extern "C" fn(*mut c_void) -> i32,
+                    >(create_game_window),
                     joystick_position,
                     pad_buttons,
                     save_replay,
@@ -844,8 +890,8 @@ impl Fake {
     pub fn creates_its_window(&self) -> orb_api::Hwnd {
         // `GameWindow::CreateGameWindow` first, which is the call everything about this game's window is decided
         // inside: the game reads its own configuration in there, and orb's one chance to overrule a display taken
-        // exclusively is in front of that read — see `Th07::hooks`' `create_window`.
-        orb_core::runtime::create_game_window(std::ptr::null_mut());
+        // exclusively is in front of that read — see `Th07::hooks`' `create_window`. Handed the instance in `ecx`.
+        orb_core::runtime::create_game_window_in_ecx(std::ptr::null_mut());
         self.asks_for_a_window_of_the_class(WINDOW_CLASS)
     }
 
@@ -1118,7 +1164,7 @@ impl Fake {
     /// **A read of the file that no write follows**, which is what makes it worth laying out: what a session
     /// counted must not be put back here, the records going nowhere afterwards and the note being spent.
     pub fn its_ranking_screen_is_brought_up(&self) {
-        self.image.the_screen_a_run_ends_at_is_up();
+        self.image.the_ranking_is_up();
         self.the_screen_a_run_ends_at_reads_the_file();
     }
 
@@ -1639,12 +1685,12 @@ impl Fake {
     pub fn builds_the_stage(&self, stage: i32) {
         self.lays_the_stage_out(stage);
         self.image.has_a_runs_numbers();
-        // **And the number the shot is scaled by, out of the per-shot table**, which 0x42e3a4 does inside the
-        // block 0x42e89b jumps over: a run's first stage gets the table's figure and a stage the run walks into
-        // carries whatever the stage before it left. A laid-out game that left this alone would be a game where
+        // **And the rank, out of the table by difficulty**, which 0x42e3a4 does inside the block 0x42e89b jumps
+        // over: a run's first stage gets the table's starting figure and a stage the run walks into carries
+        // whatever the stage before it left. A laid-out game that left this alone would be a game where
         // a resume gets the recorded number for free, which is the difference two launches measured — 0x20
         // carried against 0x10 built.
-        self.image.the_shots_own_number_is(A_BUILDS_OWN_NUMBER);
+        self.image.the_rank_is(A_BUILDS_OWN_RANK);
         self.image.has_lives_and_bombs(LIVES, BOMBS);
         self.image.shot_is_at_power(POWER);
         self.image.the_run_has_scored(SCORE, 0);
@@ -1672,8 +1718,9 @@ impl Fake {
     }
 
     /// **The seed the build settles on for the stage it is about to lay out**, which the game takes out of
-    /// wherever the generator had got to: 0x42f07e saves it, 0x42f08b seals the run's numbers over the top of it
-    /// — two draws — 0x42f094 puts it back, and 0x42f0a4 writes it down as the stage's own.
+    /// wherever the generator had got to: where a replay is playing, 0x42f07e saves it, 0x42f08b seals the run's
+    /// numbers over the top of it — two draws — and 0x42f094 puts it back, and on every build 0x42f0a4 writes it
+    /// down as the stage's own.
     ///
     /// Another number every build, the way the game's is: the generator has moved on by then, so a stage built a
     /// second time is a different stage unless somebody puts the first one's seed back. What the step itself is
@@ -1712,8 +1759,10 @@ impl Fake {
     /// its generator still holding the seed orb wrote at the end of the build where the run had it already drawn
     /// from.
     fn builds_the_stage_out_of_that_seed(&self, stage: i32) {
+        // **Entered as the supervisor enters the build**, the stage in `ecx` and nothing on the stack (0x42f0ae) —
+        // which is the hook `Building::InEcx` installs.
         if the_game_this_is().hooks().stage_building.is_some() {
-            orb_core::runtime::stage_building(stage);
+            orb_core::runtime::stage_building_in_ecx(stage);
         }
         // The draws themselves, as one step: what a test asks of them is that the number the stage runs from is a
         // function of the seed the build had, and not the seed itself.
@@ -1731,10 +1780,11 @@ impl Fake {
     /// and the deaths at 0x42eb08 are all inside it. So a run is one set of numbers walked through its stages,
     /// and a transition that put them back would hand a run six fresh lives.
     ///
-    /// **All of it inside one update**, which is where the supervisor does it: 0x4380b4 writes the rebuild scene
-    /// into the one *asked for*, 0x42f45d tears the stage down, 0x42f3c5 registers the manager for the next one —
-    /// which is where the added callback runs and reads that field — and 0x4380df puts it back to the run's own
-    /// scene before the update returns. So no frame of a transition is a frame outside the scene a run is played
+    /// **All of it inside one update**, which is where the supervisor does it: the stage's end at 0x427ea5 has
+    /// written the rebuild scene into the one *asked for*, and the supervisor's case for it tears the stage down
+    /// through 0x42f45d at 0x438123, registers the manager for the next one at 0x438128 — which is where the added
+    /// callback runs and reads that field — and puts it back to the run's own scene at 0x43813c before the update
+    /// returns. So no frame of a transition is a frame outside the scene a run is played
     /// in, and a laid-out game that spent one would be a run orb reads as over.
     /// **And the last thing that block does is zero the input words**, at 0x438294 — 0x4b9e5c cleared, copied to
     /// 0x4b9e54 and from there to 0x4b9e4c — which every transition reaches, 0x4381cc jumping straight to it. So
@@ -1746,14 +1796,16 @@ impl Fake {
         self.the_stages_own_fields();
         // **The build itself, which a transition runs as much as a run's first stage does.** What 0x42e894 jumps
         // over is the block filling a run's numbers in and nothing after it: the jump lands at 0x42eee6, and the
-        // seed the stage is settled on at 0x42f07e, written down at 0x42f0a4 and built out of at 0x42f0b4 are all
-        // past that. So the stage a run walks into is a stage `stage_building` is reached for, with the scene
+        // seed the stage is written down as at 0x42f0a4 and built out of at 0x42f0b4 — settled first at 0x42f07e
+        // where a replay is playing — are all past that. So the stage a run walks into is a stage `stage_building` is reached for, with the scene
         // *asked for* still the rebuild one — which is how orb tells the two ways in apart.
         self.settles_a_seed_for_the_stage(false);
         self.builds_the_stage_out_of_that_seed(stage);
         self.the_stages_numbers_are_in_place();
         self.image.the_read_left_the_word(0);
+        // And both of the run's words, which 0x443aa0 zeroes on every stage build.
         self.image.the_run_acts_on_the_word(0);
+        self.image.the_run_acted_on_the_word(0);
         self.image.is_playing(stage, self.difficulty.get());
     }
 
@@ -1800,7 +1852,8 @@ impl Fake {
     }
 
     /// The screen a run's own end arrives on, brought up the way that end brings it: the scene a run's teardown
-    /// goes to, and the screen on the chain in the phase a whole run reaches it in.
+    /// goes to, the screen on the chain in the phase a whole run reaches it in, and that screen's own read of the
+    /// file — which is what takes a practice run's end on to the replay offer.
     ///
     /// The scene is asked for as well as arrived at, because a scene with another asked for is one this game
     /// moves on from — see [`Fake::follows_its_supervisor`]. What moves this screen on is its own walk, which is
@@ -1809,6 +1862,7 @@ impl Fake {
         let over = self.image.scene_of_a_run_over();
         self.image.is_in_scene(over, over);
         self.image.the_screen_a_run_ends_at_is_up();
+        self.the_screen_a_run_ends_at_reads_the_file();
     }
 
     /// And that screen's own walk reaching the question about saving a replay, which is the one state of it orb
@@ -1935,10 +1989,12 @@ impl Fake {
     }
 
     /// **And this game slowing its own run down, which is what makes an update of it not a frame of it.**
-    /// 0x42e186 divides the manager's own count of them by five and, where nothing is left over, sets the byte
-    /// at `G_GAME_MANAGER + 0xd` and answers 3 — the same 3 that skips both clocks — so one update in
-    /// [`SLOWED_EVERY`] moves the run nowhere. It is gated on `[0x9a9a80]` having reached 0x80, which is why an
-    /// e2e test asks for it rather than every laid-out run having it.
+    /// Where the run's header has its `+0x25` set, the manager's update divides its own count of them by five,
+    /// four or three — by whether the live bullets at `[0x9a9a80]` have reached 0x80, 0xe0 or 0x140
+    /// (0x42e122–0x42e186) — and, where nothing is left over, sets the byte at `G_GAME_MANAGER + 0xd` and
+    /// answers 3, the same 3 that skips both clocks. Under 0x80 bullets the count goes back to nothing. Asked
+    /// for by an e2e test rather than every laid-out run having it, and with the bullets at 0x80, which is one
+    /// update in [`SLOWED_EVERY`] — a test that wants more of them puts more bullets up.
     ///
     /// **What it is here for is the arithmetic a playback is bounded by**: orb drives updates itself to put a
     /// run back, so a stage of 24119 frames is not 24119 updates and a bound counting them as frames runs out
@@ -1950,6 +2006,7 @@ impl Fake {
     /// written down beside its neighbour — and what a test can ask about is the clocks.
     pub fn slows_its_own_run_down(&self) {
         self.slowed.set(true);
+        self.image.bullets_alive(BULLETS_THE_SLOWDOWN_STARTS_AT);
     }
 
     /// What orb reads of the run, for an e2e test that asks what a chapter put back: the game's own memory
@@ -1964,9 +2021,10 @@ impl Fake {
     /// a press rather than a hold, so what says one happened is the two words together.
     ///
     /// The other half is [`Fake::the_player_read`], which is what the player's own job read on the frame just
-    /// run.
+    /// run — and this one is what that job read beside it, the recorder below it moving the word on before
+    /// the update is over.
     pub fn word_the_run_acted_on(&self) -> u16 {
-        self.image.the_word_the_run_acted_on()
+        self.the_player_read_before.get()
     }
 
     pub fn word_the_input_read_answered(&self) -> u16 {
@@ -2000,8 +2058,20 @@ impl Fake {
         // spent, which is what a transition clearing them is for.
         //
         // The word the read left is kept first, because the manager below reads the pause off the pair of them.
-        let read_before = self.image.the_word_the_read_left();
-        self.image.the_read_left_the_word(self.word.get());
+        //
+        // **Except on the update after one the game skipped**, where 0x62627d is up: 0x437c70 then ors the read
+        // into the word the last one left and shifts nothing, so what that skipped update read is still pressed
+        // and the edge is against the word before it.
+        let read_before = if self.read_held_over.get() {
+            self.image
+                .the_read_left_the_word(self.image.the_word_the_read_left() | self.word.get());
+            self.read_before.get()
+        } else {
+            let read_before = self.image.the_word_the_read_left();
+            self.image.the_read_left_the_word(self.word.get());
+            read_before
+        };
+        self.read_before.set(read_before);
         self.follows_its_manager(read_before);
         self.walks_its_front_end(read_before);
         self.walks_the_screen_a_run_ends_at(read_before);
@@ -2022,11 +2092,19 @@ impl Fake {
         // that does advance the run reads the pair. See [`Fake::slows_its_own_run_down`].
         let state = self.state();
         let advances = !state.in_run || (!state.paused && self.advances_the_run());
+        self.read_held_over
+            .set(state.in_run && !state.paused && !advances);
         if advances {
             self.the_player_read
                 .set(self.image.the_word_the_run_acts_on());
+            self.the_player_read_before
+                .set(self.image.the_word_the_run_acted_on());
             // And the copy the recorder makes, out of the word the read left: the same value orb's own
-            // hand-over put there, which is why the lag is the order and not the copy.
+            // hand-over put there, which is why the lag is the order and not the copy. **With the word the run
+            // acts on moved into last frame's first** (0x442cf2), so that what orb wrote there lasts as far as
+            // the player's job and no further.
+            self.image
+                .the_run_acted_on_the_word(self.image.the_word_the_run_acts_on());
             self.image
                 .the_run_acts_on_the_word(self.image.the_word_the_read_left());
         }
@@ -2145,25 +2223,63 @@ impl Fake {
     /// Counted per update of a run rather than per frame of the host, because that is what the game counts:
     /// every update orb drives itself is one of them, which is the whole point of it.
     fn advances_the_run(&self) -> bool {
+        if !self.slowed.get() {
+            return true;
+        }
         let updates = self.updates_of_the_run.get().wrapping_add(1);
         self.updates_of_the_run.set(updates);
-        !self.slowed.get() || !updates.is_multiple_of(SLOWED_EVERY)
+        let every = match self.image.the_bullets_alive() {
+            0x140.. => 3,
+            0xe0.. => 4,
+            BULLETS_THE_SLOWDOWN_STARTS_AT.. => SLOWED_EVERY,
+            _ => {
+                self.updates_of_the_run.set(0);
+                return true;
+            }
+        };
+        !updates.is_multiple_of(every)
     }
 
     fn follows_its_manager(&self, read_before: u16) {
         if !self.state().in_run {
             return;
         }
-        let word = self.word.get();
+        let word = self.image.the_word_the_read_left();
         if self.image.is_it_paused() {
-            if word & MENU_DECIDE != 0 && read_before & MENU_DECIDE == 0 {
-                self.image.is_not_paused();
-                self.image.the_menu_un_pauses_the_music();
-            }
+            self.walks_its_pause_menu(word, read_before);
         } else if word & MENU_BUTTON != 0 && read_before & MENU_BUTTON == 0 {
             self.image.is_paused();
             self.image.the_manager_pauses_the_music();
+            self.pause_menu.set((PAUSE_MENU_SETTING_UP, 0));
         }
+    }
+
+    /// **One update of the game's own pause menu, 0x402780**, which the text manager's job runs from the
+    /// update after the flag goes up (0x4017e0, under `[0x62f64c]`): its first item, 続ける, is the one this
+    /// game's e2e tests decide, and the menu button's edge closes it from any state but the closing itself.
+    ///
+    /// **A decide is not the menu going down.** The first item takes one only once the timer has reached 4
+    /// (0x402e2e), and sends the menu to its closing state, which puts the flag down — and the music back —
+    /// once the timer has reached 0x14 (0x403416). The timer goes up at the function's end (0x4039d0).
+    fn walks_its_pause_menu(&self, word: u16, read_before: u16) {
+        let edge = |bits: u16| word & bits != 0 && word & bits != read_before & bits;
+        let (mut state, mut timer) = self.pause_menu.get();
+        if edge(MENU_BUTTON) && state != PAUSE_MENU_CLOSING {
+            (state, timer) = (PAUSE_MENU_CLOSING, 0);
+        }
+        if state == PAUSE_MENU_SETTING_UP {
+            (state, timer) = (PAUSE_MENU_ON_ITS_FIRST_ITEM, 0);
+        }
+        if state == PAUSE_MENU_ON_ITS_FIRST_ITEM {
+            if timer >= PAUSE_MENU_TAKES_A_DECIDE_FROM && edge(MENU_DECIDE) {
+                (state, timer) = (PAUSE_MENU_CLOSING, 0);
+            }
+        } else if state == PAUSE_MENU_CLOSING && timer >= PAUSE_MENU_CLOSES_AT {
+            self.image.is_not_paused();
+            self.image.the_menu_un_pauses_the_music();
+            state = PAUSE_MENU_SETTING_UP;
+        }
+        self.pause_menu.set((state, timer + 1));
     }
 
     /// **The screen a run's own end arrives on, walked by the presses whoever finished the run makes**: the
@@ -2180,10 +2296,13 @@ impl Fake {
     /// at the entry arrives at the offer here. What orb does about the offer is its own business: a run with
     /// chapters has it written past the frame it comes up, which is the rest of the way down.
     fn walks_the_screen_a_run_ends_at(&self, read_before: u16) {
+        if self.image.the_scene_now() == self.image.scene_of_the_ranking() {
+            return self.image.walks_the_rankings_build();
+        }
         if self.image.the_scene_now() != self.image.scene_of_a_run_over() {
             return;
         }
-        let word = self.word.get();
+        let word = self.image.the_word_the_read_left();
         if word & MENU_DECIDE == 0 || read_before & MENU_DECIDE != 0 {
             return;
         }
@@ -2215,6 +2334,18 @@ impl Fake {
             return;
         }
         let wanted = self.image.the_scene_wanted();
+        // **The end of the game, which is the loop's**: the frame answers that it is over, and the way out of the
+        // loop saves the score file where the play records are tagged (0x434277) before the process goes. The
+        // host's own call rather than orb's `close_the_game`: what ends the process here is the game, and a
+        // laid-out host answers the call and returns instead of ending a test binary.
+        if wanted == SCENE_THE_GAME_ENDS {
+            if self.image.its_play_records_are_tagged() {
+                let from = self.opens_its_score_file(false);
+                let into = self.tries_to_open_its_score_file(true);
+                self.image.saves_its_score_file(&from, into.as_deref());
+            }
+            return orb_api::process::exit(0);
+        }
         // **The run this game's own shot select asked for, built** — on the update after the one it was asked
         // on, that being the one frame a run has been chosen and not built (see [`Fake::the_run_is_chosen`]) and
         // the frame a resume points the build at a stage on. Out of the stage word as the build reads it, which
@@ -2226,7 +2357,9 @@ impl Fake {
             return;
         }
         if wanted == self.image.scene_of_the_ranking() {
-            self.image.the_screen_a_run_ends_at_is_up();
+            // `0x44a302(0)` (0x437f3a), whose added callback reads the file the ranking shows.
+            self.image.the_ranking_is_up();
+            self.the_screen_a_run_ends_at_reads_the_file();
             self.image.is_in_scene(wanted, wanted);
         } else if wanted == self.image.scene_of_a_run_over() {
             // The run torn down and **the screen a run ends on registered**, which is what this game's own
@@ -2326,6 +2459,16 @@ impl Fake {
         if self.image.the_scene_now() != front_end || self.image.the_scene_wanted() != front_end {
             return;
         }
+        // **On its way down to the end of the game**, which takes no press: the front end's phase 2 waits for
+        // its timer to pass 0x3b and then asks the supervisor for the scene that ends it (0x4554d6's own case).
+        if let Some(updates) = self.ending_the_game_for.get() {
+            if updates > THE_WAY_DOWN_WAITS_FOR {
+                self.image.is_in_scene(front_end, SCENE_THE_GAME_ENDS);
+            } else {
+                self.ending_the_game_for.set(Some(updates + 1));
+            }
+            return;
+        }
         let up_for = self.image.frames_the_screen_has_been_up().saturating_add(1);
         self.image.the_screen_has_been_up_for(up_for);
         let screen = self.image.the_screen_the_front_end_is_on();
@@ -2355,7 +2498,7 @@ impl Fake {
         if !takes_a_press {
             return;
         }
-        let word = self.word.get();
+        let word = self.image.the_word_the_read_left();
         let pressed = |bit: u16| word & bit != 0 && read_before & bit == 0;
         // The cursor, which goes round: th07's title menu wraps from its first item to its last, which is what a
         // stray up at it costs — see `Th07`'s `sight::in_a_stage`.
@@ -2402,10 +2545,13 @@ impl Fake {
                 // it rather than chosen anywhere — the difficulty is the Extra's and so is the stage.
                 // **The item that ends the game, which is this menu's last**: the way somebody leaves one,
                 // and what the case that clears the game walks to — the real game's trace stops a few frames
-                // past the step before the decide made there, the process gone with it. The host's own call
-                // rather than orb's `close_the_game`: what ends the process here is the game, and a laid-out
-                // host answers the call and returns instead of ending a test binary.
-                SCREEN_TITLE if moved == TITLE_ITEMS - 1 => orb_api::process::exit(0),
+                // past the step before the decide made there, the process gone with it. Not at once: the item
+                // sends the front end to its phase 2 (0x456000), and the way down from there is the walk's own
+                // — see the head of this function and [`Fake::follows_its_supervisor`].
+                SCREEN_TITLE if moved == TITLE_ITEMS - 1 => {
+                    self.image.the_screen_is_in_phase(PHASE_ENDING_THE_GAME);
+                    self.ending_the_game_for.set(Some(0));
+                }
                 // **The Score item, which is a scene and not a screen**: `[0x575aa8] = 5` at 0x455f95, the
                 // supervisor's own `wanted` — the same write `Th07::show_ranking` makes after a run — and the
                 // ranking then built by the supervisor, see [`Fake::follows_its_supervisor`].
@@ -3016,10 +3162,11 @@ extern "system" fn input() -> u16 {
     }
 }
 
-/// The stage's other half, which `Th07` declines outright for the reason written where it is declined: this
-/// exists so [`orb_core::runtime::Originals`] can be filled, and answers what the real callback answers for
-/// success — which is what makes it harmless rather than merely unreached.
-extern "C" fn stage_building(_stage: i32) -> i32 {
+/// **The stage's build at 0x4074c0**, which orb's hook stands in front of to put a resumed run's seed in: what
+/// the real build answers for success, and the stage it was handed **in `ecx`** — the supervisor's
+/// `mov ecx,[eax+0x95ec]` at 0x42f0ae — kept where 0x4074fd keeps it.
+extern "fastcall" fn stage_building(stage: i32) -> i32 {
+    running().image.the_build_keeps_the_stage(stage);
     0
 }
 
@@ -3041,6 +3188,11 @@ extern "thiscall" fn tops_up_the_music(_stream: usize, _argument: i32) -> i32 {
 
 extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     let fake = running();
+    // **None of it for a stage the run walks into**: 0x42e634 is called at 0x42eae7, inside the block 0x42e894
+    // jumps over where the scene asked for is the rebuild one.
+    if fake.image.the_next_stage_is_asked_for() {
+        return 0;
+    }
     // Every one of the three opens the file, so every one of them asks orb's own fork which file that is: a
     // session orb can rewind sends these to its own and the read below to the same one.
     let from = fake.opens_its_score_file(false);
@@ -3071,7 +3223,9 @@ extern "C" fn stop_recording() {}
 
 /// And its own `GameWindow::CreateGameWindow`, which is never called: no launch here goes through the game's
 /// own startup, so nothing reaches the hook whose only job is the windowed flag underneath it.
-extern "C" fn create_game_window(_instance: *mut c_void) {}
+extern "fastcall" fn create_game_window(_instance: *mut c_void) -> i32 {
+    0
+}
 
 /// **And its `SetActiveWindow`**, which orb's rewrite calls through for a window it leaves to the game: the host
 /// writes the window down as brought forward, an active window being the one in front.
@@ -3106,7 +3260,9 @@ unsafe extern "system" fn joystick_position(_device: u32, _into: *mut orb_api::J
 /// four calls is handed over to be a valid `Originals` and for nothing more.
 extern "C" fn save_replay(_path: *const u8, _name: *const u8) {}
 
-extern "C" fn init_d3d_device() {}
+extern "C" fn init_d3d_device() -> i32 {
+    0
+}
 
 /// And its `CreateFileA`, which is what the game's own opens of its score file go through.
 ///

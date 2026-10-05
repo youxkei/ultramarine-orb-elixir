@@ -639,14 +639,20 @@ fn at_the_question_on_the_keyboard(name: &str, files: &[(PathBuf, Vec<u8>)]) -> 
     // to the difficulty select — see `the_mode_question_over_th06nc`, which says the same of it — and then
     // the three selects and the mode select, tapped through to the screen the question stands over.
     //
-    // **Waited out rather than tapped through, which is the laid-out game's own walk and not the real
-    // one's**: `fake::th06nc` hands its difficulty, character and shot on by themselves after
-    // `A_SELECT_GOES_BY_ON_ITS_OWN_AFTER` frames, where a launch of the real game stood on screen 11 for
-    // 1,200 frames with nothing pressed at it. That divergence is `th06nc/asm.md`'s to settle — see its
-    // *What is not established* — and it is not this file's to work around: a run of taps long enough to
-    // cross four self-advancing screens is more presses than `Launched::press_until` gives, and the walk
-    // is not what either test below is about.
+    // **Tapped every other frame, looked at every frame**, the selects waiting for a press as a launch of the
+    // real game showed — it stood on screen 11 for 1,200 frames with nothing pressed at it — and the walk
+    // stopping on the screen the question stands over before a tap reaches it.
     let from = log.written();
+    let mut down = false;
+    for _ in 0..FRAMES {
+        if game.image().the_screen_the_front_end_is_on() == THE_LAST_SCREEN {
+            break;
+        }
+        down = !down;
+        game.keyboard().set(keys::Z, down);
+        game.frame();
+    }
+    game.keyboard().set(keys::Z, false);
     game.frames_until("the last screen before a stage", FRAMES, || {
         game.image().the_screen_the_front_end_is_on() == THE_LAST_SCREEN
     });

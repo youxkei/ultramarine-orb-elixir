@@ -3,8 +3,8 @@
 //! What `--clear` is for is reaching a result screen without half an hour of playing well. What makes it work
 //! on this game is `Th08::make_invulnerable`, called before every one of the game's own updates: the state
 //! byte at `[player+0x0]` written to 2 with its count put back to nothing, so the three box tests — each of
-//! them asking whether that byte is nothing first (0x44a333, 0x44a445, 0x44a8f2) — decline every hazard, and
-//! the count never reaches the thirty 0x44cbf0 takes the life at.
+//! them asking whether that byte is nothing first, 0x44a333 and 0x44a445 answering 1 and 0x44a900 answering 0
+//! — take no life off any hazard, and the count never reaches the thirty 0x44cbf0 takes the life at.
 //!
 //! **And what makes these tests say anything is fire that would really land**: the laid-out stage's own
 //! script aims a bullet at the player every so often, and the player stands where it was put. The last test is
@@ -61,7 +61,11 @@ fn clearing(name: &str, clear: bool) -> Box<Fake> {
 /// **The whole run played**, and the stages it went through in the order it went through them.
 fn played_to_the_ending(game: &Fake) -> Vec<i32> {
     let mut walked = vec![game.state().stage];
+    // The shot tapped all the way, which is what takes each stage's tally down.
+    let mut down = false;
     for _ in 0..A_WHOLE_RUN {
+        down = !down;
+        game.keyboard().set(orb_sim::keys::Z, down);
         game.frame();
         let state = game.state();
         if state.playing && state.stage != *walked.last().expect("a stage to have been in") {
@@ -118,6 +122,43 @@ fn a_clear_on_demand_of_th08_leaves_its_player_in_no_state_a_hit_can_land_in() {
         }
     });
 }
+
+/// **And the hit it is held in costs the run nothing**: 0x44cbf0 runs a hit's own count at `[player+0xe2a68]`
+/// down first, 15 time orbs an update while it does (0x44cc10) and the miss's losses on the update it runs out
+/// (0x44cd29 onward) — so a player held in the hit with that count left where states 0 and 3 hold it is a run
+/// bled of its time orbs and its power.
+#[test]
+fn a_clear_on_demand_of_th08_costs_its_run_no_time_orbs_and_no_power() {
+    in_its_own_process(|| {
+        let game = clearing("th08-a-clear-costs-nothing", true);
+        game.frames_until("the stage being played", A_WHOLE_RUN, || {
+            game.state().playing
+        });
+        game.image()
+            .the_stage_has_its_time_orbs(TIME_ORBS, TIME_ORBS_WANTED);
+        // The count where a stage's own build leaves it (0x44d9a9), this run having been placed rather than
+        // built.
+        game.image()
+            .the_hits_own_count_is(game.image().what_the_hits_own_count_is_held_at());
+        let power = game.state().power;
+        game.frames(A_HELD_SPELL);
+        assert!(
+            game.image().the_time_orbs_picked_up() >= TIME_ORBS,
+            "the run under --clear lost time orbs: {} of {TIME_ORBS} left",
+            game.image().the_time_orbs_picked_up(),
+        );
+        assert!(
+            game.state().power >= power,
+            "the run under --clear lost power: {} from {power}",
+            game.state().power,
+        );
+    });
+}
+
+/// The time orbs that run holds and wants, and the updates it is watched over — more than any hit's own count.
+const TIME_ORBS: u32 = 3000;
+const TIME_ORBS_WANTED: u32 = 6000;
+const A_HELD_SPELL: u32 = 120;
 
 /// **The control**: the same fire over a run without `--clear` is a death, and the mode offers the chapter
 /// again for it.

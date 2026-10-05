@@ -1270,12 +1270,16 @@ pub unsafe fn stand_in_front_of(device: usize, range: i32) {
         ),
         (POLL_SLOT, device_poll as *const () as usize, &DEVICE_POLL),
     ] {
-        match unsafe { orb_api::mem::replace_word(vtable + slot * size_of::<usize>(), ours) } {
-            Some(previous) if previous != ours => kept.store(previous, Ordering::Relaxed),
-            Some(_) => {}
-            None => {
-                log!("joystick: the game's DirectInput pad's slot {slot} could not be written over")
-            }
+        // **The game's own kept before the slot is written over**, and not out of what the write answers:
+        // the vtable is every device of the class's — the keyboard's as much as the pad's — so a call through
+        // it between the two would reach orb's with nothing kept to hand on to.
+        let at = vtable + slot * size_of::<usize>();
+        let previous = unsafe { orb_api::mem::read::<usize>(at) };
+        if previous != ours {
+            kept.store(previous, Ordering::Relaxed);
+        }
+        if unsafe { orb_api::mem::replace_word(at, ours) }.is_none() {
+            log!("joystick: the game's DirectInput pad's slot {slot} could not be written over")
         }
     }
     log!("joystick: the game's DirectInput pad answers the virtual pad as well");

@@ -43,12 +43,13 @@ const THE_FIRST_STAGE: i32 = 0;
 const UP: u16 = 0x0010;
 
 /// The state a run is played in, and how many frames of a stage go by before the player is in it: the
-/// respawn a stage begins with and the invulnerability behind it.
+/// one update of state 1, which a stage begins in, and the invulnerability behind it.
 const PLAYING: u8 = 0;
-const A_STAGES_FIRST_FRAMES: u32 = 30 + 0xf0;
+const A_STAGES_FIRST_FRAMES: u32 = 1 + 0xf0;
 
 /// And a second of frames on top of that as the wall this test puts up, rather than the count itself:
-/// what is under test here is the word a frame is played with and not which frame the walk-in ends on.
+/// what is under test here is the word a frame is played with and not which frame the invulnerability
+/// ends on.
 const A_SECOND: u32 = 60;
 
 #[test]

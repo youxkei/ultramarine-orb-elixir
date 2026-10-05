@@ -36,11 +36,15 @@ use orb_config::Config;
 use orb_core::game::Game;
 use orb_core::game::th06c::Th06c;
 use orb_core::game::th06c::image::{
-    Image, RESULT_LEAVING, RESULT_QUESTION_COMES_UP_AFTER, RESULT_RANKING,
+    Image, RESULT_GRID, RESULT_GRID_ACROSS, RESULT_LEAVING, RESULT_NAME_BYTES,
+    RESULT_PLACES_RANKED, RESULT_QUESTION_COMES_UP_AFTER, RESULT_RANKING,
+    RESULT_RANKING_COMES_UP_AFTER, RESULT_RANKING_COMING_UP, RESULT_RANKING_GOES_AFTER,
+    RESULT_RANKING_GOING, RESULT_RANKING_ITEMS, RESULT_RANKING_THE_WAY_OUT,
     RESULT_SAVE_REPLAY_ASKED, RESULT_SAVE_REPLAY_QUESTION, RESULT_STATS, RESULT_STATS_FADE_FOR,
-    RESULT_STATS_FADING, RESULT_STATS_TAKE_A_PRESS_AFTER, RESULT_TYPING_A_NAME, SCREEN_CHARACTER,
-    SCREEN_DIFFICULTY, SCREEN_LOGO, SCREEN_ON_ITS_OWN, SCREEN_RANKING, SCREEN_SHOT_SELECT,
-    SCREEN_TITLE, chain_job, chain_result,
+    RESULT_STATS_FADING, RESULT_STATS_TAKE_A_PRESS_AFTER, RESULT_THE_END_ITEM,
+    RESULT_THE_ENTRY_TAKES_A_KEY_AFTER, RESULT_TYPES_A_SPACE, RESULT_TYPING_A_NAME,
+    SCREEN_CHARACTER, SCREEN_DIFFICULTY, SCREEN_LOGO, SCREEN_ON_ITS_OWN, SCREEN_RANKING,
+    SCREEN_SHOT_SELECT, SCREEN_TITLE, chain_job, chain_result,
 };
 use orb_core::game::th06c::score_file::{self, CLEARED, Record};
 
@@ -126,31 +130,31 @@ const ENTER: u16 = 0x0100;
 /// reading, the real one's pause bit being unread.
 const ESCAPE: u16 = 0x0600;
 const PAUSE: u16 = 0x0400;
-/// What the front end reads as its decide and its cancel: the shot or the enter, and the bomb.
+/// What the front end reads as its decide and its cancel: the shot or the enter, and the `0x200` the bomb's
+/// keys set beside it (`and $0x200` at 0x14002f98e).
 const MENU_DECIDE: u16 = SHOT | ENTER;
-const MENU_CANCEL: u16 = BOMB;
+const MENU_CANCEL: u16 = 0x200;
+/// What the logo takes as a press, `and $0x1d02` in its case of 0x14002ccf0, and the updates it takes none
+/// for, `0x1e`.
+const LOGO_PRESSES: u16 = 0x1d02;
+const THE_LOGO_TAKES_A_PRESS_AFTER: i32 = 0x1e;
+/// **The read's repeat** — see [`Fake::reads_the_keys_and_the_pad`]: past `0x1d` unchanged reads, every
+/// eighth, the count put back to `0x1e` past `0x25`.
+const REPEATS_PAST: u32 = 0x1d;
+const REPEATS_EVERY: u32 = 8;
+const REPEATS_BACK_PAST: u32 = 0x25;
+const REPEATS_BACK_TO: u32 = 0x1e;
 
-/// **The pad's buttons as `th06.cfg`'s defaults map them**, `0c 00 0d 00 09 00 0e 00 04 00` at
-/// `0x1403e0290`: XInput's `A` is the shot, `B` the bomb, `X` the focus, `Start` the pause, and the d-pad the
-/// four directions — the same mapping `Th06c::press_into_pad` fills a pad with.
-const PAD_A: u16 = 0x1000;
-const PAD_B: u16 = 0x2000;
-const PAD_X: u16 = 0x4000;
-const PAD_START: u16 = 0x0010;
-const PAD_UP: u16 = 0x0001;
-const PAD_DOWN: u16 = 0x0002;
-const PAD_LEFT: u16 = 0x0004;
-const PAD_RIGHT: u16 = 0x0008;
-
-/// **The title's items**, th06 1.02h's eight in its order: `0x14002d592` steps the cursor over the second
-/// where no clear unlocked the Extra.
-const TITLE_ITEMS: i32 = 8;
+/// **The title's items**, nine — `0x1400364b0(menu, 9)` and the jump at `0x14002d657` over 0 to 8, the last
+/// the one a cancel puts the cursor on (`movl $0x8` at `0x14002f9a5`) — of which `0x14002d592` steps the
+/// cursor over the second where no clear unlocked the Extra.
+const TITLE_ITEMS: i32 = 9;
 const ITEM_START: i32 = 0;
 const ITEM_EXTRA: i32 = 1;
 const ITEM_PRACTICE: i32 = 2;
 const ITEM_REPLAY: i32 = 3;
 const ITEM_SCORE: i32 = 4;
-const ITEM_QUIT: i32 = 7;
+const ITEM_QUIT: i32 = 8;
 /// How many items the three selects and the practice stage select list: the four difficulties a whole run
 /// offers, the two characters, their two shots, and the six stages.
 const DIFFICULTIES_OFFERED: i32 = 4;
@@ -199,6 +203,9 @@ const A_BEATEN_BOSSES_LIFE: i32 = 5;
 /// 384x448 field, with the player low in the middle of it — and what one frame of holding a direction moves
 /// them by, straight and then diagonally.
 const FIELD: (f32, f32, f32, f32) = (0.0, 0.0, 384.0, 448.0);
+/// **And the box inside it the player is held to**, left, top, width and height: what the stage callback writes
+/// at `0x1403ee7f4` (0x140024345 through 0x140024363), so the player moves over x 8 to 376 and y 16 to 432.
+const PLAYER_AREA: (f32, f32, f32, f32) = (8.0, 16.0, 368.0, 416.0);
 const PLAYER_STARTS_AT: (f32, f32) = (192.0, 384.0);
 const A_STEP: f32 = 4.0;
 /// Half of the box the game's own hit test gives the player, on each axis.
@@ -216,16 +223,19 @@ const BULLET_SLOTS_USED: usize = 16;
 
 /// How many updates a hit stands before it is a death — the frames a bomb is still taken in, this game's
 /// own `+0x7254` counted down at `0x14004a7ae` — the count a walk-in ends at, how long the invulnerability
-/// after one lasts, and how long a bomb goes off for. This laid-out game's own numbers but the middle two:
-/// `0x14004ab7a`'s `cmp r8d,0x1e` and the `0xf0` `0x14004ab96` writes.
-const A_BOMB_IS_TAKEN_FOR: i32 = 8;
+/// after one lasts, and how long a bomb goes off for. The game's own numbers but the last: the 6 the walk-in
+/// leaves on `+0x7254` as it hands over (0x14004abb4, the register's 8 having been put to nought at
+/// 0x14004ab32), `0x14004ab7a`'s `cmp r8d,0x1e` and the `0xf0` `0x14004ab96` writes.
+const A_BOMB_IS_TAKEN_FOR: i32 = 6;
 const RESPAWN_TAKES: i32 = 0x1e;
 const INVULNERABLE_FOR: i32 = 0xf0;
 pub const A_BOMB_LASTS: u32 = 60;
+/// The count a bomb of the first shot type leaves the player untouchable for, `movl $0x168` at 0x140009685.
+const A_BOMB_KEEPS_THE_PLAYER_UNTOUCHABLE_FOR: i32 = 0x168;
 
 /// **And what the player's own register leaves on that count at a stage's build**, `0x14004a14c`'s 120,
-/// which no state but the invulnerability's ever reads — the state beside it is what matters, and it is the
-/// walk-in's. See `the_player_a_stage_of_th06c_starts`.
+/// which the walk-in reads against its thirty (`0x14004aaeb`) and is already past — the state beside it is
+/// what matters, and it is the walk-in's. See `the_player_a_stage_of_th06c_starts`.
 const THE_REGISTER_LEAVES_UNTOUCHABLE: i32 = 120;
 
 /// **How many updates a firing cycle lasts**: `0x14004b8be` holds the phase against thirty and `0x14004b8d3`
@@ -246,15 +256,20 @@ struct Bullet {
     step: (f32, f32),
 }
 
-/// How many stages a run plays through before its ending, the Extra being the stage word six.
-const STAGES_A_RUN_PLAYS: i32 = 6;
+/// The stage word the shot select writes for the Extra, which the stage callback raises to seven.
 const THE_EXTRAS_STAGE_WORD: i32 = 6;
+const DIFFICULTY_EASY: i32 = 0;
+/// The count of extends an Extra run starts with as paid for, `[gm+0x17f6]` at 0x1400242d0's run start.
+const THE_EXTRAS_EXTENDS_PAID_FOR: i8 = 4;
 const DIFFICULTY_EXTRA: i32 = 4;
+/// The stage word an Easy run ends on, the fifth stage's: `cmp $0x5` against `[0x1403ed030]` in 0x140028410's
+/// case 0xb, which every other difficulty goes on past.
+const THE_LAST_STAGE_WORD_OF_EASY: i32 = 5;
 /// The rank a Normal run starts at, which is what a launch of the real game read as its first stage began:
 /// `rank: 16` in `resume: stage 1 begins with`.
 const RANK_AT_A_RUNS_START: i32 = 16;
-/// What a run starts with out of the configuration, `02 03` at `0x140059935`, and what the Extra starts with
-/// instead, `0x302` at `0x14002cc30`.
+/// What a run starts with out of the configuration, `02 03` at `0x140059935`, and what the Extra or a
+/// practice run starts with instead, `0x302` at `0x14002cc30`.
 const CONFIG_LIVES: u8 = 2;
 const CONFIG_BOMBS: u8 = 3;
 const EXTRA_LIVES: i8 = 2;
@@ -300,6 +315,11 @@ pub struct Fake {
     /// Whether the run being chosen practises one stage, and whether it is the Extra.
     practising: Cell<bool>,
     extra: Cell<bool>,
+    /// **The read's repeat**, 0x140058330's: how many reads the word has stood unchanged for
+    /// (`[0x1409553ac]`), and whether this read is one the held word counts as pressed again
+    /// (`[0x140955398]`).
+    unchanged_for: Cell<u32>,
+    repeated: Cell<bool>,
     /// How long a stage lasts before the next is built. `None` is a stage that never ends.
     stage_frames: Cell<Option<u32>>,
     /// The stage frame the script last acted on, the bullets the stage has out, the frames a hit has left and
@@ -335,9 +355,6 @@ pub struct Fake {
     /// its stats and its fades are timed, as the real one's are — see `Image::RESULT_STATS`.
     result_state_seen: Cell<i32>,
     result_state_frames: Cell<i32>,
-    /// The stage the rebuild is to build, the game's stage word reading nought on the frame between two
-    /// stages — which a launch of the real one said as `run: stage 0 on difficulty 0, scene 3`.
-    stage_after_the_rebuild: Cell<i32>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory.
     _installed: orb_api::Installed,
 }
@@ -478,6 +495,7 @@ impl Fake {
         unsafe { orb_core::score::install_over_create_file_w(create_file_w) };
         image.hands_over_its_heap(malloc as *const () as usize, free as *const () as usize);
         image.hands_over_the_run_start(the_games_run_start as *const () as usize);
+        image.hands_over_the_capture(the_games_capture as *const () as usize);
         image.sim().set_host_exe(launch.dir().join(EXE));
         let sim = image.sim();
         sim.display().set_monitor_hz(display.monitor_hz);
@@ -521,6 +539,8 @@ impl Fake {
             left_the_title_on: Cell::new(ITEM_START),
             practising: Cell::new(false),
             extra: Cell::new(false),
+            unchanged_for: Cell::new(0),
+            repeated: Cell::new(false),
             stage_frames: Cell::new(None),
             last_stage_frame: Cell::new(0),
             bullets: RefCell::new(Vec::new()),
@@ -539,7 +559,6 @@ impl Fake {
             out_of_lives: Cell::new(false),
             result_state_seen: Cell::new(-1),
             result_state_frames: Cell::new(0),
-            stage_after_the_rebuild: Cell::new(0),
             _installed: installed,
         });
         RUNNING.set(&raw const *fake);
@@ -819,23 +838,33 @@ impl Fake {
             .filter(|(index, _)| keys[*index] & 0x80 != 0)
             .fold(0u16, |word, (_, bits)| word | bits);
         let mut pad = [0u8; 16];
+        // **`0x14000f710`, the pad's half**, through `th06.cfg`'s own bindings: see
+        // `super::the_word_of_a_bound_pad`.
         if unsafe { orb_core::runtime::xinput_get_state(0, pad.as_mut_ptr()) } == 0 {
-            let buttons = u16::from_le_bytes([pad[4], pad[5]]);
-            for (button, bits) in [
-                (PAD_A, SHOT | ENTER | 0x8000),
-                (PAD_B, BOMB | 0x200),
-                (PAD_X, FOCUS),
-                (PAD_START, PAUSE),
-                (PAD_UP, UP),
-                (PAD_DOWN, DOWN),
-                (PAD_LEFT, LEFT),
-                (PAD_RIGHT, RIGHT),
-            ] {
-                if buttons & button != 0 {
-                    word |= bits;
-                }
-            }
+            let (bound, swapped) = self.image.the_pad_bindings();
+            word |= super::the_word_of_a_bound_pad(
+                u16::from_le_bytes([pad[4], pad[5]]),
+                bound,
+                swapped,
+            );
         }
+        // **The repeat**, 0x140058330 beside the read: a word that stood for more than 0x1d reads is pressed again
+        // on every one whose count is a multiple of eight, the count going back to 0x1e past 0x25 — so the
+        // thirty-third read of a held key and every eighth after it.
+        let unchanged = self.image.the_word_the_run_acts_on() as u16 == word;
+        let (count, repeated) = match unchanged {
+            false => (0, false),
+            true => {
+                let mut count = self.unchanged_for.get();
+                let repeated = count > REPEATS_PAST && count.is_multiple_of(REPEATS_EVERY);
+                if count > REPEATS_BACK_PAST {
+                    count = REPEATS_BACK_TO;
+                }
+                (count + 1, repeated)
+            }
+        };
+        self.unchanged_for.set(count);
+        self.repeated.set(repeated);
         self.image.the_run_acts_on_the_word(u32::from(word));
     }
 
@@ -843,6 +872,12 @@ impl Fake {
         let word = self.image.the_word_the_run_acts_on() as u16;
         let before = self.image.the_word_before() as u16;
         word & mask != 0 && before & mask == 0
+    }
+
+    /// Pressed, or held on a read the repeat counts as a press — what the cursors and the logo take.
+    fn pressed_or_repeated(&self, mask: u16) -> bool {
+        let word = self.image.the_word_the_run_acts_on() as u16;
+        self.pressed(mask) || (word & mask != 0 && self.repeated.get())
     }
 
     /// What the supervisor does with a state that has been asked for: takes down what was running and builds
@@ -853,7 +888,16 @@ impl Fake {
         let rebuilding = self.image.scene_of_a_stage_being_rebuilt();
         let ranking = self.image.scene_of_the_ranking();
         let run_over = self.image.scene_of_a_run_over();
-        if now == front_end {
+        if now == self.image.scene_of_a_replay_over() {
+            // The title, as 0x140058330's move from 2 to 8 builds it, and the supervisor's state put to it.
+            self.image.is_in_scene(front_end, now);
+            self.builds(front_end, run);
+        } else if now == front_end {
+            // A run left for the title — the pause menu's quit, the demo cut short, a replay played out — puts
+            // the playback flag down (0x140058330's moves from 2), where one from any other state leaves it.
+            if last == run {
+                self.image.the_playback_flag_is_down();
+            }
             self.tears_the_stage_down();
             self.image.the_screen_a_run_ends_at_is_down();
             self.image.the_ending_is_over();
@@ -875,13 +919,14 @@ impl Fake {
             self.image.is_in_scene(run, run);
         } else if now == ranking {
             self.image.cuts_the_front_end();
-            self.image.the_screen_a_run_ends_at_is_up(RESULT_RANKING);
+            self.image
+                .the_screen_a_run_ends_at_is_up(RESULT_RANKING_COMING_UP);
+            self.image.the_characters_typed_are(0);
         } else if now == run_over {
             self.tears_the_stage_down();
             self.image.the_ending_is_over();
             self.image
                 .the_screen_a_run_ends_at_is_up(RESULT_TYPING_A_NAME);
-            self.image.the_entry_holds("AAAAAAAA");
         }
     }
 
@@ -973,9 +1018,14 @@ impl Fake {
             SCREEN_PRACTICE_STAGE => STAGES_TO_PRACTISE,
             _ => 0,
         };
-        // The cursor, round: the title steps over the Extra where the records hold no clear.
+        // The cursor, round, up before down and on the repeat as well as the press (0x1400364b0): the title
+        // steps over the Extra where the records hold no clear.
         if items > 0 {
-            let step = i32::from(self.pressed(DOWN)) - i32::from(self.pressed(UP));
+            let step = match (self.pressed_or_repeated(UP), self.pressed_or_repeated(DOWN)) {
+                (true, _) => -1,
+                (false, true) => 1,
+                (false, false) => 0,
+            };
             let mut moved = (cursor + step).rem_euclid(items);
             if screen == SCREEN_TITLE && !self.a_clear_is_in_the_copy() && moved == ITEM_EXTRA {
                 moved = (moved + step).rem_euclid(items);
@@ -986,10 +1036,16 @@ impl Fake {
         }
         let cursor = self.image.the_item_the_cursor_is_on();
         match role {
-            SCREEN_LOGO if decide || up_for >= LOGO_LEAVES_ON_ITS_OWN_AFTER => {
+            // The count the logo and the title hold a press against is raised at their update's end, so the
+            // update reads it one short of `up_for`.
+            SCREEN_LOGO
+                if (self.pressed_or_repeated(LOGO_PRESSES)
+                    && up_for > THE_LOGO_TAKES_A_PRESS_AFTER)
+                    || up_for >= LOGO_LEAVES_ON_ITS_OWN_AFTER =>
+            {
                 self.image.the_front_end_is_on(SCREEN_TITLE, cursor)
             }
-            SCREEN_TITLE if decide && up_for >= TITLE_TAKES_A_PRESS_AFTER => {
+            SCREEN_TITLE if decide && up_for > TITLE_TAKES_A_PRESS_AFTER => {
                 self.left_the_title_on.set(cursor);
                 match cursor {
                     ITEM_START | ITEM_EXTRA | ITEM_PRACTICE => {
@@ -1013,7 +1069,9 @@ impl Fake {
                     _ => {}
                 }
             }
-            SCREEN_TITLE if cancel => self.image.the_cursor_is_on(ITEM_QUIT),
+            SCREEN_TITLE if cancel && up_for > TITLE_TAKES_A_PRESS_AFTER => {
+                self.image.the_cursor_is_on(ITEM_QUIT)
+            }
             SCREEN_ON_ITS_OWN => {
                 let on_its_own = self.on_its_own_for.get() + 1;
                 self.on_its_own_for.set(on_its_own);
@@ -1121,17 +1179,20 @@ impl Fake {
     }
 
     /// `0x14002cc00`: the lives and the bombs out of the configuration — or two and three where the
-    /// difficulty is the Extra's — the playback flag cleared, the music stopped and the track put to `-1`,
-    /// and the supervisor's state to the run's.
+    /// difficulty is the Extra's or the run is practice (0x14002cc1b) — the playback flag cleared, the music
+    /// stopped and the track put to `-1` where the configuration plays the wav tracks (0x14002cc70), and the
+    /// supervisor's state to the run's.
     fn the_games_own_run_start(&self) {
-        if self.image.the_difficulty_now() == DIFFICULTY_EXTRA {
+        if self.image.the_difficulty_now() == DIFFICULTY_EXTRA || self.state().practice {
             self.image.has_lives_and_bombs(EXTRA_LIVES, EXTRA_BOMBS);
         } else {
-            self.image
-                .has_lives_and_bombs(CONFIG_LIVES as i8, CONFIG_BOMBS as i8);
+            let (lives, bombs) = self.image.the_configuration_now();
+            self.image.has_lives_and_bombs(lives as i8, bombs as i8);
         }
         self.image.no_replay_is_playing();
-        self.image.plays_the_track(-1);
+        if self.image.the_music_is_played_as_wav() {
+            self.image.plays_the_track(-1);
+        }
         self.image.is_in_scene(
             self.image.scene_of_a_run(),
             self.image.the_scene_last_acted_on(),
@@ -1172,23 +1233,36 @@ impl Fake {
         // another stage.
         self.image.draws_from_the_generator();
         self.plays_the_stage(frames);
-        // The stage over: the next built through the state the game rebuilds its manager in, and the last
-        // hands over to the ending.
         if Some(frames) == self.stage_frames.get() {
-            if state.stage + 1 < STAGES_A_RUN_PLAYS && !self.extra.get() && !state.practice {
-                // The stage word reads nought on the frame between the stages, as the real game's does.
-                self.stage_after_the_rebuild
-                    .set(self.image.the_games_stage_word() + 1);
-                self.image.the_games_stage_word_is(0);
-                self.image.is_in_scene(
-                    self.image.scene_of_a_stage_being_rebuilt(),
-                    self.image.the_scene_last_acted_on(),
-                );
-            } else {
-                self.enters_the_ending();
-            }
+            self.the_stage_is_over();
         }
         chain_result::CONTINUES
+    }
+
+    /// **The message script's end of a stage**, 0x140028410's case 0xb: the next stage built through the state
+    /// the game rebuilds its manager in for a run not in practice below its stage word 5, or 5 on any difficulty
+    /// but Easy; and past it the title for a replay, the ending for every difficulty but the Extra's, and the
+    /// screen a run ends at for the Extra and practice. The stage word stays the stage's until the callback
+    /// raises it, nothing writing it nought.
+    fn the_stage_is_over(&self) {
+        let word = self.image.the_games_stage_word();
+        let easy = self.image.the_difficulty_now() == DIFFICULTY_EASY;
+        let last = self.image.the_scene_last_acted_on();
+        let wanted = if self.state().practice {
+            self.image.scene_of_a_run_over()
+        } else if word < THE_LAST_STAGE_WORD_OF_EASY
+            || (!easy && word == THE_LAST_STAGE_WORD_OF_EASY)
+        {
+            self.image.scene_of_a_stage_being_rebuilt()
+        } else if self.image.is_a_replay_playing() {
+            self.image.scene_of_a_replay_over()
+        } else if self.image.the_difficulty_now() != DIFFICULTY_EXTRA {
+            self.enters_the_ending();
+            return;
+        } else {
+            self.image.scene_of_a_run_over()
+        };
+        self.image.is_in_scene(wanted, last);
     }
 
     /// The script's events for the frame the stage has reached, the bullets, the player and the hit test.
@@ -1281,22 +1355,25 @@ impl Fake {
                 }
             }
             // Hit, inside the window: a bomb pressed takes the hit back, and the window running out is the
-            // death — **on the update after the one it ran out on**, so that a frame reads the state still
-            // the hit's with no frames left under it, which is what orb reads a death made final off (see
-            // `Th06c::where_a_counted_death_stands`). The real one's `0x14004a7bd` reads the lives on the
-            // frame the count reaches nought and respawns from there.
+            // death made final, which orb reads off the state still the hit's with no frames left under it
+            // (see `Th06c::where_a_counted_death_stands`). **The state stands on after it** until the count
+            // the hit put to nought has reached thirty (0x14004a93e, the `cmp $0x1e` at 0x14004a9c1), the
+            // count going on every update the player is not untouchable (0x14004acdd) — and only then the life.
             2 => {
                 let (_, bombs) = self.image.lives_and_bombs();
+                let count = self.image.the_frames_the_player_is_untouchable_for();
                 if word & BOMB != 0 && bombs > 0 && self.hit_window.get() > 0 {
                     self.a_bomb_goes_off();
-                    self.image.the_player_is_playing();
                     self.hit_window.set(0);
-                } else if self.hit_window.get() <= 0 {
-                    self.dies();
-                } else {
+                } else if self.hit_window.get() > 0 {
                     let left = self.hit_window.get() - 1;
                     self.hit_window.set(left);
                     self.image.the_frames_a_bomb_is_still_taken_in(left);
+                    self.image.the_players_count_is(count + 1);
+                } else if count >= RESPAWN_TAKES {
+                    self.dies();
+                } else {
+                    self.image.the_players_count_is(count + 1);
                 }
             }
             _ => {}
@@ -1311,27 +1388,41 @@ impl Fake {
         self.writes_the_bullets_down();
     }
 
-    /// The death made final: the life taken, and the player's respawn begun with everything held; or the
-    /// continue question where there is no life to take.
+    /// **The death's end, 0x14004a9d8 on**: the walk-in begun from the field's middle and 64 up from its foot,
+    /// with nothing on its count, and the life taken with the bombs put to the run's starting count — the
+    /// configuration's, or three for the Extra and practice (0x14004aa79 through 0x14004aaa1); or, with no life
+    /// to take, the continue question put up over the walk-in's state (0x14004aa5a). Nothing held: the byte that
+    /// holds everything is an enemy script's alone.
     fn dies(&self) {
-        let (lives, bombs) = self.image.lives_and_bombs();
+        let (lives, _) = self.image.lives_and_bombs();
+        self.image.the_player_is_coming_back(0);
+        self.image
+            .the_player_is_at(PLAYER_STARTS_AT.0, PLAYER_STARTS_AT.1);
         if lives <= 0 {
             self.out_of_lives.set(true);
-            self.image.the_player_is_playing();
+            self.image.the_continue_question_is_up();
             return;
         }
-        self.image
-            .has_lives_and_bombs(lives - 1, bombs.max(CONFIG_BOMBS as i8));
-        // Nothing on the count, which is what this game's own death leaves there — `0x14004aa1c` against the
-        // register's 120 — and no state but the invulnerability's reads it.
-        self.image.the_player_is_coming_back(0);
-        self.image.everything_is_held(true);
+        // The run's starting count being the copy the stage callback keeps of the bombs a run's start gave
+        // (`[0x140bc28ed]`, 0x1400242d0), which for a run on the configuration's numbers is the configuration's.
+        let bombs =
+            match self.image.the_difficulty_now() >= DIFFICULTY_EXTRA || self.state().practice {
+                true => EXTRA_BOMBS,
+                false => self.image.the_configuration_now().1 as i8,
+            };
+        self.image.has_lives_and_bombs(lives - 1, bombs);
+        // And into the walk-in's first update on the same one, as the jump to 0x14004aae8 goes.
+        self.comes_back_and_is_untouchable();
     }
 
-    /// A bomb pressed: one fewer, and the bullets swept off the field for as long as it goes off.
+    /// A bomb pressed: one fewer, the bullets swept off the field for as long as it goes off, and the player
+    /// untouchable under it — the state 3 its callback writes (0x140009a5f) with the count its first update
+    /// gives (0x140009685), whatever state the bomb was pressed in.
     fn a_bomb_goes_off(&self) {
         let (lives, bombs) = self.image.lives_and_bombs();
         self.image.has_lives_and_bombs(lives, bombs - 1);
+        self.image
+            .the_player_is_invulnerable_for(A_BOMB_KEEPS_THE_PLAYER_UNTOUCHABLE_FOR);
         self.image.a_bomb_is_going_off(true);
         self.bomb_left.set(A_BOMB_LASTS);
         self.bullets.borrow_mut().clear();
@@ -1369,9 +1460,6 @@ impl Fake {
             let count = self.image.the_frames_the_player_is_untouchable_for();
             if count >= RESPAWN_TAKES {
                 self.image.the_player_is_invulnerable_for(INVULNERABLE_FOR);
-                self.image.everything_is_held(false);
-                self.image
-                    .the_player_is_at(PLAYER_STARTS_AT.0, PLAYER_STARTS_AT.1);
             } else {
                 self.image.the_player_is_coming_back(count + 1);
             }
@@ -1413,11 +1501,22 @@ impl Fake {
     /// The player moved by the directions in the word, by the step a frame moves them — halved where the focus
     /// is held — and held inside the field.
     fn moves_the_player(&self, word: u16) {
-        if self.image.the_players_state() == 1 {
+        // Dying or walking in: 0x14004ad0e and 0x14004ad17 send both past the move.
+        if matches!(self.image.the_players_state(), 1 | 2) {
             return;
         }
-        let across = i32::from(word & RIGHT != 0) - i32::from(word & LEFT != 0);
-        let down = i32::from(word & DOWN != 0) - i32::from(word & UP != 0);
+        // **The first of a pair and not the two netted**: 0x14004a4b0 tests up before down and right before left
+        // and takes the first it finds, so both of a pair held are the first of it.
+        let across = match (word & RIGHT != 0, word & LEFT != 0) {
+            (true, _) => 1,
+            (false, true) => -1,
+            (false, false) => 0,
+        };
+        let down = match (word & UP != 0, word & DOWN != 0) {
+            (true, _) => -1,
+            (false, true) => 1,
+            (false, false) => 0,
+        };
         if across == 0 && down == 0 {
             return;
         }
@@ -1431,8 +1530,8 @@ impl Fake {
         }
         let (x, y) = self.image.where_the_player_is();
         self.image.the_player_is_at(
-            (x + across as f32 * step).clamp(FIELD.0, FIELD.0 + FIELD.2),
-            (y + down as f32 * step).clamp(FIELD.1, FIELD.1 + FIELD.3),
+            (x + across as f32 * step).clamp(PLAYER_AREA.0, PLAYER_AREA.0 + PLAYER_AREA.2),
+            (y + down as f32 * step).clamp(PLAYER_AREA.1, PLAYER_AREA.1 + PLAYER_AREA.3),
         );
     }
 
@@ -1507,9 +1606,18 @@ impl Fake {
             );
             return chain_result::REMOVED;
         }
+        if state == RESULT_TYPING_A_NAME {
+            self.types_its_name(up_for);
+            return chain_result::CONTINUES;
+        }
+        if matches!(
+            state,
+            RESULT_RANKING_COMING_UP | RESULT_RANKING | RESULT_RANKING_GOING
+        ) {
+            return self.walks_its_ranking(state, up_for);
+        }
         let decide = self.pressed(MENU_DECIDE);
         let next = match state {
-            RESULT_TYPING_A_NAME if decide => RESULT_STATS,
             RESULT_STATS if decide && up_for >= RESULT_STATS_TAKE_A_PRESS_AFTER => {
                 RESULT_STATS_FADING
             }
@@ -1520,12 +1628,160 @@ impl Fake {
             // The question comes up on いいえ, so its decide is the way out — as a launch of the real one
             // tapping decide from the name showed, the title back 200 frames on.
             RESULT_SAVE_REPLAY_ASKED if decide => RESULT_LEAVING,
-            // The ranking the Score item builds, whose one decide is the way out.
-            RESULT_RANKING if decide => RESULT_LEAVING,
             _ => return chain_result::CONTINUES,
         };
         self.image.the_screen_a_run_ends_at_is_in(next);
         chain_result::CONTINUES
+    }
+
+    /// **The name entry, case 9 of 0x14004ff40**: on its first update eight spaces, the cursor on the grid's
+    /// first cell and the run placed among the records the file holds — below ten of them, the stats with no
+    /// name asked for (0x14004e750's answer against 9); then, past its first `0x1d` updates, the four
+    /// directions walking the grid round over its spaces, and a decide typing the cell under the cursor at the
+    /// count typed (capped at the eighth byte), a space for the cell `0x5e`, and leaving for the stats on the
+    /// end item. Each key is taken on its edge or on the read's repeat.
+    fn types_its_name(&self, up_for: i32) {
+        if up_for == 1 {
+            self.image.the_entry_holds("");
+            self.image.the_characters_typed_are(0);
+            self.image.the_entrys_cursor_is_on(0);
+            if self.the_place_the_run_takes() >= RESULT_PLACES_RANKED {
+                self.image.the_screen_a_run_ends_at_is_in(RESULT_STATS);
+            }
+            return;
+        }
+        if up_for - 1 <= RESULT_THE_ENTRY_TAKES_A_KEY_AFTER {
+            return;
+        }
+        let cells = RESULT_GRID.len() as i32;
+        let blank = |cell: i32| RESULT_GRID[cell as usize] == b' ';
+        let walked = |step: &dyn Fn(i32) -> i32| {
+            let mut cell = self.image.the_entrys_cursor();
+            loop {
+                cell = step(cell);
+                if !blank(cell) {
+                    break cell;
+                }
+            }
+        };
+        let across = RESULT_GRID_ACROSS;
+        if self.pressed_or_repeated(UP) {
+            let cell = walked(&|cell| {
+                if cell - across < 0 {
+                    cell - across + cells
+                } else {
+                    cell - across
+                }
+            });
+            self.image.the_entrys_cursor_is_on(cell);
+        }
+        if self.pressed_or_repeated(DOWN) {
+            let cell = walked(&|cell| {
+                if cell + across >= cells {
+                    cell + across - cells
+                } else {
+                    cell + across
+                }
+            });
+            self.image.the_entrys_cursor_is_on(cell);
+        }
+        if self.pressed_or_repeated(LEFT) {
+            let cell = walked(&|cell| {
+                if cell % across == 0 {
+                    cell + across - 1
+                } else {
+                    cell - 1
+                }
+            });
+            self.image.the_entrys_cursor_is_on(cell);
+        }
+        if self.pressed_or_repeated(RIGHT) {
+            let cell = walked(&|cell| {
+                if (cell + 1) % across == 0 {
+                    cell + 1 - across
+                } else {
+                    cell + 1
+                }
+            });
+            self.image.the_entrys_cursor_is_on(cell);
+        }
+        if !self.pressed_or_repeated(ENTER) {
+            return;
+        }
+        let cursor = self.image.the_entrys_cursor();
+        if cursor > RESULT_TYPES_A_SPACE {
+            self.image.the_screen_a_run_ends_at_is_in(RESULT_STATS);
+            return;
+        }
+        let byte = match cursor == RESULT_TYPES_A_SPACE {
+            true => b' ',
+            false => RESULT_GRID[cursor as usize],
+        };
+        let typed = self.image.the_characters_typed();
+        self.image
+            .the_entrys_byte_is(typed.min(RESULT_NAME_BYTES - 1) as usize, byte);
+        let typed = (typed + 1).min(RESULT_NAME_BYTES);
+        self.image.the_characters_typed_are(typed);
+        if typed == RESULT_NAME_BYTES {
+            self.image.the_entrys_cursor_is_on(RESULT_THE_END_ITEM);
+        }
+    }
+
+    /// **The ranking the Score item builds, states 0 to 2 of 0x14004ff40**: up for `0x14` updates before its
+    /// menu, then a menu of seven on the count beside the name entry's — up and down round it on their edge or
+    /// the repeat (0x14004f200), a cancel putting the cursor on the seventh, a decide there going to state 2 —
+    /// and state 2 asking the supervisor for the front end once past `0x3b` updates, the deinit writing the file
+    /// as every way out of this screen does. A decide on the five pages or the sixth item opens what this
+    /// laid-out game does not draw, and stays.
+    fn walks_its_ranking(&self, state: i32, up_for: i32) -> i32 {
+        match state {
+            RESULT_RANKING_COMING_UP => {
+                if up_for >= RESULT_RANKING_COMES_UP_AFTER {
+                    self.image.the_screen_a_run_ends_at_is_in(RESULT_RANKING);
+                }
+            }
+            RESULT_RANKING => {
+                let items = RESULT_RANKING_ITEMS;
+                let mut cursor = self.image.the_characters_typed();
+                if self.pressed_or_repeated(UP) {
+                    cursor = (cursor - 1).rem_euclid(items);
+                }
+                if self.pressed_or_repeated(DOWN) {
+                    cursor = (cursor + 1).rem_euclid(items);
+                }
+                if self.pressed(ENTER) && cursor == RESULT_RANKING_THE_WAY_OUT {
+                    self.image
+                        .the_screen_a_run_ends_at_is_in(RESULT_RANKING_GOING);
+                }
+                if self.pressed(MENU_CANCEL) {
+                    cursor = RESULT_RANKING_THE_WAY_OUT;
+                }
+                self.image.the_characters_typed_are(cursor);
+            }
+            _ => {
+                if up_for > RESULT_RANKING_GOES_AFTER {
+                    self.writes_the_score_file();
+                    self.image.is_in_scene(
+                        self.image.scene_of_the_front_end(),
+                        self.image.the_scene_last_acted_on(),
+                    );
+                    return chain_result::REMOVED;
+                }
+            }
+        }
+        chain_result::CONTINUES
+    }
+
+    /// Where the run's score falls among the `HSCR` records of the copy the startup read: how many hold more.
+    fn the_place_the_run_takes(&self) -> usize {
+        let score = self.image.the_score();
+        self.the_records_the_game_parses()
+            .unwrap_or_default()
+            .iter()
+            .filter(|record| record.magic() == b"HSCR")
+            .filter_map(|record| record.bytes.get(0xc..0x10))
+            .filter(|bytes| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) > score)
+            .count()
     }
 
     // ---- the score file ----
@@ -1614,6 +1870,19 @@ fn records_holding(a_clear: bool) -> Vec<Record> {
         score_file::th6k(),
         score_file::clrd(0, [1, normal, 1, 1, 1], [1; 5]),
     ]
+}
+
+/// `0x140007620`: the game's own capture of the field into the texture its pause draws behind it — nothing of
+/// its own here, there being no picture to capture; what is under test is that it is asked for and the
+/// request put back, which is the caller's.
+unsafe extern "win64" fn the_games_capture(
+    _renderer: usize,
+    _request: i32,
+    _left: i32,
+    _top: i32,
+    _width: i32,
+    _height: i32,
+) {
 }
 
 /// `0x14002cc00`: the game's own run start, which orb calls where it writes a run into being.
@@ -1892,16 +2161,21 @@ extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     let fake = running();
     let image = &fake.image;
     let starting = image.the_scene_now() != image.scene_of_a_stage_being_rebuilt();
-    image.the_games_stage_word_is(if starting {
-        image.the_games_stage_word() + 1
-    } else {
-        fake.stage_after_the_rebuild.get()
-    });
+    image.the_games_stage_word_is(image.the_games_stage_word() + 1);
     if starting {
         image.fills_the_card_records();
         image.the_run_has_scored(0, 0);
         image.shot_is_at_power(0);
-        image.the_score_has_paid_for(0);
+        // The Extra's count of extends starts at four, so the score pays it none: 0x1400242d0 puts the
+        // difficulty to the Extra's where the word, not yet raised there, is past 5, and the count to four
+        // where the difficulty is the Extra's. The word here has been raised already.
+        if image.the_games_stage_word() > THE_EXTRAS_STAGE_WORD {
+            image.the_difficulty_is(DIFFICULTY_EXTRA);
+        }
+        image.the_score_has_paid_for(match image.the_difficulty_now() >= DIFFICULTY_EXTRA {
+            true => THE_EXTRAS_EXTENDS_PAID_FOR,
+            false => 0,
+        });
         image.the_power_items_towards_the_score(0);
         image.the_rank_is(RANK_AT_A_RUNS_START, 0);
     } else {
@@ -1940,7 +2214,7 @@ extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     // stage's first update, and the `0xf0` of invulnerability behind it is why nothing can reach a player for
     // the first 240 frames of a stage. See `the_player_a_stage_of_th06c_starts`, which is the reading written
     // down, and [`Fake::comes_back_and_is_untouchable`].
-    image.the_play_field_is(FIELD.0, FIELD.1, FIELD.2, FIELD.3);
+    image.the_play_field_is(PLAYER_AREA.0, PLAYER_AREA.1, PLAYER_AREA.2, PLAYER_AREA.3);
     image.the_player_is_at(PLAYER_STARTS_AT.0, PLAYER_STARTS_AT.1);
     image.the_player_steps_by(A_STEP, A_STEP / 2.0_f32.sqrt());
     image.the_players_box_is((PLAYER_HALF, PLAYER_HALF));
@@ -1964,7 +2238,9 @@ unsafe extern "win64" fn card_records_read(_image: usize, _records: usize) -> i3
 
 extern "C" fn stop_recording() {}
 
-extern "C" fn create_game_window(_instance: *mut c_void) {}
+extern "C" fn create_game_window(_instance: *mut c_void) -> i32 {
+    0
+}
 
 unsafe extern "system" fn joystick_position(_device: u32, _into: *mut orb_api::JoyInfo) -> u32 {
     orb_api::joyerr::PARMS
@@ -1976,7 +2252,9 @@ extern "C" fn pad_buttons() -> *mut c_void {
 
 extern "C" fn save_replay(_path: *const u8, _name: *const u8) {}
 
-extern "C" fn init_d3d_device() {}
+extern "C" fn init_d3d_device() -> i32 {
+    0
+}
 
 /// The game's own `CreateFileW`, as its import table holds it: the name the open landed in written down, and
 /// a handle answered where the file is there — or where it is being written — and `INVALID_HANDLE_VALUE`

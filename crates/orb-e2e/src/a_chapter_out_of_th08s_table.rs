@@ -70,7 +70,7 @@ fn in_the_stage(name: &str, stage: i32, difficulty: i32) -> Box<Fake> {
     // script clock with the run's clock well past nought: a row read against the run's clock, or against a
     // script clock the build did not start again, is then a row read on the wrong frame.
     game.frames(A_WHILE_IN_THE_FIRST);
-    game.moves_on_to_the_stage(stage);
+    game.moves_on_to_the_stage_pressing_past_its_end(stage);
     let log = game.log();
     let said = format!("stage {} chapter 1 (stage start)", stage + 1);
     game.frames_until("the stage's own first chapter", FRAMES_FOR_A_BUILD, || {

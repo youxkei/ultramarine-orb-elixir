@@ -267,8 +267,10 @@ fn a_pointdevice_run_of_th06nc_is_chosen_chaptered_lost_and_retried() {
             log.lines()
         );
         // **And no ranking is built for it**, which is what `Th06nc::writes_its_own_records` answering
-        // true is for: the one write of this game's score file is the name entry's own confirm, so a
-        // screen orb built and took down would leave the file as it was.
+        // true is for: the game writes its own score file — as the screen a run ends at goes down, as a
+        // run is left for the front end and as one is started again — and the ranking the main menu's
+        // item 5 builds is one that writes nothing, so a screen orb built and took down would leave the
+        // file as it was.
         //
         // **Read as the ranking never being driven rather than as the line that says so**, which is this
         // game's own gap and worth naming here: `runtime::commit_records` is reached only where
@@ -298,15 +300,12 @@ fn a_pointdevice_run_of_th06nc_is_chosen_chaptered_lost_and_retried() {
             "the game's own file was written by a run of the mode: {:?}",
             game.score_file_opens()
         );
-        // **And nothing lands in the mode's own file either, which is this game's own doing.** The one
-        // write of this game's score file is the name entry's own confirm — `Th06nc`'s
-        // `writes_its_own_records` carries the reading — so a run given up reaches no write at all, and
-        // a ranking orb built and took down would leave the file as it found it. What that costs is what
-        // the run counted, and this change's own `TODO:` carries the put-back that would keep it.
+        // **And what the run counted lands in the mode's own file**, the game writing it on its way out:
+        // orb gives a run up the way the pause menu's own give-up does, asking for the front end (0x14000b48e
+        // under `[0x14053d3dc]` clear), whose 0x14007b770 writes the score file before it builds the title.
         assert!(
-            !game.score_file_written_as("pointdevice_score.dat"),
-            "the mode's own file was written, so something is writing this game's records after all: \
-             {:?}",
+            game.score_file_written_as("pointdevice_score.dat"),
+            "the run was given up without the game writing what it counted: {:?}",
             game.score_file_opens()
         );
     });

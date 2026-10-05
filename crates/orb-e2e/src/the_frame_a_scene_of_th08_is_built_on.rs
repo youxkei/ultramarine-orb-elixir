@@ -5,9 +5,10 @@
 //! `[0x164d538]` to nothing and copies it into last frame's word `[0x164d530]` and the read `[0x164d528]`
 //! (0x445ae7 through 0x445af9), before `scene = wanted` at 0x445b0b. So a key held across a scene is read at
 //! the next read against a last frame of nothing — **an edge**, which is a press to every screen of the front
-//! end and to the pause, each of them taking their edges off that pair. Where the switch starts a build that
-//! next read is the build's end, the supervisor's update answering before its read for as long as the build
-//! stands (0x4455bc).
+//! end and to the pause, each of them taking their edges off that pair. Where the switch starts a stage's
+//! build the supervisor's update still runs whole on every frame of it, its read at 0x4455f5 among it — its
+//! answer of 1 at 0x4455bc being the startup load's alone (0x445584) — so in the game that next read is the
+//! frame after the switch.
 //!
 //! Which is `the_frame_a_scene_is_built_on.rs`'s third test over th06 and the opposite of
 //! `the_frame_a_scene_of_th06c_is_built_on.rs`'s, whose game carries the keys straight across; what this
@@ -28,10 +29,8 @@ const WORK_US: i64 = 700;
 /// The stage the run walks into, orb's own 0-based number.
 const THE_NEXT_STAGE: i32 = 1;
 
-/// How many frames the switch into the stage's build is given, and the build itself — past the thirty it
-/// waits out, see `Th08`'s `A_BUILD_STANDS_FOR`.
+/// How many frames the switch into the stage's build is given.
 const A_SWITCH: u32 = 60;
-const A_BUILD: u32 = 600;
 
 /// The bit this game's own read leaves for down, which the arrows give at 0x43daf1.
 const DOWN: u16 = 0x20;
@@ -79,12 +78,8 @@ fn a_scene_switch_of_th08_puts_the_keys_words_to_nothing() {
             "the frame the scene was switched on came out with the keys' words standing",
         );
 
-        // **And the next read is the key against that nothing, which is an edge** — the first read after the
-        // build, the supervisor's own update answering before its read on every update the build stands
-        // (0x4455bc).
-        game.frames_until("the build over", A_BUILD, || {
-            !game.image().the_loader_is_running()
-        });
+        // **And the next read is the key against that nothing, which is an edge** — the supervisor's read on
+        // the frame after the switch, the build's first.
         game.frame();
         assert_eq!(
             (

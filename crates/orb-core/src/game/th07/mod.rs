@@ -132,7 +132,8 @@ use crate::{detail, log};
 ///
 /// **Four of th06's are gone from it**, which is what a shared struct had this game answering zero for:
 /// the box the player is held inside, the extra lives the score has paid for, and the rank and the subrank.
-/// th07 pays for its extra lives out of the cherry and has no rank at all.
+/// th07 gives its extra lives for point items rather than for score, and keeps its rank in a static of its
+/// own, [`RANK`], rather than th06's pair.
 ///
 /// **And three of its own are in it**, which is what a divergence of the family this game keeps producing
 /// turns on: two runs of a stage agreed on every field of the old line — the same buttons, the same place,
@@ -611,10 +612,10 @@ const G_GAME_MANAGER: usize = 0x00626270;
 
 /// The difficulty a run is being played on, `+0x10` of it.
 ///
-/// **Two directions say so.** The added callback reads it at 0x42eab1 and starts the rank at 0xc8 where it
-/// is 4 or more and 0x32 where it is less, which is the pair th06 takes out of a table by difficulty. And
-/// a replay's own header writes its difficulty straight into it: the byte at `+0x57` of what 0x455b45 read
-/// goes to 0x626280, which is this field.
+/// **Two directions say so.** The added callback reads it at 0x42eab1 and starts the count of point items
+/// the first extend wants, `[run+0x30]`, at 0xc8 where it is 4 or more and 0x32 where it is less — the
+/// Extra and the Phantasm being 4 and 5. And a replay's own header writes its difficulty straight into it:
+/// the byte at `+0x57` of what 0x455b45 read goes to 0x626280, which is this field.
 const DIFFICULTY: usize = 0x10;
 /// Whose run it is and which of that character's shots, `+0x93d5` and `+0x93d6`, with `character * 2 +
 /// shot` kept beside them at `+0x93d7` — which the added callback builds at 0x42e864, and which is the
@@ -665,8 +666,8 @@ const POWER_FULL: f32 = 128.0;
 /// `[gm+0x9620]`, [`G_CHERRY_PLUS`], goes up with it. 0x43369a reads the same count for the same sum and
 /// puts that into [`SCORE`] instead, which is the other kind of item.
 ///
-/// **So it is not a tally, it is what this game runs on**: the cherry is what a border comes up on and what
-/// an extra life is paid for out of, and a stage played again with the count back at nothing is a stage whose
+/// **So it is not a tally, it is what this game runs on**: the cherry is what a border comes up on, and a
+/// stage played again with the count back at nothing is a stage whose
 /// items fill the cherry at another rate. Nothing in a reproduction line says so and adding to the cherry
 /// draws no words, so two runs stay in step for as long as it takes a threshold to arrive.
 ///
@@ -675,7 +676,7 @@ const POWER_FULL: f32 = 128.0;
 /// cap here is 999999, at 0x43ebcb.
 ///
 /// **The game's own replay restore carries it**: 0x44327f writes it into a stage's record and 0x443841 puts it
-/// back, and the run's own build zeroes it at 0x42ea7c. So a run picked up out of a file starts from nothing
+/// back, and the run's own build zeroes it at 0x42eaa0. So a run picked up out of a file starts from nothing
 /// unless a resume writes it, which is what a session measured — a run picked up in stage 2 reproduced 830
 /// frames of itself word for word and then took 2000 points nobody had scored, and had its third life 865
 /// frames before the run it was reproducing.
@@ -692,7 +693,7 @@ const COUNTED_ALL_RUN: usize = 0x18;
 const CARDS_CAPTURED: usize = 0x1c;
 
 /// **The step th07's awards have climbed to, `[0x62f644]`**, which is an index into the 31 dwords at
-/// 0x49ecf8 — 10, 20, 30 … 100, 200 … 1000, 2000, 3000 … 12000, 12800. 0x432efe adds one to it, 0x432f19 holds
+/// 0x49ecf8 — 10, 20, 30 … 100, 200 … 1000, 2000, 3000 … 12000, 51200. 0x432efe adds one to it, 0x432f19 holds
 /// it at 30, 0x432f27 reads the table by it and 0x432f42 adds a tenth of what it finds to [`SCORE`]. It goes
 /// back to nothing at 0x432fb2 and where the player is hit, at 0x440d6a.
 ///
@@ -712,22 +713,27 @@ const AWARD_STEP: usize = 0x0062f644;
 /// the panel draws. An item collected adds a tenth of its value to it at 0x433258, the tenth being what makes
 /// the panel's own last digit the continues rather than a unit.
 ///
-/// **The point items are the count with thresholds behind it**: that same pickup adds one to `+0x28` at
-/// 0x43327d, and 0x4333bd compares it against `+0x30` — where it has reached it, `+0x2c` goes up by one and
-/// `+0x30` becomes `(+0x2c - 2) * 0x1f4 + 0x320`. So `+0x2c` is how far the point value has climbed and
-/// `+0x30` is the next step's count, which is th07's own point system and not a rank: the build starting `+0x30`
-/// at 0x32 or 0xc8 by difficulty is the first step, higher for the Extra and the Phantasm.
+/// **The point items are the count with extends behind it**: that same pickup adds one to `+0x28` at
+/// 0x43327d, and the loop from 0x4332e0 sets `+0x30` out of `+0x2c` by difficulty — for difficulties 0 to 3
+/// `+0x2c * 75 + 50` under 3, `(+0x2c - 3) * 150 + 300` under 5 and `(+0x2c - 5) * 200 + 800` after; for 4
+/// and 5 200, then 500, then `(+0x2c - 2) * 500 + 800` — and 0x4333bd compares `+0x28` against it. Where it
+/// has been reached, 0x4333ca calls the extend 0x42d83a, a life where the lives are under 8 and otherwise a
+/// bomb where the bombs are under 8, and 0x4333e0 adds one to `+0x2c`. So `+0x2c` is how many extends the
+/// point items have given and `+0x30` how many items the next one wants, which is th07's own extend and not
+/// a rank: the build starting `+0x30` at 0x32 or 0xc8 by difficulty is the first threshold, higher for the
+/// Extra and the Phantasm.
 const SCORE: usize = 0x4;
 const POINT_ITEMS: usize = 0x28;
-/// The two behind that count, which are as much a number a stage starts with as the count is: how far the
-/// point value has climbed and how many items the next step wants. A stage resumed with the ladder a fresh
-/// run has is a stage whose items are worth what a first stage's are.
-const POINT_VALUE_STEP: usize = 0x2c;
-const POINT_VALUE_NEXT: usize = 0x30;
+/// The two behind that count, which are as much a number a stage starts with as the count is: how many
+/// extends the point items have given and how many items the next one wants. A stage resumed with the
+/// thresholds a fresh run has is a stage whose items give an extend where a first stage's would.
+const EXTENDS_GIVEN: usize = 0x2c;
+const ITEMS_FOR_THE_NEXT_EXTEND: usize = 0x30;
 
 /// The score the panel shows, `[run+0x0]`, which the run's own end catches up with [`SCORE`]: the teardown
-/// at 0x42f483 copies one into the other, and so does every way out of the pause menu — 0x403b8b, 0x403bd0
-/// and 0x403c0e. What [`Th07::leave_run`] does with it is what those three do.
+/// at 0x42f483 copies one into the other, and so does each of the three ways out of the continue menu
+/// 0x403b60 that ask for a scene before it is shown — 0x403b8b, 0x403bd0 and 0x403c0e. What
+/// [`Th07::leave_run`] does with it is what those three do.
 const SCORE_SHOWN: usize = 0x00;
 
 /// **th07's cherry, which is three numbers and a baseline they are all counted from.** The baseline is
@@ -754,14 +760,17 @@ const SCORE_SHOWN: usize = 0x00;
 const SCORE_BASELINE: usize = 0x88;
 /// **The noise the seal is drawn over, and a resume writes none of it.** 0x42e3da fills the run's object with
 /// it as the object is allocated — `(rand % 0x186a0) + 0x198f` apiece, a number between 6543 and 106542 — into
-/// the seven words at `+0x34`, the eight at `+0x8c`, and floats at `+0x54`, `+0x58`, `+0x60` and `+0x64`, which
-/// are the words standing between [`DEATHS`], [`LIVES`] and [`BOMBS`]. Everything from `+0x34` to `+0xac` is
-/// inside the sum [`RESEAL`] takes.
+/// the seven words at `+0x34`, the eight at `+0x8c` and the five at `+0xb4`, and a float draw times 100000.0
+/// plus 6543.0 apiece into two at `+0x54`, two at `+0x60`, three at `+0x70` and two at `+0x80`, which are the
+/// words standing between [`DEATHS`], [`LIVES`], [`BOMBS`] and [`POWER`]. Everything from `+0x34` to `+0xac`,
+/// and the 0x14 bytes from `+0xb4`, is inside the sum [`RESEAL`] takes.
 ///
 /// **The game draws them again whenever it likes, which is what says they carry nothing:** [`RESEAL`] redraws
 /// `+0x3c` and `+0x98` on every one of its calls, and 0x43b5c0 redraws `+0x34` through `+0x44` and the floats
-/// at `+0x70`, `+0x74` and `+0x78` outright. Nothing else in the exe reads any of the seven: `+0x3c` is the one
-/// the seal keeps, and 0x42dc96 and 0x42e5fa are the two reseals written out inline copying it into `+0xac`.
+/// at `+0x70`, `+0x74` and `+0x78` outright. What reads the seven is the seal: `+0x3c` is the key it adds to
+/// `+0xac`, copied into it by 0x4012b0 and by the two reseals written out inline at 0x42dc96 and 0x42e5fa —
+/// the first of them, in the manager's update, leaving `+0xb0` as it was — and the same update range-checks
+/// all seven at 0x42dcda against `0x198f`..`0x1a02f`, writing -9999.0 into the seal's float where one is out.
 ///
 /// **And [`SEALED_WORD`] is why writing them costs the run**, it being the third of the seven.
 ///
@@ -773,9 +782,11 @@ const SCORE_BASELINE: usize = 0x88;
 const RUN_RANDOMS_AT: usize = 0x34;
 #[cfg(any(test, feature = "sim"))]
 const RUN_RANDOMS: usize = 7;
-/// **The word [`RESEAL`] draws and the copy of it the check compares, `[run+0x3c]` and `[run+0xac]`.** They are
-/// the pair that ends a resumed run: a reseal leaves them equal, a write into either afterwards leaves them
-/// apart, and the first update to reach a guarded number reads the check's answer and tears the game down.
+/// **The word [`RESEAL`] draws and the field the check holds it against, `[run+0x3c]` and `[run+0xac]`.** They
+/// are the pair that ended a resumed run: a reseal leaves `[run+0xac]` at the word plus `0xfc * [run+0xbc]`, a
+/// write into either afterwards leaves them apart, and the first update to reach a guarded number reads the
+/// check's answer and tears the game down. A write anywhere else in the sum is caught by the check's other
+/// comparison, `[run+0xb0]` against the sum the manager's update takes again.
 ///
 /// Which is what a launch measured — a run picked up with the noise above written back *after*
 /// [`Th07::set_run_state`] reseals was over one update later, its ranking read as if the run had ended, and the
@@ -787,22 +798,24 @@ const RUN_RANDOMS: usize = 7;
 const SEALED_WORD: usize = 0x3c;
 #[cfg(any(test, feature = "sim"))]
 const SEALED_COPY: usize = 0xac;
-/// **The two things the game's own replay restore puts back that a resume does not**, said in the log at a
-/// stage's start rather than written — see `th07/asm.md` for the whole of what that restore does.
+/// **Two things the game's own replay restore puts back, the rank and the run's header**, both said in the log
+/// at a stage's start — see `th07/asm.md` for the whole of what that restore does.
 ///
-/// `[0x62f8a4]` is `[gm+0x9634]`, filled at 0x42e3a4 out of the per-shot table at `[0x49f5d0 + shot*0xc]` and
-/// put back from a stage's record at 0x4437ea. Nine sites in 0x40e and 0x412 read it, four of them with
-/// `fimul`. `[0x626274]` is the run's header, `malloc(0x38)` at 0x45bf3f, copied out of the replay's own
-/// header at 0x4438ff; the only fields anything reads while a stage is played are `+0x1c`, the difficulty,
-/// and `+0x25`, a flag.
+/// `[0x62f8a4]` is `[gm+0x9634]`, the rank: 0x42e38c fills it at 0x42e3a4, with its floor and its ceiling,
+/// out of the table by difficulty at `[0x49f5d0 + difficulty*0xc]`, and it is put back from a stage's record
+/// at 0x4437ea. The ECL runner 0x410520 reads it at 0x412ad4 and 0x412b3c to scale an enemy's bullet counts
+/// and at 0x412bab and 0x412c04, with `fimul`, to scale their speeds; 0x40ecf1 hands its address to ECL.
+/// `[0x626274]` is the run's header, 0x38 bytes from `operator new` at 0x42e928 that 0x42e95f fills with a
+/// copy of the config block 0x575a68, and copied out of the replay's own header at 0x4438ff; the only fields
+/// anything reads while a stage is played are `+0x1c`, the starting lives, and `+0x25`, a flag.
 ///
-/// **Said and not restored, because whether they need restoring is not established.** Nothing in the exe
-/// writes `[0x62f8a4]` while a run is played, and the header's other 54 bytes are read by nothing, so both
-/// read as things a resume gets for free — from the shot the front end was driven to, and from the difficulty
-/// it chose. A run of th07 picked up in stage 2 still parts from itself, and three times now a number has
-/// been carried on that kind of reasoning and turned out not to be the one. So this is the reading that
-/// settles it: a stage's start says them on both sides, and a launch says whether they agree.
-const SHOTS_OWN_NUMBER: usize = 0x0062f8a4;
+/// **The header is said and not restored**, because it needs no restoring: two entries into one stage 2 held
+/// all fourteen of its words the same. The rank is carried — see [`Th07::set_run_state`] — because it moves
+/// all through play: 0x42f4aa raises it and 0x42f526 lowers it, through `[ecx+0x9634]`, for items, grazes,
+/// extends and bombs, and a stage transition skips the fill, so a stage starts with the rank the last one
+/// ended on — a stage 2 entered by a transition held 0x20 where one built by a resume held 0x10. A stage's
+/// start says both on both sides, and a launch says whether they agree.
+const RANK: usize = 0x0062f8a4;
 const G_RUN_HEADER: usize = 0x00626274;
 const RUN_HEADER_BYTES: usize = 0x38;
 
@@ -827,7 +840,7 @@ const BORDER_UP: usize = 0x00441960;
 
 /// The two scenes a run leaves for: 7 where a replay was being watched and 6 otherwise.
 ///
-/// The pause menu's own way out is where both come from — 0x403bb8 writes 7 under bit 3 of [`G_RUN_KIND`] and
+/// The continue menu's own way out is where both come from — 0x403bb8 writes 7 under bit 3 of [`G_RUN_KIND`] and
 /// 0x403b8d and 0x403bfe write 6 — and the run ending of its own accord at 0x42a6ab writes 6 as well. Each
 /// path clears [`OTHER_MENU_UP`] and equalises the two scores first, which is the whole of what leaving is.
 const SCENE_RUN_OVER: i32 = 6;
@@ -904,9 +917,10 @@ const GAME_MANAGER_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x40]
 /// 0x1347b00 and lays the stage out of them. **The one moment a resumed run's seed can go in.**
 ///
 /// **Called from one place in the whole exe**, 0x42f0b4, and that place is what makes it the seam: the twelve
-/// instructions before the call are the game settling the stage's seed — 0x42f07e saves [`G_RANDOM`], 0x42f08b
-/// seals the run's numbers over the top of it (two draws, see [`RESEAL`]), 0x42f094 puts it back and 0x42f0a4
-/// writes it down as [`SEED_AT_STAGE_START`]. So at this entry the seed is settled and **nothing of the stage
+/// instructions before the call are the game settling the stage's seed — where a replay is playing, 0x42f07e
+/// saves [`G_RANDOM`], 0x42f08b seals the run's numbers over the top of it (two draws, see [`RESEAL`]) and
+/// 0x42f094 puts it back, a branch 0x42f067 jumps past otherwise, and on either path 0x42f0a4 writes it down as
+/// [`SEED_AT_STAGE_START`]. So at this entry the seed is settled and **nothing of the stage
 /// has been drawn from the generator yet**, which is what [`crate::resume::stage_building`] needs.
 ///
 /// **Both of those are inside [`GAME_MANAGER_ADDED`]**, which is why the seed cannot go in with the numbers:
@@ -929,14 +943,15 @@ const G_PLAYER: usize = 0x004bdad8;
 ///
 /// **The transitions are what name them**: the hit test sets 2 at 0x43ee0e, the update calls the death
 /// handler at 0x441fee where it finds 2, that handler sets 1 at 0x4410a0 beside the deaths and the lives it
-/// moves, the respawn walks 3 and 4 (0x441785 out of 1, 0x441a42 beside the byte at `+0x240d`), and 0x4413fa
-/// puts it back to 0. So 0 is the state a run is played in and every other value is the player in the
-/// middle of dying or coming back — which is the whole of what `State::unsettled` asks.
-///
-/// Which of 3 and 4 is the respawn is not separated here because nothing of orb's needs it: a chapter cannot
-/// be taken or begun in any of the four.
+/// moves, the border's end 0x441670 writes 3 at 0x441785, the border going up writes 4 at 0x441a42 beside the byte
+/// at `+0x240d`, and 0x4413fa puts it back to 0. **And every bomb writes 3**: each of the twelve bomb routines
+/// holds one site, between 0x408a23 and 0x40e234, and 0x4412a6 — the death handler, once its timer has reached
+/// 30 — and 0x441d5c, the border breaking, write it as well. So 3 is the player untouchable and playing, and
+/// only 2 and 1 are a death — which is the whole of what `State::unsettled` asks.
 const PLAYER_STATE: usize = 0x2408;
 const PLAYER_NORMAL: i8 = 0;
+/// The state the death handler sets at 0x4410a0 and holds for 30 updates — see [`PLAYER_STATE`].
+const PLAYER_DYING: i8 = 1;
 /// **The border the player has up, as the pointer to it** — th07's own, and not [`PLAYER_HIT`]'s window.
 ///
 /// 0x441bd0 is the deflection: given the player as its `this`, 0x441bdc reads this pointer, 0x441bee zeroes the
@@ -947,7 +962,7 @@ const PLAYER_BORDER: usize = 0xb7e6c;
 /// And the one a bomb is still a deathbomb in: 2, which the hit test leaves at 0x43ee0e and the update the death
 /// handler runs on finds at 0x441fee — see [`bot`].
 const PLAYER_HIT: i8 = 2;
-/// And the one of the five [`Th07::make_invulnerable`] writes: 3, which the respawn at 0x441785 enters and
+/// And the one of the five [`Th07::make_invulnerable`] writes: 3, which a death's end enters at 0x4412a6 and
 /// which nothing can hit — the two hit tests, 0x43e375 and 0x43e360, answer *survived* for any state but 0.
 ///
 /// **Not 4, which is the state after it.** 4 is th07's border, and a hit there is deflected by 0x441bd0 —
@@ -960,8 +975,8 @@ const PLAYER_COMING_BACK: i8 = 3;
 ///
 /// **It has to be written and not only the state**, for th06's reason: frames left where the last respawn
 /// left them is a state put back to normal in the same update it was written for, and the update it runs out in
-/// is one the hit test sees a player it can kill. 0xf0 is what the respawn itself writes first (0x441756),
-/// before it settles on 0x28 for the walk in — and it is far enough from nothing that the tick cannot reach it
+/// is one the hit test sees a player it can kill. 0xf0 is what a death's end writes beside the state (0x4411c0),
+/// where a border's end writes 0x28 (0x441670) — and it is far enough from nothing that the tick cannot reach it
 /// inside one update, which is the whole of what orb needs of the number.
 const PLAYER_COMING_BACK_FRAMES: usize = 0x16a08;
 const PLAYER_INVULNERABLE_FRAMES: i32 = 0xf0;
@@ -991,10 +1006,12 @@ const SPEED_DIAGONAL: usize = 0x2c;
 /// and so on for 0.4 and 0.2 at 0x40a533, 0x40b073, 0x40b80e and 0x40bf96. They are read one each all the same,
 /// that being what the game does: a pair that stopped agreeing would be read right rather than half right.
 ///
-/// **What puts a fraction there is not established.** The writes sit in per-character code, and the one at
-/// 0x4091b0 reaches the 1.0 off a timer comparison — `[player+0x16a20+0x18]` against `+0x8` — rather than off
-/// any key, so this is not simply the focused step's own halving; that is not in the eight-way switch at 0x43f0f5
-/// either, which reads [`SPEED_STRAIGHT`] and [`SPEED_DIAGONAL`] and nothing else. Whatever selects it, it is
+/// **What puts a fraction there is a bomb.** Every one of the writes sits in a bomb routine, the ones the table
+/// at 0x49ec50 installs four per combined shot — 0x40920b and 0x40934c in 0x4091b0, 0x40a533 in 0x40a3a0,
+/// 0x40b073 in 0x40af10, 0x40b80e in 0x40b7d0 and 0x40bf96 in 0x40be20 — and the routine at 0x4091b0 reaches the
+/// 1.0 off a timer comparison, `[player+0x16a20+0x18]` against `+0x8`, rather than off any key. So this is not
+/// the focused step's own halving; that is not in the eight-way switch at 0x43f0f5 either, which reads
+/// [`SPEED_STRAIGHT`] and [`SPEED_DIAGONAL`] and nothing else. Whatever selects it, it is
 /// written by the player's own update at priority 8, which runs *after* the supervisor's input read — so what a
 /// bot reads is the frame before's, and a frame that changes it is a frame projected with the wrong step.
 const PLAYER_SCALE_ACROSS: usize = 0x23f0;
@@ -1300,9 +1317,9 @@ const CARD_RECORD_TAG: u32 = u32::from_le_bytes(*b"CATK");
 const CARD_ATTEMPTS: usize = 0x5c;
 const CARD_CAPTURES: usize = 0x6a;
 /// The same attempt counted a second time, into the card's own total: `+0x68`, which 0x410132 adds to right
-/// after the shot's own word and which no shot has one of. **It is outside the sum the check byte is over** —
-/// the loops at 0x410053 walk `+0x6a`, `+0x5c` and `+0xc` and reach neither this word nor `+0x68` — so it is
-/// the one count in the record that can be written on its own.
+/// after the shot's own word — the seventh of the attempts, the one no shot has. **It is inside the sum the
+/// check byte is over**: the loop at 0x410053 walks seven words from `+0x5c`, and the seventh is this one, so it
+/// is written with the byte put right after it like the shot's own word — see [`CARD_CHECK`].
 const CARD_ATTEMPTS_IN_ALL: usize = 0x68;
 /// And where the game stops adding to both of them: 0x4100eb and 0x41011c compare against 0x270f and skip
 /// the increment, so a card attempted ten thousand times stays at 9999 for the game and has to here.
@@ -1312,7 +1329,8 @@ const CARD_COUNT_CAP: u16 = 0x270f;
 ///
 /// 0x41008b is the check: the game sums the bytes of the name at `+0x2b`, then the seven captures at `+0x6a`,
 /// the seven attempts at `+0x5c` and the seven scores at `+0xc`, and compares the low byte of that sum against
-/// the byte at `+0x2a`. **Where they differ it zeroes all fourteen counts**, at 0x4100b8 and 0x4100c5 — so a
+/// the byte at `+0x2a`. **Where they differ it zeroes all fourteen counts and the seven scores**, at 0x4100b8,
+/// 0x4100c5 and 0x4100d2 — so a
 /// count raised without the byte put right takes that card's whole history with it the next time the game
 /// looks. The captures are `+0x6a`, which is why that offset is a constant after all: the sum is over both. [`Th07::count_card_attempt`] recomputes it for that reason, and this is the same shape the run's own
 /// numbers have: see [`DEATHS`] for the other seal and what failing it costs.
@@ -1564,10 +1582,10 @@ const STAGES: i32 = 8;
 
 /// What kind of run this is, as a bitfield of its own: 0x62f648, read in some ninety places.
 ///
-/// **Bit 3 is a replay being watched.** 0x455b45 is where a replay is loaded — the file named at 0x62f654
-/// read through 0x431330 and taken through 0x4433b0 — and it sets this bit from `(1 & 1) << 3` before
-/// filling the run out of that replay's header. The pause menu at 0x403ba1 reads the same bit to send a run
-/// being watched back to scene 7 rather than scene 6.
+/// **Bit 3 is a replay being watched.** A replay picked from the replay list sets it at 0x45b38a, from
+/// `(1 & 1) << 3`, and so does the attract demo's load at 0x455b45 — the file named at 0x62f654 read through
+/// 0x431330 and taken through 0x4433b0 — before filling the run out of that replay's header. The continue
+/// menu at 0x403ba1 reads the same bit to send a run being watched back to scene 7 rather than scene 6.
 ///
 /// **Bit 0 is a practice run**, and the title menu is what says so: its eight items dispatch through the
 /// table at 0x45622d, and of the four that start something, only the third sets this bit — 0x455d93, against
@@ -1578,8 +1596,9 @@ const STAGES: i32 = 8;
 ///
 /// **Bit 1 is the attract demo**, and what the demo opens is what says so. The title screen's idle count at
 /// `[menu+0xd100]` passes 0x384 at 0x455a94, picks the next of three names out of the table at 0x49ea7c by
-/// the byte at 0x62f64e, and goes on into the same load a replay uses — so a demo has bit 3 set as well and
-/// this bit is what tells the two apart. 0x443571 turns the bit into the load's own argument, 1 where it is
+/// the byte at 0x62f64e, and goes on into the load at 0x455b45, which sets bit 3 the way a replay picked
+/// from the list does and this bit beside it — so a demo has bit 3 set as well and this bit is what tells the
+/// two apart. 0x443571 turns the bit into the load's own argument, 1 where it is
 /// clear and 0 where it is set: the demo's replays are `data/demo/demorpy0.rpy` and its two neighbours,
 /// inside `th07.dat`, and a player's are files under `replay/`. The update at 0x42d905 reads the bit and
 /// refuses to open the pause menu on such a frame, 0x4018e0 runs a block only on it, and the title screen
@@ -1589,7 +1608,8 @@ const STAGES: i32 = 8;
 /// 0x93d8 is 0x62f648, and both spellings are the same word.
 ///
 /// Bits 2 and 4 are not written down here because nothing of orb's reads them — `th07/asm.md` has where
-/// each is set, and why bit 4 cannot be the answer to a run having finished.
+/// each is set, and that bit 4, a run that ended of its own accord, is cleared at 0x42f29a on every build,
+/// a stage transition's included.
 const G_RUN_KIND: usize = 0x0062f648;
 const RUN_IS_A_PRACTICE: u32 = 1 << 0;
 const RUN_IS_A_DEMO: u32 = 1 << 1;
@@ -1765,9 +1785,10 @@ const RESULT_PHASE: usize = 0x08;
 ///
 /// Phase 0xa is the entry, and 0x446a66 is its handler — the jump table at 0x446a1f, indexed through the byte
 /// table at 0x446a4f. It walks a cursor at `[this+0x20]` over the 96 characters at `[0x49ec30]` — ±0x10 a row,
-/// ±1 a column, the 94th the space item — and on the shot key copies the one under it here: 0x446faf writes
-/// the character at `[this+0xbfaf + [this+0x10]]`, 0x447087 writes a space where that item was chosen, and
-/// 0x446fd7 caps `[this+0x10]` at eight.
+/// ±1 a column, the one at index 0x5e the space item — and on the shot key copies the one under it here:
+/// 0x446faf writes the character at `[this+0xbfaf + [this+0x10]]`, 0x446fc6 writes a space where the space
+/// item was chosen, and 0x446fd7 caps `[this+0x10]` at eight. The cancel and bomb keys are the backspace:
+/// `[this+0x10]` is taken down by one and 0x447087 writes a space where it now points.
 ///
 /// **Which is the name a replay of the game's own carries.** Seven of this machine's `replay/th7_*.rpy` were
 /// read the way `th07/asm.md` says one is read: at +0x5e of the unpacked header, eight bytes with spaces
@@ -1786,6 +1807,14 @@ const RESULT_TYPED: usize = 0x10;
 const RESULT_THE_END_ITEM: i32 = 0x5f;
 const RESULT_FROM_A_RUN: i32 = 0xa;
 const RESULT_FROM_A_PRACTICE_RUN: i32 = 0x12;
+/// **Every phase a run's end walks that screen through**, from the name entry to the practice run's own: 0xa,
+/// the offer 0xb to 0xf, the two after the name entry, 0x10 and 0x11, and 0x12. The ranking starts at 0 and the
+/// save's is 0x13, so neither is in it.
+///
+/// A range and not the two a run's end is brought up in, because a practice run's 0x12 is gone before orb looks:
+/// the screen's own added callback 0x449b05 writes the offer, 0xb, over it.
+const RESULT_OF_A_RUNS_END: std::ops::RangeInclusive<i32> =
+    RESULT_FROM_A_RUN..=RESULT_FROM_A_PRACTICE_RUN;
 /// And the phase the other way in leaves: the ranking asked for from the front end, which 0x44a38d writes.
 /// And the two states of that screen orb writes or waits on: **0 is the one its own build runs in** — the
 /// state a screen asked for by the Score item starts in, whose handler at 0x445dfa lays the rows out — and
@@ -1883,9 +1912,10 @@ const SAVE_PHASE_WRITES: i32 = 0x13;
 /// `ecx` and the array in `edx`.
 ///
 /// It walks the image's chunks from `[image+8]` for `[image+0x10] - [image+8]` bytes and, for every `CATK` whose
-/// version byte at `+0x8` is 1 and whose card number at `+0x28` is under [`CARDS`], copies the whole 0x78-byte
-/// chunk into `edx + card * 0x78` — `rep movs` of 0x1e dwords at 0x4450e8, the file into the array and never the
-/// other way. **Three call sites pass [`G_CARD_RECORDS`] as that array**, which is what makes each of them a
+/// version byte at `+0x8` is 1, copies the whole 0x78-byte chunk into `edx + card * 0x78`, the card number being
+/// the word at `+0x28` — `rep movs` of 0x1e dwords at 0x4450e8, the file into the array and never the other way.
+/// The first such `CATK` whose card number is [`CARDS`] or more ends the walk (0x4450cf): the records after it
+/// are not read. **Three call sites pass [`G_CARD_RECORDS`] as that array**, which is what makes each of them a
 /// place a session's records have to go back: 0x42e735 inside a run's build, after it has emptied them;
 /// 0x44a059 inside a save, whose write follows; and 0x45bff3 inside the read the front end makes for its own
 /// menus, which is the game's own file whatever the mode.
@@ -2128,23 +2158,27 @@ const FIGHT_SONG_SLOT: u32 = 1;
 /// number pass the check at 0x404fe0 instead of wrecking the game — see [`DEATHS`] for what failing it does.
 ///
 /// **What it writes is four fields of the run and one of the manager**: two draws of the generator into
-/// `[run+0x3c]` and `[run+0x98]`, each `(rand % 0x186a0) + 0x198f`; `[run+0xac]` a copy of the first of them;
-/// `[run+0xb0]` the sum 0x42d7be takes over `run+0x34` through `run+0xac` and three ranges outside the run —
-/// `[0x626278]+0xb4` for 0x14 bytes, all 0x38 of the run's header at `[0x626274]`, and 0x38 bytes at 0x575a68;
-/// and `[gm+0x9614]` the float of `[run+0xb0] + [run+0x98]`.
+/// `[run+0x3c]` and `[run+0x98]`, each `(rand % 0x186a0) + 0x198f`; `[run+0xac]` a copy of the first of them at
+/// 0x40133f, which the sum then moves; `[run+0xb0]` the sum 0x42d7be takes over `run+0x34` through `run+0xac`
+/// and three ranges outside the run — `[0x626278]+0xb4` for 0x14 bytes, all 0x38 of the run's header at
+/// `[0x626274]`, and 0x38 bytes at 0x575a68; and `[gm+0x9614]` the float of `[run+0xb0] + [run+0x98]`. **For
+/// every byte it sums, 0x42d75a adds `[run+0xbc]` into `[run+0xac]`** (0x42d794–0x42d7b1), and the four ranges
+/// come to 0xfc bytes, so after a reseal `[run+0xac]` is `[run+0x3c] + 0xfc * [run+0xbc]`.
 ///
 /// **And the check is two comparisons over exactly those five, neither of which takes the sum again**:
 /// `[run+0xac]` against `[run+0xbc] * 0xfc + [run+0x3c]`, and `[run+0xb0] + [run+0x98]` against `[gm+0x9614]`
-/// rounded back to a whole number. `0xfc` is `(run+0xac) - (run+0x34) + 0x84` worked out at 0x405003, and
-/// `[run+0xbc]` is nothing while a run is played, so the first comparison is `[run+0xac]` against `[run+0x3c]`
-/// — which is what this call had just made of them. So a write of orb's into any of the five is
-/// a run that ends on its next update, and every guarded write of the game's own asks the check first: 0x42d5d8
-/// for [`LIVES`], 0x42d61d for [`BOMBS`], 0x4325eb for [`POWER`], 0x43b75b for [`DEATHS`], and five more sites
-/// besides.
+/// truncated back to a whole number by `_ftol2`. `0xfc` is `(run+0xac) - (run+0x34) + 0x84` worked out at
+/// 0x405003 — the byte count of the four ranges — so the first holds after every reseal; `[run+0xbc]` is one of
+/// the five noise words at `+0xb4` and never nothing, so `[run+0xac]` never equals `[run+0x3c]`. So a write of
+/// orb's into any of the five is a run that ends at the next check, and every guarded write of the game's own
+/// asks the check first: 0x42d5d8 for [`LIVES`], 0x42d61d for [`BOMBS`], 0x4325eb for [`POWER`], 0x43b75b for
+/// [`DEATHS`], and six more sites besides.
 ///
 /// **`[gm+0x9614]` is not what the cherry is filling towards, which it was read as for a launch** —
-/// [`G_CHERRY_TARGET`] is that, and every `fstp` into `[gm+0x9614]` between 0x42dcb8 and 0x42e62c is one of
-/// these calls written out inline.
+/// [`G_CHERRY_TARGET`] is that. Every other `fstp` into `[gm+0x9614]` is the seal's own: the manager's update
+/// reseals inline at 0x42dc8b–0x42dcb8 without writing `[run+0xb0]`, so it is the second comparison that catches
+/// a changed byte; the same update writes -9999.0 there where its range check of the noise finds a word out of
+/// range; and 0x42e3da ends with the same inline reseal, `[run+0xb0]` written this time (0x42e5fa–0x42e62c).
 ///
 /// **It also costs two draws of the generator**, which is why it is written down here rather than treated as a
 /// bookkeeping call: anything of orb's that reseals moves the generator on, so a stage resumed from a recording
@@ -2762,8 +2796,8 @@ impl Th07 {
         );
     }
 
-    /// The music un-paused, which every way out of the game's own pause menu does and the one orb takes over
-    /// cannot.
+    /// The music un-paused, which every way out of the game's own pause menu that leaves the run standing does
+    /// and the one orb takes over cannot.
     ///
     /// **That menu pauses the music as it opens**: 0x42d9b1 sends [`PAUSE_THE_MUSIC`] on the frame the manager
     /// sees the button's edge, and 0x403496 sends [`UNPAUSE_THE_MUSIC`] where the menu is left for the run.
@@ -2893,8 +2927,8 @@ impl Game for Th07 {
             // the numbers go in — and a run picked up out of its file parted from that run at the stage's
             // first frame all the same: the numbers go in at the *end* of the build, which is after the
             // build's own draws. See [`STAGE_BUILD`], and [`crate::resume::stage_building`] for what is
-            // written there.
-            stage_building: Some(Building::Cdecl(Patch {
+            // written there. Entered with the stage in `ecx` (0x42f0ae), which `Building` has more of.
+            stage_building: Some(Building::InEcx(Patch {
                 target: STAGE_BUILD,
                 prologue: STAGE_BUILD_PROLOGUE,
             })),
@@ -2920,10 +2954,11 @@ impl Game for Th07 {
             }),
             // The last moment `force_windowed` can be obeyed: after the configuration is read and before
             // either the window or the device is made out of it — see [`CREATE_GAME_WINDOW`].
-            create_window: Some(Patch {
+            // Handed the instance in `ecx` (0x4340da).
+            create_window: Some(Entered::InEcx(Patch {
                 target: CREATE_GAME_WINDOW,
                 prologue: CREATE_GAME_WINDOW_PROLOGUE,
-            }),
+            })),
             // The device's `Present` redirected, which is what puts the game's frames through a
             // letterbox: th07 renders 640x480 and its own present stretches that over whatever client
             // area it has, so a window that is not 4:3 — every borderless one on a 16:9 display — showed
@@ -3061,7 +3096,10 @@ impl Game for Th07 {
             practice: kind & RUN_IS_A_PRACTICE != 0,
             paused: unsafe { mem::read::<u8>(G_GAME_MANAGER + GAME_MENU_UP) } != 0
                 || unsafe { mem::read::<u8>(G_GAME_MANAGER + OTHER_MENU_UP) } != 0,
-            unsettled: unsafe { mem::read::<i8>(G_PLAYER + PLAYER_STATE) } != PLAYER_NORMAL,
+            unsettled: matches!(
+                unsafe { mem::read::<i8>(G_PLAYER + PLAYER_STATE) },
+                PLAYER_DYING | PLAYER_HIT
+            ),
             bombing: unsafe { mem::read::<u32>(G_PLAYER + BOMB_IN_USE) } != 0,
             in_dialogue: unsafe { Self::dialogue_line() }
                 .is_some_and(|line| line >= 0 || line == DIALOGUE_HANDING_OVER),
@@ -4215,7 +4253,7 @@ impl Game for Th07 {
         buttons | stick | hat
     }
 
-    /// The run given up: the shown score caught up with the run's, the menu flag the game's own pause menu
+    /// The run given up: the shown score caught up with the run's, the menu flag the game's own continue menu
     /// clears cleared, and the scene asked for — 7 where a replay was being watched, and **the front end's
     /// otherwise**.
     ///
@@ -4517,9 +4555,10 @@ impl Game for Th07 {
     ///
     /// **`power_items`, `extra_lives` and `rank` are nothing, and each for its own reason.** th07 gives its
     /// power in whole steps rather than counting items towards one, so there is no count to read. Its extra
-    /// lives are paid for out of the cherry rather than the score, so there is no count of ones already paid
-    /// either — what pays for them is the three below, [`G_CHERRY`] and the two beside it. And it has no rank
-    /// at all: the field that looked like one is the next step of the point value, which [`SCORE`] says.
+    /// lives are given by the point items rather than paid for out of the score, so the count of ones given is
+    /// [`EXTENDS_GIVEN`], carried in this game's own numbers, and not th06's — [`SCORE`] says how. And its
+    /// rank is the static [`RANK`], carried there too: the field of the run's that looked like one
+    /// is the count of point items the next extend wants.
     ///
     /// **The cherry is answered as a count from the run's own baseline**, which is how the game reads it
     /// everywhere: what a stage played again has to start with is the count, and the baseline is whatever that
@@ -4583,7 +4622,7 @@ impl Game for Th07 {
                 mem::read::<i32>(run + SCORE_BASELINE)
             });
             // And the two the game's own replay restore puts back and a resume does not — see
-            // [`SHOTS_OWN_NUMBER`], which says why they are said here rather than written. Said in
+            // [`RANK`], which says why they are said here rather than written. Said in
             // `Th07::run_state` so that both sides say them: a chapter written down asks this, and so does
             // the read-back at the end of [`Th07::set_run_state`].
             let header: Vec<String> = (0..RUN_HEADER_BYTES / size_of::<u32>())
@@ -4597,8 +4636,8 @@ impl Game for Th07 {
                 })
                 .collect();
             detail!(
-                "th07: the shot's own number is {}, the run's header is {}",
-                unsafe { mem::read::<u32>(SHOTS_OWN_NUMBER) },
+                "th07: the rank is {}, the run's header is {}",
+                unsafe { mem::read::<u32>(RANK) },
                 header.join(" "),
             );
         }
@@ -4611,8 +4650,10 @@ impl Game for Th07 {
         resume::encode_state(&resume::Numbers {
             score: run.map_or(0, |run| unsafe { mem::read(run + SCORE) }),
             score_shown: run.map_or(0, |run| unsafe { mem::read(run + SCORE_SHOWN) }),
-            point_value_step: run.map_or(0, |run| unsafe { mem::read(run + POINT_VALUE_STEP) }),
-            point_value_next: run.map_or(0, |run| unsafe { mem::read(run + POINT_VALUE_NEXT) }),
+            extends_given: run.map_or(0, |run| unsafe { mem::read(run + EXTENDS_GIVEN) }),
+            items_for_the_next_extend: run.map_or(0, |run| unsafe {
+                mem::read(run + ITEMS_FOR_THE_NEXT_EXTEND)
+            }),
             seed: unsafe { mem::read(G_GAME_MANAGER + SEED_AT_STAGE_START) },
             point_items: run.map_or(0, |run| unsafe { mem::read::<u32>(run + POINT_ITEMS) }
                 as u16),
@@ -4631,10 +4672,10 @@ impl Game for Th07 {
             // stage whose plus says nothing about it. What a border does to a stage is take every item off the
             // screen, which is why a resume that left it out put a run back collecting what the run did not.
             border: unsafe { mem::read::<usize>(G_PLAYER + PLAYER_BORDER) } != 0,
-            // **And the number the shot is scaled by**, which a build fills out of the per-shot table and a
-            // transition carries — see [`SHOTS_OWN_NUMBER`], and `resume::Numbers::shots_own_number` for the
-            // `fimul` that makes it a rate rather than a label.
-            shots_own_number: unsafe { mem::read(SHOTS_OWN_NUMBER) },
+            // **And the rank**, which a build fills out of the table by difficulty and a transition carries —
+            // see [`RANK`], and `resume::Numbers::rank` for what the ECL runner scales
+            // by it.
+            rank: unsafe { mem::read(RANK) },
         })
     }
 
@@ -4648,7 +4689,7 @@ impl Game for Th07 {
     /// **The order here is the sum [`RESEAL`] takes**, `run+0x34` through `run+0xac`: [`LIVES`], [`BOMBS`],
     /// [`POWER`] and [`DEATHS`] are inside it and go in before the seal, and one write of any of them without the
     /// call that follows is a launch that tears its own graphics down a moment later — [`DEATHS`] says what that
-    /// looks like. The score's two fields, the point items and the two of the point value's ladder are below the
+    /// looks like. The score's two fields, the point items and the two behind their extends are below the
     /// range and could go either side of it.
     ///
     /// The cherry is written after, its three being statics: each against the baseline *this* stage has, which
@@ -4664,38 +4705,42 @@ impl Game for Th07 {
         let Some(run) = run else { return };
         unsafe {
             mem::write::<u32>(run + SCORE, state.score);
-            // And the number the panel is drawing, which the game's own teardown and every way out of its pause
-            // menu catch up with that one: left as the front end had it, a resumed stage draws the wrong score
+            // And the number the panel is drawing, which the game's own teardown and the continue menu's ways
+            // out of a run catch up with that one: left as the front end had it, a resumed stage draws the wrong score
             // and counts up to the run's from there.
             mem::write::<u32>(run + SCORE_SHOWN, state.score_shown);
             mem::write::<u32>(run + POINT_ITEMS, u32::from(state.point_items));
-            // The two behind that count, which say what an item is worth: a stage resumed at a first stage's
-            // step is a stage whose point items are worth a first stage's.
-            mem::write::<u32>(run + POINT_VALUE_STEP, state.point_value_step);
-            mem::write::<u32>(run + POINT_VALUE_NEXT, state.point_value_next);
+            // The two behind that count, which say when the point items give the next extend: a stage resumed
+            // with a first stage's thresholds is a stage whose items give an extend where a first stage's would.
+            mem::write::<u32>(run + EXTENDS_GIVEN, state.extends_given);
+            mem::write::<u32>(
+                run + ITEMS_FOR_THE_NEXT_EXTEND,
+                state.items_for_the_next_extend,
+            );
             mem::write::<f32>(run + LIVES, f32::from(state.lives));
             mem::write::<f32>(run + BOMBS, f32::from(state.bombs));
             mem::write::<f32>(run + POWER, f32::from(state.power));
             mem::write::<f32>(run + DEATHS, state.deaths as f32);
             // What the cherry an item gives is worked out from, which the build has just put back to nothing:
-            // left there, a resumed stage fills its cherry at a first stage's rate and comes to a border, and
-            // to the life a border is paid for with, somewhere the run never did.
+            // left there, a resumed stage fills its cherry at a first stage's rate and comes to a border
+            // somewhere the run never did.
             mem::write::<i32>(run + COUNTED_ALL_RUN, state.counted);
             mem::write::<i32>(run + CARDS_CAPTURED, state.captured);
             // And the step the awards have climbed to, which is a static rather than one of the run's own
             // numbers and so outside the seal: left at the bottom, the first thing this stage collects is worth
             // what a first stage's is, and the run parts from itself there.
             mem::write::<u8>(AWARD_STEP, state.award_step);
-            // **And the number the shot is scaled by**, a static like the step above and so outside the seal.
-            // Left at what the build filled it with, a stage put back is a stage whose player walks at another
-            // speed — which is what the parting was: the same stage 2 held 0x20 entered by a transition against
+            // **And the rank**, a static like the step above and so outside the seal. Left at what the build
+            // filled it with, a stage put back is a stage whose enemies fire other counts of bullets at other
+            // speeds — which is what the parting was: the same stage 2 held 0x20 entered by a transition against
             // 0x10 built by a resume, and every pair of launches parted on an item collected once.
-            mem::write::<u32>(SHOTS_OWN_NUMBER, state.shots_own_number);
+            mem::write::<u32>(RANK, state.rank);
         }
         // **The seal draws twice, and the generator is put back over those draws** — which is what the game
-        // itself does around this very call: 0x42f07e saves [`G_RANDOM`], 0x42f08b seals, 0x42f094 writes the
-        // saved word back. A seal whose draws were left standing would be two numbers of a stage's own spent on
-        // orb's bookkeeping, and a run picked up out of its file would play a stage nobody played.
+        // itself does around this very call where a replay is playing, the branch its own restore is in:
+        // 0x42f07e saves [`G_RANDOM`], 0x42f08b seals, 0x42f094 writes the saved word back. A seal whose draws
+        // were left standing would be two numbers of a stage's own spent on orb's bookkeeping, and a run picked
+        // up out of its file would play a stage nobody played.
         let seal: unsafe extern "thiscall" fn(usize) = unsafe { std::mem::transmute(reseal()) };
         let drawing_from = unsafe { mem::read::<u16>(G_RANDOM) };
         unsafe { seal(G_GAME_MANAGER) };
@@ -4860,14 +4905,14 @@ impl Game for Th07 {
         true
     }
 
-    /// Whether the run finished into the game's own screen for it, which is the phase that screen was brought
-    /// up with — see [`RESULT_UPDATE`]. A run given up does not go through it, which is what makes this the
-    /// chapter worth coming back to told from the run that has none.
+    /// Whether the run finished into the game's own screen for it, which is that screen in one of the phases a
+    /// run's end walks — see [`RESULT_OF_A_RUNS_END`]. A run given up does not go through it, which is what makes
+    /// this the chapter worth coming back to told from the run that has none.
     unsafe fn run_finished(&self) -> bool {
         let result = unsafe { Self::chain_argument(RESULT_UPDATE) };
         let Some(result) = result else { return false };
         mem::read_committed::<i32>(result + RESULT_PHASE)
-            .is_some_and(|phase| phase == RESULT_FROM_A_RUN || phase == RESULT_FROM_A_PRACTICE_RUN)
+            .is_some_and(|phase| RESULT_OF_A_RUNS_END.contains(&phase))
     }
 
     fn button_bit(&self, name: &str) -> Option<u16> {
@@ -5077,8 +5122,8 @@ mod tests {
         resume::Numbers {
             score: 0,
             score_shown: 0,
-            point_value_step: 0,
-            point_value_next: 0,
+            extends_given: 0,
+            items_for_the_next_extend: 0,
             seed: 0,
             point_items: 0,
             power: 0,
@@ -5092,7 +5137,7 @@ mod tests {
             captured: 0,
             award_step: 0,
             border: false,
-            shots_own_number: 0,
+            rank: 0,
         }
     }
 
@@ -5404,6 +5449,24 @@ mod tests {
         assert!(unsafe { Th07.read_state() }.bombing);
     }
 
+    /// **And the state every bomb writes is no death**: 3 is what the twelve bomb routines, the respawn's walk
+    /// in and the border breaking all enter, and the dying is 2 and 1 alone — so the invulnerability a bomb or
+    /// `--clear` leaves is a player playing.
+    #[test]
+    fn the_state_a_bomb_leaves_the_player_in_is_not_unsettled() {
+        let image = Image::laid_out_seeded(0);
+        let _installed = image.enter();
+
+        image.is_playing(0, 0);
+        image.the_player_is_coming_back(PLAYER_INVULNERABLE_FRAMES);
+        assert!(!unsafe { Th07.read_state() }.unsettled);
+        image.the_players_border_is_up();
+        assert!(!unsafe { Th07.read_state() }.unsettled);
+
+        image.the_player_has_been_hit();
+        assert!(unsafe { Th07.read_state() }.unsettled);
+    }
+
     /// And one stage practised rather than the whole game played, which is the other bit of that word orb
     /// reads. Here for the same reason: a practice run has no ranking to write and no next stage to go to,
     /// so what it reaches is orb's behaviour and not the log's line.
@@ -5592,7 +5655,7 @@ mod tests {
 
     /// The run given up back to the front end, and nothing to give up anywhere else.
     ///
-    /// **The front end and not the scene the game's own pause menu asks for**: both tear the run down through
+    /// **The front end and not the scene the game's own continue menu asks for**: both tear the run down through
     /// 0x42f45d and only that one registers the screen a run ends on (0x43803c against 0x43801f), whose
     /// background is drawn on the way past — see [`Th07::leave_run`].
     #[test]
@@ -5643,6 +5706,13 @@ mod tests {
             unsafe { Th07.run_finished() },
             "a practice run ends into the same screen"
         );
+        // **And in the offer**, which is where that screen's own added callback 0x449b05 takes a practice run's
+        // end before anything draws it — so 0x12 is never what orb finds there.
+        image.the_screen_was_brought_up_by(*RESULT_OFFERING_A_REPLAY.start());
+        assert!(
+            unsafe { Th07.run_finished() },
+            "a practice run's end, at the offer it goes to, read as no run finished"
+        );
 
         // And the other way in is not a run ending: the ranking asked for from the front end.
         image.the_screen_was_brought_up_by(0x13);
@@ -5652,9 +5722,10 @@ mod tests {
     /// The numbers a stage started with, which is what a run picked up in a later launch is given back, and
     /// the seed put in the two places the game keeps it.
     ///
-    /// **And they are this game's own numbers**, which is what `th07::resume::Numbers` is: no rank, no count of
-    /// power items and no count of extra lives paid for, because this game reads none of the three — see
-    /// [`SCORE`] for what `+0x30`, the field that looked like a rank, turned out to be.
+    /// **And they are this game's own numbers**, which is what `th07::resume::Numbers` is: no count of power
+    /// items and no count of extra lives paid for by the score, because this game reads neither, and its rank as
+    /// the static [`RANK`] — see [`SCORE`] for what `+0x30`, the field that looked like a rank,
+    /// turned out to be.
     #[test]
     fn a_stages_numbers_are_the_runs_own_and_the_seed_is_kept_twice() {
         let image = Image::laid_out_seeded(0);
@@ -5696,8 +5767,8 @@ mod tests {
     /// And those numbers put back: every field this game has written, the game asked to seal them, and **the
     /// generator left exactly where it was**.
     ///
-    /// The seal draws twice, which is why the game saves the generator around its own call to it (0x42f07e,
-    /// 0x42f094) and why orb does the same: two numbers spent here are two a stage did not draw, and a run picked
+    /// The seal draws twice, which is why the game saves the generator around its own call to it where a replay
+    /// is playing (0x42f07e, 0x42f094) and why orb does the same: two numbers spent here are two a stage did not draw, and a run picked
     /// up out of its file would then play a stage nobody played.
     ///
     /// **And the seed is not one of the fields**: it goes in at [`STAGE_BUILD`], before the build draws the stage

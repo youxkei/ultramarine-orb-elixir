@@ -78,13 +78,29 @@ fn a_decide_on_the_last_item_ends_the_game() {
             ITEMS - 1,
             "the cursor is not on the item that ends the game",
         );
+        // **And not at once**: the item sends the front end to its phase 2 (0x456000), which asks for the scene
+        // that ends the game only once its timer has passed 0x3b (0x4554d6's own case), and the loop that then
+        // stops saves the score file on its way out (0x434277) — the play records being tagged since the
+        // supervisor's own start (0x438986).
+        let saves = game.image().times_it_was_asked_to_save();
         game.press(keys::Z);
         assert!(
-            game.sim().exited().is_some(),
-            "a decide on the item that ends the game left the game running",
+            game.sim().exited().is_none(),
+            "the game ended on the decide, before the front end's own way down",
+        );
+        game.frames_until("the game ended", THE_WAY_DOWN_TAKES, || {
+            game.sim().exited().is_some()
+        });
+        assert!(
+            game.image().times_it_was_asked_to_save() > saves,
+            "the game ended without the save its way out makes",
         );
     });
 }
+
+/// The updates the front end's way down to the end of the game takes, its timer passing 0x3b, and a few more for
+/// the loop's own way out.
+const THE_WAY_DOWN_TAKES: u32 = 0x3c + 4;
 
 #[test]
 fn the_item_that_starts_the_extra_is_stepped_over_where_the_records_hold_no_clear() {

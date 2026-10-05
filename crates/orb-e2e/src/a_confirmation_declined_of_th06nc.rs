@@ -57,19 +57,21 @@ fn lost_the_stages_chapter(name: &str) -> (Box<Fake>, orb_core::game::State) {
     );
     let log = game.log();
     game.stages_last(STAGE_FRAMES);
-    // **Nothing fires at the player while the run walks in**, so that the death this asks for is the one
-    // it asked for: a stage of this laid-out game that fires killed the run before a test got to it.
+    // **Nothing fires at the player while the run goes into its stage**, so that the death this asks for
+    // is the one it asked for: a stage of this laid-out game that fires killed the run before a test got
+    // to it.
     game.fires_at_the_player(false);
     game.in_a_run_in_the_stage(0);
     game.frames_until("the run's own first chapter", FRAMES, || {
         log.said("stage 1 chapter 1")
     });
     // **And past the frames nothing of the stage can reach its player in**, which is this game's own doing
-    // and not a wait for tidiness: the stage's build leaves the player coming back for thirty frames and
-    // invulnerable for two hundred and forty after that, and a hit asked for inside either is a hit that
-    // does not land — see `the_player_a_stage_of_th06nc_starts`. **The state a hit lands in is the playing
-    // one**, which `State::unsettled` does not answer: that field is the hit and the walk-in, and the
-    // invulnerability between them is neither.
+    // and not a wait for tidiness: the stage's build leaves the player coming back — thirty frames of it
+    // on this laid-out game, one update on the real one — and invulnerable for two hundred and forty
+    // after that, and a hit asked for inside either is a hit that does not land — see
+    // `the_player_a_stage_of_th06nc_starts`. **The state a hit lands in is the playing one**, which
+    // `State::unsettled` does not answer: that field is the hit and the coming back, and the
+    // invulnerability after them is neither.
     game.frames_until("the player playing", FRAMES, || {
         game.image().the_players_state() == PLAYER_PLAYING
     });

@@ -41,6 +41,9 @@ const A_HIT_BECOMES_A_DEATH: u32 = 8 + 2;
 /// an ending by default, and the frames it takes are all inside the one the ending came up on.
 const THE_ENDING: &str = "ending skipped";
 
+/// The game's own difficulty Normal, `[0x1403ed7d8]`.
+const NORMAL: i32 = 1;
+
 /// The state a hit lands in, and how many frames of a stage go by before the player is in it: the walk-in
 /// and the invulnerability behind it, which `the_player_a_stage_of_th06c_starts` reads off the exe.
 const PLAYING: u8 = 0;
@@ -64,6 +67,8 @@ fn clearing(name: &str, clear: bool) -> Box<Fake> {
     );
     game.stages_last(STAGE_FRAMES);
     game.fires_at_the_player(false);
+    // On Normal, an Easy run ending after its fifth stage — see `the_way_a_stage_of_th06c_ends`.
+    game.image().the_difficulty_is(NORMAL);
     game.in_a_run_in_the_stage(0);
     game
 }
@@ -76,8 +81,8 @@ fn played_to_the_ending(game: &Fake) -> Vec<i32> {
     for _ in 0..A_WHOLE_RUN {
         game.frame();
         let state = game.state();
-        // **The frames between two stages are not one of them**: this game's stage word reads nought while
-        // the next stage is being built, so `State::stage` is -1 there — see `a_stage_transition_of_th06c`.
+        // **The frames between two stages are not one of them**: `State::stage` is -1 while the next stage is
+        // asked for and not yet built — see `Th06c::read_state`.
         if state.playing
             && state.stage >= 0
             && state.stage != *walked.last().expect("a stage to have been in")

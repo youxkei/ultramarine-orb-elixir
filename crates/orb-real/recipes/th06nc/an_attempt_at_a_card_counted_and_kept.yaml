@@ -79,21 +79,12 @@
 # `question: resume` with the mode question already up presses at a menu whose every press orb is holding
 # back.
 #
-# **And what those presses reached instead was a replay**: the decide tapped at screen 18 — the replay
-# list — started one of the game's own, `front end: screen 20`, then `26`, then the front end out of the
-# chain and a playback of stage 1 and stage 2 for three minutes that orb kept nothing of,
-# `resume: stage N of a run orb is not keeping`. **Not an attract demo**, which the launch that pressed
-# nothing settled: a minute on 18 with no press brought neither. `leave: true` gives that playback up the
-# way it gives a run up, and the cycle starts again at 16.
-# **And the way back to the menu is the cancel and not the decide.** What a run given up leaves is the
-# front end's own attract cycle — `front end: screen 16, 17, 18` — and **18 is the replay list**:
-# `0x14004a2a5` waits forty frames, moves a cursor on `0x40` and `0x80` through the entries at
-# `+0x34 + n*0x200` that state 16 formats `replay/th6_%.2d.rpy` into, and its decide calls `0x14006c670`
-# and then `0x14004ede0`, the replay's own start. A launch that pressed the decide there sat on 18 for its
-# whole bound while the game went on to `screen 20`, `26` and a playback of its own. So this presses the
-# cancel until the main menu is up, and then aims the cursor at item 0 — a cancel at the *menu* puts the
-# cursor on the item that ends the game, which is why the walk below re-aims it rather than pressing on.
-- press: [bomb]
+# **And the way back to the menu is the title's own decide.** `leave: true` gives a run up the way the
+# pause menu's give-up does, asking for the front end (0x14000b48e), and 0x14007b770 writes the score file
+# and builds the title — where an earlier `leave` asked for the supervisor's 8 and came back through the
+# attract cycle, `front end: screen 16, 17, 18`, whose 18 is the replay list a decide starts a replay from.
+# The cursor is aimed at item 0 after it all the same, which costs nothing where it is already there.
+- press: [decide]
   frames: 6
   until: { screen: 3 }
   give_up_after: 3600

@@ -74,20 +74,22 @@ pub fn th6k() -> Record {
     record(b"TH6K", &[])
 }
 
-/// A `CLRD` record for one difficulty, with the stage each shot has reached with retries and without,
-/// [`CLEARED`] being a clear: `0x18` bytes, the two arrays of five at `+0xc` and `+0x11` and the
-/// difficulty at `+0x16`.
+/// A `CLRD` record for one shot — `character * 2 + shot`, the record's index at `+0x16` — with the stage
+/// each difficulty has reached in a Challenge run and at all, [`CLEARED`] being a clear: `0x18` bytes, the two
+/// arrays of five at `+0xc` and `+0x11`, each indexed by the difficulty `[0x14053d410]`.
 ///
 /// **Read off both ends.** The game builds four of them in memory at `0x14003c603` — `0x18` bytes, the
 /// version at `+0x8`, `0x01010101` into `+0xc` and `+0x11` and `1` into `+0x10` and `+0x15` — lays the
-/// file's own over them by that `+0x16` at `0x14003c676`, writes a stage into the two arrays at
-/// `0x14003c825` and `0x14003c855` as a stage is counted on, and writes [`CLEARED`] into them at
+/// file's own over them by that `+0x16` at `0x14003c676`, and as a stage is counted on picks the record by
+/// `[0x14053cad0] * 2 + [0x14053cad1]` (0x14003c7f2) and raises the first array only where the run is a
+/// Challenge one (`[0x14053d414]`, 0x14003c7f8) with no more than five deaths (`[0x14053cab0]`, 0x14003c801)
+/// at 0x14003c825, and the second whatever the run at 0x14003c855; [`CLEARED`] goes into them at
 /// `0x14002d40d` and `0x14002d44e`.
-pub fn clrd(difficulty: u8, reached_with_retries: [u8; 5], reached_without: [u8; 5]) -> Record {
+pub fn clrd(shot: u8, reached_in_a_challenge: [u8; 5], reached_at_all: [u8; 5]) -> Record {
     let mut body = Vec::with_capacity(RECORD_HEADER);
-    body.extend_from_slice(&reached_with_retries);
-    body.extend_from_slice(&reached_without);
-    body.push(difficulty);
+    body.extend_from_slice(&reached_in_a_challenge);
+    body.extend_from_slice(&reached_at_all);
+    body.push(shot);
     body.push(0);
     record(b"CLRD", &body)
 }
@@ -107,11 +109,12 @@ const CATK_NAME_BYTES: usize = CATK_ATTEMPTS - CATK_NAME;
 /// A `CATK` record for one card: the card's own index at `+0x10` as a word, the low byte of the name's
 /// bytes' sum at `+0x12`, the name from `+0x18` with its terminator, and the attempts at `+0x3c`.
 ///
-/// **Read off the read and not off a write, this build serialising none of them** — see
-/// `Th06nc::writes_its_own_records`. The layout at `0x14003c390` writes the magic, `0x180`/`0x180`, the
-/// version and the index into all 134 records in memory, and `0x14006e310` lays a file's own over them:
-/// `0x180` bytes off the magic into the record the word at `+0x10` names. So what a file holding a count
-/// gives the game is one of these, and it is `Image::the_files_card_records_are_laid_over` that lays it.
+/// **Read off the read**, which is what a file holding a count hands the game; the writes lay all 134
+/// down out of the array in memory — see `Th06nc::writes_its_own_records`. The layout at `0x14003c390`
+/// writes the magic, `0x180`/`0x180`, the version and the index into all 134 records in memory, and
+/// `0x14006e310` lays a file's own over them: `0x180` bytes off the magic into the record the word at
+/// `+0x10` names. So what a file holding a count gives the game is one of these, and it is
+/// `Image::the_files_card_records_are_laid_over` that lays it.
 ///
 /// **The name is in it because the count is only read beside one**: `0x1400279a0` holds the sum at
 /// `+0x12` against the name at `+0x18`, and where the two disagree `0x1400279aa` puts the count back to
@@ -134,14 +137,16 @@ pub fn catk(card: u16, name: &str, attempts: u16) -> Record {
     record(b"CATK", &body)
 }
 
-/// Whether any `CLRD` among `records` says a run has cleared the game, which is what the front end reads
-/// to offer the Extra: `0x14002c950` onwards walks the four records in memory at stride `0x18` from
-/// `0x140549d50` — the first one's `+0xc` — and asks `0x63` of both arrays of each.
+/// Whether any `CLRD` among `records` says a run has cleared the game the way the front end asks before it
+/// takes a decide on the Extra: `0x140049b25` onwards asks `0x63` of `+0xd`, `+0xe` and `+0xf` of each of the
+/// four records in memory (`0x140549d51` to `0x140549d9b`, stride `0x18`) — Normal, Hard and Lunatic of the
+/// array reached without a retry. `0x14002c950` asks both arrays of each, but what it sets is `[+0x124c]` and
+/// not the decide.
 pub fn a_clear_is_among(records: &[Record]) -> bool {
     records.iter().any(|record| {
         record.magic() == b"CLRD"
-            && record.bytes.len() >= 0x16
-            && record.bytes[0xc..0x16].contains(&CLEARED)
+            && record.bytes.len() >= 0x10
+            && record.bytes[0xd..0x10].contains(&CLEARED)
     })
 }
 
@@ -256,14 +261,16 @@ mod tests {
 
     /// A ranking record with the four fields of its body that are read: the score as a qword at `+0xc`,
     /// the shot at `+0x14`, the difficulty at `+0x15` and the mode at `+0x16` — the four the stage's own
-    /// build matches on at `0x14003c520` onwards. The `0x78` bytes are what `0x14006dc1d` builds one as;
-    /// what the rest of them hold is not read, so they are nought here.
+    /// build matches on at `0x14003c520` onwards — `0x24` bytes, the length the game's walk steps past, and
+    /// what it holds past those four fields nought, being unread.
     fn hscr(score: u64, shot: u8, difficulty: u8, mode: u8) -> Record {
         let mut body = score.to_le_bytes().to_vec();
         body.extend_from_slice(&[shot, difficulty, mode]);
-        body.resize(0x78 - 0xc, 0);
+        body.resize(HSCR_BYTES - 0xc, 0);
         record(b"HSCR", &body)
     }
+
+    const HSCR_BYTES: usize = 0x24;
 
     /// A record is its letters, its size twice, the version and its bytes — `TH6K` being twelve bytes of
     /// header alone, and a `CLRD` the `0x18` the exe walks past.
@@ -274,8 +281,8 @@ mod tests {
         assert_eq!(clrd.bytes.len(), 0x18);
         assert_eq!(&clrd.bytes[..0xc], b"CLRD\x18\x00\x18\x00\x15\x00\x00\x00");
         assert_eq!(clrd.bytes[0x16], 3);
-        // And a ranking record is the `0x78` the writer builds, with its score in eight bytes.
-        assert_eq!(hscr(5_000_000_000, 1, 2, 0).bytes.len(), 0x78);
+        // And a ranking record is the game's `0x24` bytes, with its score in eight.
+        assert_eq!(hscr(5_000_000_000, 1, 2, 0).bytes.len(), HSCR_BYTES);
     }
 
     /// **A card's record is the `0x180` the read lays down**, with its four fields where the record's own
@@ -309,7 +316,8 @@ mod tests {
         assert_eq!(th6k().bytes[8], 0x15);
     }
 
-    /// A clear is a `CLRD` whose stages reached hold the clear's own byte, in either array.
+    /// A clear the front end takes a decide on the Extra for is a `CLRD` whose Normal, Hard or Lunatic reached
+    /// without a retry holds the clear's own byte — and not one reached with retries, nor an Easy or an Extra one.
     #[test]
     fn a_clear_is_read_off_the_clrd_records() {
         assert!(!a_clear_is_among(&[th6k(), clrd(0, [1; 5], [1; 5])]));
@@ -317,7 +325,13 @@ mod tests {
             th6k(),
             clrd(0, [1, CLEARED, 1, 1, 1], [1; 5])
         ]));
-        assert!(a_clear_is_among(&[clrd(1, [1; 5], [1, 1, 1, CLEARED, 1])]));
+        assert!(a_clear_is_among(&[clrd(1, [1, 1, 1, CLEARED, 1], [1; 5])]));
+        assert!(!a_clear_is_among(&[clrd(1, [1; 5], [1, 1, 1, CLEARED, 1])]));
+        assert!(!a_clear_is_among(&[clrd(
+            1,
+            [CLEARED, 1, 1, 1, CLEARED],
+            [1; 5]
+        )]));
     }
 
     /// Every byte of every record comes back out of the file it was written into, whichever seed the

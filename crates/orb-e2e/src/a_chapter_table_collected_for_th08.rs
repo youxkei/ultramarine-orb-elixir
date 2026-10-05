@@ -121,6 +121,7 @@ fn a_collect_pass_over_th08_proposes_the_stages_gap_and_writes_the_table_out() {
         game.frames_until("the stage after the first", FRAMES, || {
             game.state().stage == 1
         });
+        game.presses_past_the_stages_end();
         game.frames_until("the table written", FRAMES, || {
             log.said_since(
                 from,

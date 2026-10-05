@@ -248,8 +248,8 @@ fn every_number_a_stage_of_th06nc_is_played_with_reads_back_as_the_game_put_it()
         image.is_not_paused();
         assert!(!game.state().paused);
 
-        // The hit, which is orb's own count of deaths moving — this game keeps none of its own — counted
-        // on the edge into the hit's state and on no other.
+        // The hit, which is orb's own count of deaths moving — not the game's own at `0x14053cab0` —
+        // counted on the edge into the hit's state and on no other.
         image.the_player_has_been_hit();
         assert_eq!(game.state().deaths, 1, "the hit was not counted");
         assert_eq!(game.state().deaths, 1, "a held hit was counted twice");

@@ -24,11 +24,10 @@
 //! `Game::run_finished` answers false for it and nothing discards the slot — and quitting is the one of
 //! the two that needs no answer to a question first.
 //!
-//! **The deaths are not among what this sets**, and that is this game's own doing: `State::deaths` is
-//! orb's own count of the player's hit edges — see `game::th06nc::DEATHS`, and why the dword at
-//! `0x14053cab0` is not a run's deaths — so there is no field of the game's to write one into. What a
-//! chapter carries of it is what orb counted, and `the_cases_of_th06nc_the_real_game_is_tested_with` is
-//! where a death is played for real.
+//! **The deaths are not among what this sets**: `State::deaths` is orb's own count of the player's hit
+//! edges — see `game::th06nc::DEATHS`, beside which the game's own count at `0x14053cab0` is written
+//! down — and orb writes no field of the game's with it. What a chapter carries of it is what orb
+//! counted, and `the_cases_of_th06nc_the_real_game_is_tested_with` is where a death is played for real.
 
 use std::path::{Path, PathBuf};
 

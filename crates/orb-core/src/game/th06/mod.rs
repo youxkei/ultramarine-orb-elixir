@@ -485,10 +485,10 @@ handed_over!(PLAY_AUDIO_AT, play_audio, set_play_audio, PLAY_AUDIO);
 /// a colour, a second colour, and the text as a format string.
 ///
 /// The one place a spell card's name reaches the screen. `Gui::SetSpellcardName` (0x417bfd, `__thiscall`
-/// on [`G_GUI`] with the plate's sprite and the name) calls it at 0x417cc0 with the five arguments
+/// on [`G_GUI`] with the boss portrait's sprite and the name) calls it at 0x417cc0 with the five arguments
 /// [`redraw_card_name`](Th06::redraw_card_name) passes: `[0x6d4588]`, the vm at
 /// [`gui::IMPL_CARD_NAME_VM`], [`CARD_NAME_COLOUR`], zero, and the name the declaration carries.
-/// Nothing keeps the string afterwards — the plate's own vm holds a baked sprite and the caller only
+/// Nothing keeps the string afterwards — the name's own vm holds a baked sprite and the caller only
 /// measures the name to place it (0x417cef) — which is why a restore has to bake it again.
 ///
 /// **The whole of it is a format string**, `vsprintf` into a buffer at 0x434c8f: what the game hands it
@@ -880,12 +880,20 @@ mod enemy {
     /// **And the byte whose two lowest bits gate the player's own collision**, read at 0x4126a6 and
     /// 0x4126c2: with either down the test is not made at all, so the body cannot touch the player
     /// however wide it is.
+    ///
+    /// **Behind two gates of the whole collision's**, both before those: bit 2 of this byte, which has to be
+    /// up (`shr dl,0x2` at 0x412660), and bit 3 of the byte after it, which has to be down (`shr cl,0x3` at
+    /// 0x41267d) — either one wrong jumps to 0x412dbc, past every test. What writes either bit is not established.
     pub const SOLID: usize = 0xe51;
     pub const SOLID_BITS: u8 = 0x3;
-    /// **What [`SIZE`] is divided by to make the box that test is given.** 0x4126e5 scales it by
+    pub const TESTED_AT_ALL_BIT: u8 = 0x4;
+    pub const NOT_TESTED: usize = 0xe52;
+    pub const NOT_TESTED_BIT: u8 = 0x8;
+    /// **What [`SIZE`] is divided by to make the half of the box that test is given.** 0x4126e5 scales it by
     /// `1.0 / 1.5` and the test halves what it is handed, so a third of the size on each side is what
-    /// the game compares — the same figure th07's own enemies are tested at.
-    pub const BOX_OF_ITS_SIZE: f32 = 3.0;
+    /// the game compares — the same figure th07's own enemies are tested at. A half of a sixth is what
+    /// dividing by this and halving again made of it, which is a body half as wide as the one the game hits.
+    pub const HALF_OF_ITS_SIZE: f32 = 3.0;
 }
 
 mod bullet_manager {
@@ -913,9 +921,19 @@ mod bullet_manager {
     /// **The word that says what the slot holds**, which the walk at 0x414a41 skips a slot on and
     /// 0x414a97 dispatches the rest on, as `state - 1` over five cases.
     pub const BULLET_STATE: usize = 0x5be;
-    /// And the state a bullet that has just hit the player is put into, at 0x415c11: its case is the
-    /// fifth, 0x415c4b, which is past the block that makes the test — so this is the one live state
-    /// that cannot hit anything.
+    /// **The one state the player's test is made in**, the bullet in flight: the jump table at 0x4164e0 sends it
+    /// to 0x414e8c, whose tail holds the graze and the hit test. States 2, 3 and 4 are a bullet coming in —
+    /// moving at 1/2, 0.4 and 1/3 of its velocity (0x414aad, 0x414be8, 0x414d24) and jumping past the test while
+    /// their animation runs, then written 1 at 0x414e4f — and 5, [`BULLET_SPENT`], is past it too.
+    pub const BULLET_IN_FLIGHT: u16 = 1;
+    /// And the state a bullet that has just hit the player is put into, at 0x415c11 — on any answer of the hit
+    /// test but nought, whatever the player's state was, so a bullet that touches a player who cannot be hit
+    /// is spent all the same: its case is the fifth, 0x415c4b, which is past the block that makes the test.
+    #[allow(
+        dead_code,
+        reason = "read by `image`, which is behind `feature = \"sim\"`: orb hands over a spent bullet by its \
+                  state alone"
+    )]
     pub const BULLET_SPENT: u16 = 5;
     /// **A laser's own geometry**, in the order the walk at 0x415e35 onwards reads it: where it is
     /// fired from, which way it points, how far along it runs, and how wide it is.
@@ -929,20 +947,27 @@ mod bullet_manager {
     /// behind it by (0x415e5c onwards). A beam of this game reaches further every frame it is firing, which is
     /// the one thing about one that moves.
     pub const LASER_GROWS: usize = 0x240;
-    /// **Which of the three things a laser is doing**, and the two that matter: 0x415f75 switches on
-    /// it, and the player's own test is called from [`LASER_FIRING`]'s case at 0x416203 and from no
-    /// other — so a laser still drawing its warning line hits nothing at all.
+    /// **Which of the three things a laser is doing**: 0x415f75 switches on it, and the player's own test
+    /// 0x427190 is called from all three cases — at 0x416150 in the warning, once [`LASER_HITS_FROM`] frames
+    /// of it have gone, at 0x416203 on every frame of [`LASER_FIRING`], and at 0x4163ee in [`LASER_FADING`]
+    /// while fewer than [`LASER_HITS_UNTIL`] have. In the warning and the fading, with bit 0 of `+0x268`
+    /// clear, the length tested is half the width the beam is drawn at (0x4160ee, 0x41638c), a stub of it.
     pub const LASER_PHASE: usize = 0x26c;
     pub const LASER_FIRING: u8 = 1;
     /// And the phase after it, which is the beam on its way out.
     pub const LASER_FADING: u8 = 2;
-    /// **How long the phase it is in lasts, and how long it has been in it** — 0x41615b compares the
-    /// two and moves the phase on where the frames have run out, so in [`LASER_PHASE`] nought the
-    /// difference is the frames until the beam starts hitting.
+    /// **How long the warning lasts, and how long the laser has been in the phase it is in** — 0x41615b
+    /// compares the two and moves the warning on to the firing where the frames have run out; `+0x24c` and
+    /// `+0x250` are the firing's and the fading's own lengths (0x416216, 0x416401).
     ///
     /// The frames are `Timer::currentInt` of the timer at 0x25c, which each phase change puts back.
     pub const LASER_PHASE_LASTS: usize = 0x244;
     pub const LASER_PHASE_FRAMES: usize = 0x264;
+    /// **The frame of the warning it starts hitting on**, which 0x4160ff holds [`LASER_PHASE_FRAMES`]
+    /// against — and the frame of the fading it stops on, against which 0x41639d does the same. The laser's
+    /// spawn 0x414670 fills both out of the script (0x41486f to 0x4148ba).
+    pub const LASER_HITS_FROM: usize = 0x248;
+    pub const LASER_HITS_UNTIL: usize = 0x254;
 }
 
 /// **The items**, as `ItemManager::OnTick` walks them: the manager itself is the array — 0x41f4af for
@@ -979,8 +1004,10 @@ mod player {
     /// `Player::OnUpdate` gates the bomb on it being anything but nought (0x42896d) and, while the state is
     /// [`super::PLAYER_DEAD`], takes one off it a frame (0x428a9a) — and the frame it reaches nought is the
     /// frame the death is made final: the power items are spawned and the power dropped from there
-    /// (0x428ab6 onwards). `Player::AddedCallback` starts a run's first life at 8 (0x42a09c) and the respawn
-    /// leaves 6 behind it (0x428f9e), so the window is that many frames long and not a number of orb's own.
+    /// (0x428ab6 onwards). The spawning branch leaves 6 behind it as it hands over to the invulnerable state
+    /// (0x428f9e), on a run's first life as on every other — the 8 `Player::AddedCallback` writes (0x42a09c) is
+    /// put to nought (0x428f19) and then to 6 by the stage's first update — so the window is 6 frames long
+    /// and not a number of orb's own.
     pub const RESPAWN_TIMER: usize = 0x9d8;
     /// `invulnerabilityTimer.current`, the frames of invulnerability left. `Player::OnUpdate`
     /// ticks it down while the state is invulnerable and puts the state back to normal the
@@ -998,9 +1025,10 @@ mod player {
     /// **The player's own box, as the two corners the game's own test is given**: 0x426d77 onwards
     /// compares these four floats against whatever is being tested.
     ///
-    /// `Player::OnUpdate` works them out each frame — the min at 0x427f1e, the max at 0x427f95 — from
-    /// [`POSITION_CENTER`] and the half at `+0x488`, which is the shot's own and differs by character.
-    /// The corners rather than that half, because these are the numbers the comparison is made on.
+    /// The movement at 0x427860 works them out each frame it runs — the min at 0x427f1e, the max at
+    /// 0x427f95 — from [`POSITION_CENTER`] and the half at `+0x488`, which `Player::AddedCallback` writes as
+    /// 1.25 across and 1.25 down for every shot type (0x429dc2, 0x429dcf) and nothing else writes. The
+    /// corners rather than that half, because these are the numbers the comparison is made on.
     pub const BOX_MIN: usize = 0x458;
     pub const BOX_MAX: usize = 0x464;
     /// **What one frame of holding a direction moves the player by**, which is four numbers rather
@@ -1028,9 +1056,10 @@ mod gui {
     /// Inside `GuiImpl`, at `msg.currentMsgIdx`.
     pub const IMPL_CURRENT_MSG_IDX: usize = 0x253c;
     /// And the vm a spell card's name is baked into, which `Gui::SetSpellcardName` reaches the same
-    /// way: `this->impl` plus this, at 0x417c65. The plate it is drawn on is the vm at 0x1ed4 beside
-    /// it, whose sprite the same function picks — and that one is memory a snapshot puts back, where
-    /// what is baked into this one is a texture and is not.
+    /// way: `this->impl` plus this, at 0x417c65. The plate it is drawn on is the vm at 0x2314, whose script
+    /// the panel's own setup puts on it (0x4183db), and the vm at 0x1ed4 is the boss's portrait, which the
+    /// same function starts with the card's sprite — and those are memory a snapshot puts back, where what
+    /// is baked into this one is a texture and is not.
     pub const IMPL_CARD_NAME_VM: usize = 0x20f4;
     /// Inside that vm, the word of `AnmVmFlags`, whose lowest bit is `isVisible` — and that bit is the
     /// whole of whether the plate is on the screen: the panel's draw at 0x41b078 reads
@@ -1203,8 +1232,9 @@ mod streaming_sound {
 /// the wav into the buffer at the offset the stream keeps.
 ///
 /// **Read off the music thread that calls it.** `SoundPlayer::LoadBGM` starts that thread at 0x430cb4 —
-/// `push 0x431370; call ds:0x46a07c` — and 0x431370 waits on the player's two handles at `0x6d4580` with a
-/// 191 ms timeout; where the wait answers the first of them and the stream at `[0x6d457c]` is there, it calls
+/// `push 0x431370; call ds:0x46a07c` — and 0x431370 waits on the player's one handle at `0x6d4580` with no
+/// timeout and the wake mask `0xbf` (0x4313a4); where the wait answers that handle and the stream at
+/// `[0x6d457c]` is there, it calls
 /// this with the stream in `ecx` and 1 on the stack. Its own prologue then tests `[this+0x4]` and `[this+0xc]`
 /// — the buffer array and the wave file — answering `0x800401f0` where either is null, which is the pair
 /// [`streaming_sound`]'s own offsets name.
@@ -1459,10 +1489,10 @@ impl Game for Th06 {
             // first — so there is no moment inside a save for a session's counts to be added at, and none
             // is needed.
             card_records_read: None,
-            create_window: Some(Patch {
+            create_window: Some(Entered::OnTheStack(Patch {
                 target: CREATE_GAME_WINDOW,
                 prologue: CREATE_GAME_WINDOW_PROLOGUE,
-            }),
+            })),
             init_device: Some(Patch {
                 target: INIT_D3D_DEVICE,
                 prologue: INIT_D3D_DEVICE_PROLOGUE,
@@ -2012,8 +2042,8 @@ impl Game for Th06 {
         if !(0..replay_data::STAGES).contains(&stage) {
             return false;
         }
-        // Asked of the replay first. `GameManager::RegisterChain` reads the stage's
-        // record to put the run back, and a stage the replay does not cover fails that
+        // Asked of the replay first. `GameManager::AddedCallback` (0x41bb02) reads the
+        // stage's record to put the run back, and a stage the replay does not cover fails that
         // load — which drops the game to its main menu rather than saying so.
         let entry = replay_data::STAGE_DATA + stage as usize * size_of::<usize>();
         let recorded = mem::read_committed::<usize>(G_REPLAY_MANAGER)
@@ -2025,8 +2055,8 @@ impl Game for Th06 {
             return false;
         }
         // The run's score goes back to nothing first, which is the one thing a stage
-        // move has to do that a stage transition does not. `GameManager::RegisterChain`
-        // zeroes the score only when it is *not* reinitialising, and reinitialising is
+        // move has to do that a stage transition does not. `GameManager::AddedCallback`
+        // zeroes the score only when it is *not* reinitialising (0x41bb1e), and reinitialising is
         // the path a stage move takes; `ReplayManager::AddedCallbackDemo` then puts the
         // score back from the stage before the one being started, which the first stage
         // does not have. So stage 1 would otherwise begin with the score the run was
@@ -2048,7 +2078,7 @@ impl Game for Th06 {
         };
         unsafe { self.cut_screen_shake() };
         // What the replay menu writes, and nothing more: the stage counted as the menu
-        // counts it — `GameManager::RegisterChain` raises the number by one, so it is
+        // counts it — `GameManager::AddedCallback` raises the number by one (0x41be3d), so it is
         // handed the stage before the one meant — and the state that makes the
         // supervisor cut this stage's chain and register the next.
         unsafe {
@@ -2501,11 +2531,12 @@ impl Game for Th06 {
     }
 
     /// **Not `Gui::SetSpellcardName` (0x417bfd), which is what the game itself calls**, and that is the
-    /// obvious way to do this. It takes a second argument orb cannot recover: the plate's own sprite,
-    /// which the declaration carries as a word of the ECL instruction at its +0xc, and the instruction
-    /// is one the interpreter moved past frames ago. What that argument sets is the vm at
-    /// `GuiImpl+0x1ed4` — memory, which a snapshot puts back — so calling it would set again the one
-    /// part of the plate that is already right, and it is the part orb has no number for.
+    /// obvious way to do this. It takes a second argument orb cannot recover: the sprite of the boss's
+    /// portrait, which the declaration carries as a word of the ECL instruction at its +0xc, and the
+    /// instruction is one the interpreter moved past frames ago. What that argument sets is the portrait's
+    /// vm at `GuiImpl+0x1ed4` (0x417c0c, 0x417c60) — memory, which a snapshot puts back — so calling it would
+    /// set again the one part of what it draws that is already right, and it is the part orb has no number
+    /// for.
     ///
     /// What is *not* memory is the sprite a string was baked into, so what a restore has to do again is
     /// the baking, which is the call underneath that function and takes only the name.

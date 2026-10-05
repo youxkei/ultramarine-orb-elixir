@@ -1851,7 +1851,7 @@ impl Image {
             at: self.reads_a_position(bullet + manager::BULLET_POSITION),
             velocity: self.reads_a_position(bullet + manager::BULLET_VELOCITY),
             size: self.reads_a_position(bullet + manager::BULLET_SIZE),
-            hitting: state != manager::BULLET_SPENT,
+            hitting: state == manager::BULLET_IN_FLIGHT,
         })
     }
 
@@ -1863,8 +1863,8 @@ impl Image {
         self.writes_a_position(bullet + manager::BULLET_POSITION, x, y);
     }
 
-    /// And a bullet the player has already been hit by, which is the one live state the game's own test is
-    /// never reached from.
+    /// And a bullet the player has already been hit by, which the game's own test is never reached from — as
+    /// it is not from the three states a bullet spawns in through, state 1 being the only one that reaches it.
     pub fn the_bullet_is_spent(&self, slot: usize) {
         use super::bullet_manager as manager;
         self.space().write::<u16>(
@@ -1902,7 +1902,11 @@ impl Image {
             super::G_ENEMY_MANAGER + enemy_manager::ENEMIES + slot * enemy_manager::ENEMY_BYTES;
         let space = self.space();
         space.write::<u8>(at + enemy::ALIVE, enemy::ALIVE_BIT);
-        space.write::<u8>(at + enemy::SOLID, enemy::SOLID_BITS);
+        space.write::<u8>(
+            at + enemy::SOLID,
+            enemy::SOLID_BITS | enemy::TESTED_AT_ALL_BIT,
+        );
+        space.write::<u8>(at + enemy::NOT_TESTED, 0);
         self.writes_a_position(at + enemy::POSITION, x, y);
         self.writes_a_position(at + enemy::SIZE, size.0, size.1);
     }
@@ -2009,14 +2013,16 @@ impl Image {
         );
     }
 
-    /// And the same beam still drawing its warning line, which the game's own test is not called for at all: the
-    /// phase before the firing one, with the frames its phase has left to run.
+    /// And the same beam still drawing its warning line, which the game's own test is not made for until the
+    /// warning's frame it hits from: the phase before the firing one, with that frame and the warning's end both
+    /// `for_frames` on.
     pub fn the_laser_is_only_warning(&self, slot: usize, for_frames: i32) {
         use super::bullet_manager as manager;
         let laser = super::G_BULLET_MANAGER + manager::LASERS + slot * manager::LASER_STRIDE;
         let space = self.space();
         space.write::<u8>(laser + manager::LASER_PHASE, manager::LASER_FIRING - 1);
         space.write::<i32>(laser + manager::LASER_PHASE_LASTS, for_frames);
+        space.write::<i32>(laser + manager::LASER_HITS_FROM, for_frames);
         space.write::<i32>(laser + manager::LASER_PHASE_FRAMES, 0);
     }
 

@@ -3,9 +3,10 @@
 //! That screen is several one after another, off the jump table at `0x140073ef4`, and a launch of the real
 //! game walked them: **9** the name entry over the ranking, which the job a run ends into builds it in
 //! (`0x14007bdde`); **15** the offer to save a replay, which the entry's own end hands on to
-//! (`0x1400727d5`); then `16, 10, 12, 14`, a decide each, the question standing drawn throughout and its
-//! answer taken at fourteen; and **17** the way out, `0x14006fb0e`, which fades the screen and writes the
-//! front end into the supervisor's wanted state.
+//! (`0x1400727d5`); then `16, 10, 12, 14`, a decide each — the question standing drawn at ten, twelve
+//! the list of replay slots and fourteen the question over a slot that already holds one; and **17** the
+//! way out, `0x14006fb0e`, which fades the screen and writes the front end into the supervisor's wanted
+//! state.
 //!
 //! **Only the offer is orb's business.** A Pointdevice run has nothing the *game* could put in a replay —
 //! its record is orb's own file, and the buttons without the rewinds between them play back as a run dying
@@ -18,10 +19,10 @@
 //! ranking asked for on the wrong one, which is `the_screen_a_finished_run_ends_at.rs`'s own subject.
 //!
 //! **And the four states between the offer and the way out are what the laid-out game owes.** The real
-//! screen animates the question through `16, 10, 12` and takes the answer at `14`, where
-//! `0x1400734f3` raises it over a replay slot that already holds a `T6RP`; this game has the offer as one
-//! state, because that one is what orb reaches and every path to the others goes through it. A test that
-//! walked the four would be asserting `fake::th06nc` rather than the game.
+//! screen animates the question through `16` and `10`, lists the replay slots at `12` and asks again at
+//! `14`, where `0x1400734f3` raises it over a slot that already holds a `T6RP`; this game has the offer
+//! as one state, because that one is what orb reaches and every path to the others goes through it. A
+//! test that walked the four would be asserting `fake::th06nc` rather than the game.
 
 use orb_config::LogLevel;
 use orb_core::game::th06nc::image::{
@@ -159,6 +160,41 @@ fn the_state_the_screen_a_finished_run_of_th06nc_ends_at_is_in_is_said_as_it_cha
         );
     });
 }
+
+/// **And `score.dat` asked to be written as the screen goes down and not at the entry's end item** —
+/// 0x140075b40, the screen's take-down, writes it where the screen is a run's own (`+0x9e99`), at 0x1400761bd.
+/// Read off orb's own line for the open, which a run under `--clear` refuses and says it has.
+#[test]
+fn a_finished_run_of_th06nc_writes_its_score_file_as_its_screen_goes_down() {
+    in_its_own_process(|| {
+        let game = a_cleared_run("th06nc-the-score-file-on-the-way-out");
+        let log = game.log();
+        let mut down = false;
+        for _ in 0..THE_SCREENS {
+            if game.image().the_state_the_screen_a_run_ends_at_is_in() == RESULT_LEAVING {
+                break;
+            }
+            down = !down;
+            game.keyboard().set(keys::Z, down);
+            game.frame();
+        }
+        game.keyboard().set(keys::Z, false);
+        assert!(
+            !log.said(A_WRITE_REFUSED),
+            "the score file was written while the screen was still up",
+        );
+        game.frames_until("the front end back", THE_SCREENS, || {
+            game.image().the_screen_the_front_end_is_on() != 0
+        });
+        assert!(
+            log.said(A_WRITE_REFUSED),
+            "the screen went down without writing the score file",
+        );
+    });
+}
+
+/// The line orb writes over the write a run under `--clear` asks for.
+const A_WRITE_REFUSED: &str = "score: nothing written";
 
 /// **And the front end a finished run comes back to is the title**, where a run *given up* comes back to
 /// the attract cycle instead.

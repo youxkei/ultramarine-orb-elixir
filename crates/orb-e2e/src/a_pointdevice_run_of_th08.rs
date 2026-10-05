@@ -244,7 +244,7 @@ fn a_pointdevice_run_of_th08_is_chosen_chaptered_lost_and_retried() {
         // chapters take a stage as begun where the count reads nought — so a whole Normal run on the real
         // game took every chapter of stage 1 and none of stage 2, and lost there. `Th08::read_state` counts
         // a stage's frames from its build for that.
-        game.moves_on_to_the_stage(FIRST_STAGE + 1);
+        game.moves_on_to_the_stage_pressing_past_its_end(FIRST_STAGE + 1);
         game.frames_until("the next stage's own first chapter", 600, || {
             log.said("stage 2 chapter 1 (stage start)")
         });
@@ -671,7 +671,7 @@ fn in_the_stage(name: &str, stage: i32) -> Box<Fake> {
     );
     game.its_title_menu_is_up();
     game.is_in_a_run();
-    game.moves_on_to_the_stage(stage);
+    game.moves_on_to_the_stage_pressing_past_its_end(stage);
     game.frames_until("the stage built", FRAMES_FOR_A_BUILD, || {
         game.state().stage == stage && !game.image().the_loader_is_running()
     });
@@ -879,10 +879,10 @@ fn a_run_of_th08_picked_up_after_its_first_stage_lands_where_it_was_written() {
 
 /// **A run picked up whose stage's build goes on after the stage's jobs are on the chain lands where it was
 /// written** — the supervisor's thread putting the bullets' and the enemies' jobs up straight after the seed
-/// and asleep in its last wait for frames after the count it waits for is up, which the walk runs the stage
-/// on. On the real game that took two of three pick-ups of one file off their run on the first frame, `the
-/// playback parted from the run at frame 0: the generator is 0xeede where the run had 0xe08d`, their stage at
-/// `frames=5` with `script=7` and `8`.
+/// and asleep in its wait on the build's frames for frames after the count it waits for is up, which the
+/// laid-out game runs the stage on. On the real game two of three pick-ups of one file came off their run on
+/// the first frame, `the playback parted from the run at frame 0: the generator is 0xeede where the run had
+/// 0xe08d`, their stage at `frames=5` with `script=7` and `8`.
 #[test]
 fn a_run_of_th08_picked_up_whose_build_goes_on_after_its_jobs_are_up_lands_where_it_was_written() {
     in_its_own_process(|| {

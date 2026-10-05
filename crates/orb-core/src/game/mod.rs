@@ -541,7 +541,11 @@ pub struct Hooks {
     pub card_records_read: Option<Patch>,
     /// Runs after the config is read and before the window and device exist, which
     /// is the only moment `force_windowed` can still take effect.
-    pub create_window: Option<Patch>,
+    ///
+    /// **Entered with the instance on the stack or in `ecx`**: th06's `GameWindow::CreateGameWindow` is pushed
+    /// it (0x420404) and th07's and th08's are handed it in `ecx` (`mov ecx,[ebp+0x8]` at 0x4340da and
+    /// 0x441996), each testing the answer after.
+    pub create_window: Option<Entered>,
     /// Runs just after the device is created, and again after every reset: the
     /// first moment its vtable can be redirected.
     pub init_device: Option<Patch>,
@@ -756,19 +760,25 @@ impl Entered {
 }
 
 /// **How the call [`Hooks::stage_building`] stands over is entered**, which is [`Entered`]'s question for a call
-/// that takes something other than one argument: th06's `Stage::RegisterChain` and the builds of th06c, th06nc,
-/// th07 and th08 take one number and leave the stack to their caller, and th10's `0x429610` takes two and pops
-/// them itself (`ret 0x8` at 0x4296b2).
+/// that takes something other than one argument: th06's `Stage::RegisterChain` and the builds of th06c and
+/// th06nc take one number and leave the stack to their caller, th07's and th08's take theirs in `ecx` — the
+/// supervisor's `mov ecx,[eax+0x95ec]` at 0x42f0ae and the build's `mov ecx,[eax+0x3ddc4]` at 0x43b3dc, with
+/// nothing pushed — and th10's `0x429610` takes two and pops them itself (`ret 0x8` at 0x4296b2).
+///
+/// **th07's and th08's were `Cdecl` once**, which read the stage off a stack nothing had pushed it on and
+/// called on with `ecx` written over, so the build kept whatever the register held: nothing read the field it
+/// keeps it in, which is how it went unseen.
 pub enum Building {
     Cdecl(Patch),
+    InEcx(Patch),
     StdcallOfTwo(Patch),
 }
 
 impl Building {
-    /// The patch either of them carries.
+    /// The patch any of them carries.
     pub fn patch(&self) -> &Patch {
         match self {
-            Self::Cdecl(patch) | Self::StdcallOfTwo(patch) => patch,
+            Self::Cdecl(patch) | Self::InEcx(patch) | Self::StdcallOfTwo(patch) => patch,
         }
     }
 }
@@ -2043,6 +2053,16 @@ pub trait Game {
     ///
     /// False, which is every game whose way out is the scene written.
     fn a_run_given_up_waits_for_a_press(&self) -> bool {
+        false
+    }
+
+    /// **Whether a stage's end stands until a key goes down**, which is the tally a person presses past and
+    /// the rules, pressing what a stage wants, do not: orb presses for it then, in the word the rules hand
+    /// over — see `runtime`'s `what_is_reached`.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn a_stages_end_waits_for_a_press(&self) -> bool {
         false
     }
 

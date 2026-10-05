@@ -33,6 +33,9 @@ const THE_FIRST_STAGE: i32 = 0;
 /// that read its bits off the code under test would agree with it whatever either said.
 const UP: u16 = 0x0010;
 
+/// And the bit it leaves for the focus, which the player's walk reads for the slower speeds.
+const FOCUS: u16 = 0x0004;
+
 /// The state a run is played in, and how many frames of a stage go by before the player is in it: the
 /// walk-in and the invulnerability behind it, which `the_player_a_stage_of_th06c_starts` reads off the exe.
 const PLAYING: u8 = 0;
@@ -104,5 +107,96 @@ fn a_frame_of_th06c_is_played_with_the_keys_that_frame_was_given() {
             UP,
             "the frame before's word does not hold the key that was down on it",
         );
+    });
+}
+
+/// **The field a pause asks for is captured on its frame**: the pause writes its request into the renderer
+/// where the configuration has it show the field behind it (0x1400093b8), and the game's frame serves it in
+/// the tail of its wait (0x140025da4 through 0x140025dd8) — a wait orb's own frame leaves out, so orb serves
+/// the request itself and puts it back.
+#[test]
+fn the_field_a_pause_of_th06c_asks_for_is_captured() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th06c-the-field-behind-a-pause",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        game.image().the_pause_shows_the_field();
+        game.in_a_run_in_the_stage(THE_FIRST_STAGE);
+        game.frames_until(
+            "the player playing",
+            A_STAGES_FIRST_FRAMES + A_SECOND,
+            || game.image().the_players_state() == PLAYING,
+        );
+        game.keyboard().set(keys::ESCAPE, true);
+        game.frames_until("the pause up", A_SECOND, || game.image().is_it_paused());
+        game.frame();
+        assert_eq!(
+            game.image().the_capture_asked_for(),
+            -1,
+            "the field the pause asked for was never captured",
+        );
+    });
+}
+
+/// **Up held with down moves the player up**, and right held with left moves them right: the player's walk at
+/// 0x14004a4b0 asks the word for its directions in an order and takes the first it finds, so the two of a pair
+/// held together are one direction and not none — which a word that is the keyboard's and a pad's at once can
+/// be.
+#[test]
+fn up_and_down_held_together_move_a_player_of_th06c_up() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th06c-up-and-down-at-once",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        game.in_a_run_in_the_stage(THE_FIRST_STAGE);
+        game.frames_until(
+            "the player playing",
+            A_STAGES_FIRST_FRAMES + A_SECOND,
+            || game.image().the_players_state() == PLAYING,
+        );
+        let was = game.image().where_the_player_is();
+        game.keyboard().set(keys::UP, true);
+        game.keyboard().set(keys::DOWN, true);
+        game.keyboard().set(keys::LEFT, true);
+        game.keyboard().set(keys::RIGHT, true);
+        game.frame();
+        let now = game.image().where_the_player_is();
+        assert!(
+            now.1 < was.1 && now.0 > was.0,
+            "the four directions at once moved the player from {was:?} to {now:?} and not up and to the right",
+        );
+    });
+}
+
+/// **A focus a recipe presses is in the word the run acts on**: this game's table of keys at `0x1402bc0b0`
+/// holds the shifts as `0xa0 -> 0x2a` and `0xa1 -> 0x36` and no `VK_SHIFT` at all, so a focus that goes in
+/// under `0x10` alone is a key the game's read copies nothing for.
+#[test]
+fn a_focus_a_recipe_presses_reaches_the_word_a_run_of_th06c_acts_on() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th06c-a-focus-pressed",
+            Work::wandering(WORK_US),
+            |config| {
+                config.log_level = LogLevel::Verbose;
+                config.autoplay = Some("- press: [focus]\n  frames: 100000\n".to_owned());
+            },
+        );
+        game.in_a_run_in_the_stage(THE_FIRST_STAGE);
+        game.frames_until(
+            "the player playing",
+            A_STAGES_FIRST_FRAMES + A_SECOND,
+            || game.image().the_players_state() == PLAYING,
+        );
+        game.frames_until("the focus in the word the run acts on", A_SECOND, || {
+            game.image().the_word_the_run_acts_on() as u16 & FOCUS == FOCUS
+        });
     });
 }

@@ -239,6 +239,59 @@ pub fn the_state_of(pad: DirectInputPad, size: u32) -> Vec<u8> {
     state
 }
 
+/// **The word th06c's and th06nc's own pad halves make of an `XINPUT_STATE`'s `buttons`**, `0x14000f710` and
+/// `0x140012f00`: through `th06.cfg`'s bindings — `bound` the shot, the bomb, the focus, the conversation skip
+/// and the pause as `wButtons` bit numbers — the shot carrying `0x8000` and, where it is not the cancel's
+/// button, the decide `0x100`; the bomb the cancel `0x200` where it is not the decide's; the decide and the
+/// cancel on bits 12 and 13 whatever is bound, the other way round where `swapped`; and the d-pad's four bits
+/// the four directions. The focus a configuration that binds it to the shot's own button makes of a held shot
+/// is the games' own count and is left out, no binding a test lays out being one.
+#[cfg(target_arch = "x86_64")]
+pub fn the_word_of_a_bound_pad(buttons: u16, bound: [i16; 5], swapped: bool) -> u16 {
+    const SHOT: u16 = 0x0001;
+    const BOMB: u16 = 0x0002;
+    const FOCUS: u16 = 0x0004;
+    const SKIP: u16 = 0x0008;
+    const DECIDE: u16 = 0x0100;
+    const CANCEL: u16 = 0x0200;
+    const PAUSE: u16 = 0x0400;
+    const HELD: u16 = 0x8000;
+    let [shot, bomb, focus, skip, pause] = bound;
+    let held = |number: i16| (0..16).contains(&number) && buttons & 1 << number != 0;
+    let decide = 12 + i16::from(swapped);
+    let cancel = 13 - i16::from(swapped);
+    let mut word = [
+        (shot, SHOT | HELD),
+        (bomb, BOMB),
+        (focus, FOCUS),
+        (skip, SKIP),
+        (pause, PAUSE),
+        (decide, DECIDE),
+        (cancel, CANCEL),
+    ]
+    .into_iter()
+    .filter(|(number, _)| held(*number))
+    .fold(0, |word, (_, bits)| word | bits);
+    if shot != cancel && held(shot) {
+        word |= DECIDE;
+    }
+    if bomb != decide && held(bomb) {
+        word |= CANCEL;
+    }
+    // `wButtons`' d-pad bits, up, down, left and right, and the word's four directions.
+    for (button, bits) in [
+        (0x0001, 0x0010),
+        (0x0002, 0x0020),
+        (0x0004, 0x0040),
+        (0x0008, 0x0080),
+    ] {
+        if buttons & button != 0 {
+            word |= bits;
+        }
+    }
+    word
+}
+
 /// **The frame of the stage chapter `chapter` of `stage` began on**, the stage counted from one, as the
 /// newest of its own lines in `lines` said it — what a retry of it has to put the run back on.
 ///

@@ -67,7 +67,7 @@ fn a_frame_of_th07_is_played_with_the_keys_that_frame_was_given() {
         assert_eq!(
             (
                 game.the_player_read() & UP,
-                game.image().the_word_the_run_acted_on() & UP,
+                game.word_the_run_acted_on() & UP,
             ),
             (UP, UP),
             "the word beside the one the run acts on is not the frame before's",
@@ -83,7 +83,7 @@ fn a_frame_of_th07_is_played_with_the_keys_that_frame_was_given() {
             "the run acts on a word the key is still in, a frame after it was let go of",
         );
         assert_eq!(
-            game.image().the_word_the_run_acted_on() & UP,
+            game.word_the_run_acted_on() & UP,
             UP,
             "the frame before's word does not hold the key that was down on it",
         );

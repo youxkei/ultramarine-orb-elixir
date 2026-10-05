@@ -71,10 +71,11 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     into.half = unsafe { player_box() };
     (into.straight, into.diagonal) = unsafe { a_step(false) };
     (into.focused_straight, into.focused_diagonal) = unsafe { a_step(true) };
-    // **The frames a bomb still takes the hit back in.** `Player::Die` at 0x427770 leaves the state at 2 and
-    // puts the timer under it back, and the four bombs write 3 over it — so a bomb pressed while it stands is
-    // a deathbomb and takes the death back. It stands for `respawnTimer` frames and not for one, which is what
-    // makes a word of the rules' able to reach one at all.
+    // **The frames a bomb still takes the hit back in.** `Player::Die` at 0x427770 writes the state 2, and the
+    // four bombs write 3 over it — so a bomb pressed while it stands is a deathbomb and takes the death back.
+    // It stands for `respawnTimer` frames and not for one — the 6 the last respawn left there (0x428f9e), which
+    // the dying branch takes one off a frame (0x428a9a) — and that is what makes a word of the rules' able to
+    // reach one at all.
     let state = unsafe { mem::read::<i8>(G_PLAYER + player::PLAYER_STATE) };
     into.hit = state == PLAYER_DEAD;
     into.normal = state == PLAYER_NORMAL;
@@ -109,7 +110,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         let scale = mem::read_committed::<f32>(G_MOTION_SCALE).unwrap_or(1.0);
         into.hazards.push(Hazard {
             kind: Kind::Bullet {
-                hitting: state != bullet_manager::BULLET_SPENT,
+                hitting: state == bullet_manager::BULLET_IN_FLIGHT,
                 state,
                 next_change: None,
             },
@@ -128,16 +129,18 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     // size between them, **and with no step**, there being none on it: an enemy is moved by its own script.
     //
     // **And only the ones the game would test at all.** 0x4126a6 and 0x4126c2 gate the enemy's own collision
-    // on the two lowest bits of [`enemy::SOLID`], so one with either down cannot touch the player however wide
-    // it is — handed over all the same, with what the byte says, since a hit naming nothing near it needs to
-    // know what was passed over.
+    // on the two lowest bits of [`enemy::SOLID`], and 0x412660 and 0x41267d the whole of it on two more before
+    // those, so one failing any of them cannot touch the player however wide it is — handed over all the same,
+    // with what the bytes say, since a hit naming nothing near it needs to know what was passed over.
     for slot in 0..enemy_manager::ENEMY_SLOTS {
         let at = G_ENEMY_MANAGER + enemy_manager::ENEMIES + slot * enemy_manager::ENEMY_BYTES;
         if unsafe { mem::read::<u8>(at + enemy::ALIVE) } & enemy::ALIVE_BIT == 0 {
             continue;
         }
-        let solid =
-            unsafe { mem::read::<u8>(at + enemy::SOLID) } & enemy::SOLID_BITS == enemy::SOLID_BITS;
+        let flags = unsafe { mem::read::<u8>(at + enemy::SOLID) };
+        let solid = flags & enemy::SOLID_BITS == enemy::SOLID_BITS
+            && flags & enemy::TESTED_AT_ALL_BIT != 0
+            && unsafe { mem::read::<u8>(at + enemy::NOT_TESTED) } & enemy::NOT_TESTED_BIT == 0;
         let (sx, sy) = unsafe { position(at + enemy::SIZE) };
         into.hazards.push(Hazard {
             kind: Kind::Body { solid },
@@ -147,24 +150,28 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             frames: None,
             at: unsafe { position(at + enemy::POSITION) },
             step: None,
-            half: (
-                sx / enemy::BOX_OF_ITS_SIZE / 2.0,
-                sy / enemy::BOX_OF_ITS_SIZE / 2.0,
-            ),
+            half: (sx / enemy::HALF_OF_ITS_SIZE, sy / enemy::HALF_OF_ITS_SIZE),
         });
     }
     // **And the lasers, which are a line rather than a box**: the player's own test for one at 0x427190 turns
     // the box into the beam's own frame, which is *along* and *across*.
     //
-    // **A warning line is handed over with the frames until it fires and not left out**: the game's own test is
-    // called from the firing phase's case and from no other, so one still drawing its warning hits nothing at
-    // all — and whether that is a frame to be elsewhere for is the bot's to decide.
+    // **A warning line is handed over with the frames until it hits and not left out**: the game's own test is
+    // made in the warning only once [`bullet_manager::LASER_HITS_FROM`] frames of it have gone, so until then
+    // it hits nothing — and whether that is a frame to be elsewhere for is the bot's to decide. And a fading
+    // beam past [`bullet_manager::LASER_HITS_UNTIL`] is not handed over at all, the test no longer being made.
     for slot in 0..bullet_manager::LASER_COUNT {
         let laser = G_BULLET_MANAGER + bullet_manager::LASERS + slot * bullet_manager::LASER_STRIDE;
         if unsafe { mem::read::<u32>(laser + bullet_manager::LASER_IN_USE) } == 0 {
             continue;
         }
         let phase = unsafe { mem::read::<u8>(laser + bullet_manager::LASER_PHASE) };
+        let gone = unsafe { mem::read::<i32>(laser + bullet_manager::LASER_PHASE_FRAMES) };
+        if phase >= bullet_manager::LASER_FADING
+            && gone >= unsafe { mem::read::<i32>(laser + bullet_manager::LASER_HITS_UNTIL) }
+        {
+            continue;
+        }
         into.beams.push(Beam {
             slot,
             origin: unsafe { position(laser + bullet_manager::LASER_ORIGIN) },
@@ -177,11 +184,10 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             grows: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_GROWS) }
                 * mem::read_committed::<f32>(G_MOTION_SCALE).unwrap_or(1.0),
             half_across: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_WIDTH) } / 2.0,
-            // Before the firing phase, the frames its own phase has left; from it on, none.
+            // Before the firing phase, the frames until its warning starts hitting; from then on, none.
             fires_in: if phase < bullet_manager::LASER_FIRING {
-                let lasts = unsafe { mem::read::<i32>(laser + bullet_manager::LASER_PHASE_LASTS) };
-                let gone = unsafe { mem::read::<i32>(laser + bullet_manager::LASER_PHASE_FRAMES) };
-                lasts - gone
+                let from = unsafe { mem::read::<i32>(laser + bullet_manager::LASER_HITS_FROM) };
+                (from - gone).max(0)
             } else {
                 0
             },
@@ -382,10 +388,7 @@ pub unsafe fn say_what_was_near() {
         }
         let place = unsafe { position(enemy + enemy::POSITION) };
         let (sx, sy) = unsafe { position(enemy + enemy::SIZE) };
-        let half = (
-            sx / enemy::BOX_OF_ITS_SIZE / 2.0,
-            sy / enemy::BOX_OF_ITS_SIZE / 2.0,
-        );
+        let half = (sx / enemy::HALF_OF_ITS_SIZE, sy / enemy::HALF_OF_ITS_SIZE);
         if near(place, half) {
             crate::detail!(
                 "autoplay: near it, enemy {slot} at {:.1},{:.1} half {:.1},{:.1} solidity {:#04x}",

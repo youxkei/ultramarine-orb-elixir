@@ -54,6 +54,9 @@ use orb_sim::{Sim, Space};
 /// `memory: saving data 0x004c6000+0x1413840` with five heap regions beside it.
 const DATA: Range<usize> = 0x004c_6000..0x018d_9840;
 
+/// `[0x4e4030 + 0x820]`, where the seed's job at 0x409b20 keeps the stage its build hands it in `ecx`.
+const THE_STAGE_THE_SEEDS_JOB_KEPT: usize = 0x004e_4850;
+
 /// **What a card being held reads as**, for [`Image::a_card_is_held`]: something rather than nothing,
 /// which is the whole of what the game's own gate asks — 0x416b90 tests the byte and not its value.
 const A_CARD_HELD: u8 = 1;
@@ -93,6 +96,27 @@ const QUAD_BYTES: usize = 0xa8;
 /// `G_RUN_NUMBERS`, whose doc has the launch that read `lives=-128` through a freed one. A base of this
 /// file's choosing and the length the game's own, `RUN_NUMBER_BYTES`.
 const RUN_NUMBERS: Range<usize> = 0x0340_0000..0x0340_00e4;
+
+/// **The run's decoys**: runs of dwords and floats the run manager holds inside 6543 and 106543 every update,
+/// writing -9999.0 over the sum's float — the seal broken — where any is outside (0x439bc7: 7 dwords from
+/// `+0x48`, the floats at `+0x78` and `+0x6c`, 8 dwords from `+0xa8`, and on an update that is not paused the
+/// floats at `+0x8c` and `+0x9c` and 5 dwords from `+0xd0`). Offset, count, and whether each is a float.
+const RUN_DECOYS: [(usize, usize, bool); 7] = [
+    (0x48, 7, false),
+    (0x78, 2, true),
+    (0x6c, 2, true),
+    (0xa8, 8, false),
+    (0x8c, 3, true),
+    (0x9c, 2, true),
+    (0xd0, 5, false),
+];
+const A_DECOY_AT_LEAST: i32 = 0x198f;
+const A_DECOY_AT_MOST: i32 = 0x1a02f;
+/// And what a run's numbers start with in each, inside that range — this laid-out game's own number, the real
+/// one's being `rand * 100000 + 6543` (0x43b984).
+const A_DECOY_IS: i32 = 50_000;
+/// The float a broken seal puts over the sum.
+const THE_SUM_BROKEN: f32 = -9999.0;
 
 /// **The rest of the run's seal** — see `Th08`'s `RUN_SEAL_KEY`: the salt the reseal draws beside the key, and
 /// the step the sum adds to the seal for each of its bytes. Nothing of this file sets the step, and neither
@@ -212,6 +236,9 @@ const A_SOUND_COMMAND: u32 = 3;
 const SPEEDS: (f32, f32, f32, f32) = (4.0, 2.83, 2.0, 1.41);
 /// And the power the shot stops adding to, which the panel's own compare at 0x437215 puts at 128.
 const FULL_POWER: f32 = 128.0;
+/// And what states 0 and 3 hold the hit's own count at, the spec's `+0x8` — this laid-out game's own number,
+/// no `.sht` having been dumped for it.
+pub const THE_HITS_OWN_COUNT_HELD_AT: i32 = 15;
 /// And the width of the player's own box, of which `+0xc` of the spec holds twice — 0x44d7e3 halves it
 /// into the player's half. A launch read the half back as `0.82`, so the whole is `1.65`.
 const PLAYER_BOX_ACROSS: f32 = 1.65;
@@ -400,6 +427,9 @@ impl Image {
         // of a conversation up over the title.
         space.write::<i32>(RUN_SCREEN_INNER.start + super::DIALOGUE_LINE, -1);
         space.write::<usize>(super::G_TEAM_SPEC, TEAM_SPEC.start);
+        // And the other member's, which the game takes the focused speeds from: the same numbers, both
+        // members of the team laid out here moving alike.
+        space.write::<usize>(super::G_OTHER_SPEC, TEAM_SPEC.start);
         // **The frame's own step, which is one where nothing is slowing the world down** — 0x425369
         // writes the 1.0, and a laid-out game with nothing there would say every laser grows by nothing.
         space.write::<f32>(super::G_FRAME_STEP, 1.0);
@@ -618,6 +648,10 @@ impl Image {
             focused_diagonal,
         );
         space.write::<f32>(TEAM_SPEC.start + super::SPEC_POWER_FULL, FULL_POWER);
+        space.write::<i32>(
+            TEAM_SPEC.start + super::SPEC_PRE_DEAD_HELD_AT,
+            THE_HITS_OWN_COUNT_HELD_AT,
+        );
     }
 
     /// **The three things the game's own frame does to the queue of quads**, which a laid-out game has to
@@ -954,8 +988,18 @@ impl Image {
 
     /// **A run's own numbers in place**, which is the pointer the build allocates — see `G_RUN_NUMBERS`.
     pub fn has_a_runs_numbers(&self) {
-        self.space()
-            .write::<usize>(super::G_RUN_NUMBERS, RUN_NUMBERS.start);
+        let space = self.space();
+        space.write::<usize>(super::G_RUN_NUMBERS, RUN_NUMBERS.start);
+        // The decoys inside their range, which the build leaves them (0x43b984's `rand * 100000 + 6543`).
+        for (at, count, float) in RUN_DECOYS {
+            for each in 0..count {
+                let at = RUN_NUMBERS.start + at + each * 4;
+                match float {
+                    true => space.write::<f32>(at, A_DECOY_IS as f32),
+                    false => space.write::<i32>(at, A_DECOY_IS),
+                }
+            }
+        }
     }
 
     /// **The stage's time orbs picked up and the norm it wants**, the pair the panel draws and the Last
@@ -964,6 +1008,13 @@ impl Image {
         let space = self.space();
         space.write::<u32>(RUN_NUMBERS.start + super::TIME_ORBS, orbs);
         space.write::<u32>(RUN_NUMBERS.start + super::TIME_ORBS_WANTED, norm);
+    }
+
+    /// The time orbs picked up written alone, the norm left as it is.
+    pub fn the_time_orbs_picked_up_are(&self, orbs: u32) {
+        self.space()
+            .write::<u32>(RUN_NUMBERS.start + super::TIME_ORBS, orbs);
+        self.reseals_the_run();
     }
 
     /// And the time orbs picked up, as the run's numbers hold them.
@@ -1007,6 +1058,18 @@ impl Image {
 
     pub fn the_games_stage_word(&self) -> i32 {
         self.space().read::<i32>(super::G_STAGE)
+    }
+
+    /// **What the job at 0x409b20 keeps of the stage it was handed in `ecx`** — the build's
+    /// `mov ecx,[eax+0x3ddc4]` at 0x43b3dc: `[0x4e4030 + 0x820]`, which 0x409b27 stores out of the register.
+    pub fn the_seeds_job_keeps_the_stage(&self, stage: i32) {
+        self.space()
+            .write::<i32>(THE_STAGE_THE_SEEDS_JOB_KEPT, stage);
+    }
+
+    /// And what it kept, for an e2e test to hold against the stage the build was of.
+    pub fn the_stage_the_seeds_job_kept(&self) -> i32 {
+        self.space().read::<i32>(THE_STAGE_THE_SEEDS_JOB_KEPT)
     }
 
     /// How long the run has been played, which is the clock this game steps as a stage carries on — see
@@ -1151,10 +1214,31 @@ impl Image {
             space.read::<u32>(run + super::RUN_SEAL_KEY),
         );
         let sum = self.the_runs_checksum();
+        let decoys_hold = RUN_DECOYS.iter().all(|(at, count, float)| {
+            (0..*count).all(|each| {
+                let at = run + at + each * 4;
+                match float {
+                    true => (A_DECOY_AT_LEAST as f32..=A_DECOY_AT_MOST as f32)
+                        .contains(&space.read::<f32>(at)),
+                    false => (A_DECOY_AT_LEAST..=A_DECOY_AT_MOST).contains(&space.read::<i32>(at)),
+                }
+            })
+        });
         space.write::<f32>(
             super::G_SUM_THIS_FRAME,
-            sum.wrapping_add(space.read::<u32>(run + RUN_SEAL_SALT)) as i32 as f32,
+            match decoys_hold {
+                true => sum.wrapping_add(space.read::<u32>(run + RUN_SEAL_SALT)) as i32 as f32,
+                false => THE_SUM_BROKEN,
+            },
         );
+    }
+
+    /// **The first of the run's decoys written over with `value`**, `[run+0x48]`, and the run resealed over it
+    /// — so that what is left to break the seal is the decoy's own range. See [`RUN_DECOYS`].
+    pub fn the_runs_first_decoy_is(&self, value: i32) {
+        self.space()
+            .write::<i32>(RUN_NUMBERS.start + RUN_DECOYS[0].0, value);
+        self.reseals_the_run();
     }
 
     /// **And the check the enemy manager makes of it** (0x40bb80): the seal against the key and the step, and
@@ -1230,6 +1314,32 @@ impl Image {
         self.space().write::<u32>(super::G_RUN_KIND, 0);
     }
 
+    /// **The run handed over**, which takes the bits of its end out of the kind word and nothing else
+    /// (`& 0xffffff9f`, 0x439f3c through 0x439fb6): the bits a start screen wrote stay until the next start
+    /// screen writes them.
+    pub fn the_run_is_handed_over(&self) {
+        let space = self.space();
+        let kind = space.read::<u32>(super::G_RUN_KIND);
+        space.write::<u32>(super::G_RUN_KIND, kind & !super::RUN_IS_ENDING);
+    }
+
+    /// **A stage's end in the run's kind**, bits 5 and 6 at `01` — what a stage carried on comes to its build
+    /// with (0x439bc7 putting `0x60` up, 0x43aaf4 turning the `3` into `1`).
+    pub fn the_stage_hands_itself_over(&self) {
+        let space = self.space();
+        let kind = space.read::<u32>(super::G_RUN_KIND) & !super::RUN_IS_ENDING;
+        space.write::<u32>(super::G_RUN_KIND, kind | super::RUN_HANDS_ITSELF_OVER);
+    }
+
+    /// The whole of the kind word, for a test of what a hand-over leaves of it.
+    pub fn the_run_kind_is(&self, kind: u32) {
+        self.space().write::<u32>(super::G_RUN_KIND, kind);
+    }
+
+    pub fn the_run_kind(&self) -> u32 {
+        self.space().read::<u32>(super::G_RUN_KIND)
+    }
+
     pub fn the_run_reads_its_own_input(&self) {
         let space = self.space();
         let kind = space.read::<u32>(super::G_RUN_KIND);
@@ -1281,6 +1391,15 @@ impl Image {
 
     pub fn is_paused(&self) -> bool {
         self.space().read::<u8>(super::G_PAUSED) != 0
+    }
+
+    /// The game over — see `super::G_THE_GAME_IS_OVER`.
+    pub fn the_game_is_over(&self) {
+        self.space().write::<u8>(super::G_THE_GAME_IS_OVER, 1);
+    }
+
+    pub fn is_the_game_over(&self) -> bool {
+        self.space().read::<u8>(super::G_THE_GAME_IS_OVER) != 0
     }
 
     /// **The screen a run ends at, up in `phase` with its timer at nothing**, and its update on the chain's
@@ -1368,8 +1487,26 @@ impl Image {
         self.the_player_is_at(PLAYER_START);
     }
 
-    /// And the player hit, which is the thirty-frame window a deathbomb is spent in — with its count from
-    /// nothing, which is the hit handler's own 0x4065f0 with a 0 beside the state it writes at 0x44ab84.
+    /// **The hit's own count**, `[player+0xe2a68]` — see `super::PLAYER_PRE_DEAD_COUNT`.
+    pub fn the_hits_own_count_is(&self, count: i32) {
+        self.space()
+            .write::<i32>(super::G_PLAYER + super::PLAYER_PRE_DEAD_COUNT, count);
+    }
+
+    pub fn the_hits_own_count(&self) -> i32 {
+        self.space()
+            .read::<i32>(super::G_PLAYER + super::PLAYER_PRE_DEAD_COUNT)
+    }
+
+    /// And what states 0 and 3 hold it at, the active member's spec's `+0x8`.
+    pub fn what_the_hits_own_count_is_held_at(&self) -> i32 {
+        self.space()
+            .read::<i32>(TEAM_SPEC.start + super::SPEC_PRE_DEAD_HELD_AT)
+    }
+
+    /// And the player hit, which is the window a deathbomb is spent in — the hit's own count at
+    /// `[player+0xe2a68]` run down and then thirty frames of the countdown — with its count from nothing,
+    /// which is the hit handler's own 0x4065f0 with a 0 beside the state it writes at 0x44ab84.
     pub fn the_player_has_been_hit(&self) {
         self.space()
             .write::<u8>(super::G_PLAYER + super::PLAYER_STATE, super::PLAYER_HIT);
@@ -1422,7 +1559,8 @@ impl Image {
     }
 
     /// **A card of this game held where it stands**, which is the byte its own update stops on — see
-    /// `Th08::CARD_UPDATE_HELD`, whose only writer that clears it is the handler a hit goes through.
+    /// `Th08::CARD_UPDATE_HELD`, which two writers clear: the handler a hit goes through, and a stage's
+    /// build at 0x43b7fe.
     pub fn a_card_is_held(&self) {
         self.space()
             .write::<u8>(super::G_GAME_MANAGER + super::CARD_UPDATE_HELD, A_CARD_HELD);
@@ -1442,9 +1580,13 @@ impl Image {
 
     /// Where it is, and the box the game builds out of its own half around it — `position ± half`, which
     /// is what 0x44bc02 and 0x44bc37 write every frame.
+    /// The half the game keeps, or the laid-out game's own where none is kept yet.
     pub fn the_player_is_at(&self, (x, y): (f32, f32)) {
         let space = self.space();
-        let half = PLAYER_BOX_ACROSS / 2.0;
+        let half = match space.read::<f32>(super::G_PLAYER + super::PLAYER_HALF) {
+            kept if kept > 0.0 => kept,
+            _ => PLAYER_BOX_ACROSS / 2.0,
+        };
         space.write::<f32>(super::G_PLAYER + super::PLAYER_POSITION, x);
         space.write::<f32>(super::G_PLAYER + super::PLAYER_POSITION + 4, y);
         space.write::<f32>(super::G_PLAYER + super::PLAYER_HALF, half);
@@ -1460,6 +1602,30 @@ impl Image {
         (
             space.read::<f32>(super::G_PLAYER + super::PLAYER_POSITION),
             space.read::<f32>(super::G_PLAYER + super::PLAYER_POSITION + 4),
+        )
+    }
+
+    /// **The player's half put to `half`**, the box rebuilt around where it stands.
+    pub fn the_players_half_is(&self, half: f32) {
+        let at = self.where_the_player_is();
+        self.space()
+            .write::<f32>(super::G_PLAYER + super::PLAYER_HALF, half);
+        self.the_player_is_at(at);
+    }
+
+    /// The box the game tests a bullet's against, near corner and far, as `[player+0x38c]` and `+0x398` hold
+    /// it.
+    pub fn the_players_box(&self) -> ((f32, f32), (f32, f32)) {
+        let space = self.space();
+        let corner = |at: usize| {
+            (
+                space.read::<f32>(super::G_PLAYER + at),
+                space.read::<f32>(super::G_PLAYER + at + 4),
+            )
+        };
+        (
+            corner(super::PLAYER_BOX_NEAR),
+            corner(super::PLAYER_BOX_FAR),
         )
     }
 
@@ -1622,6 +1788,21 @@ impl Image {
         space.write::<f32>(context + super::SCRIPT_BEAM_ANCHOR + 4, anchor.1);
     }
 
+    /// **That enemy standing off its place by `offset`**, its position the place and the offset added as the
+    /// enemy's update makes it (0x42c8b6).
+    pub fn an_enemy_stands_off_its_place_by(&self, slot: usize, offset: (f32, f32)) {
+        let space = self.space();
+        let enemy = self.enemy_at(slot);
+        let place = (
+            space.read::<f32>(enemy + super::ENEMY_PLACE),
+            space.read::<f32>(enemy + super::ENEMY_PLACE + 4),
+        );
+        space.write::<f32>(enemy + super::ENEMY_OFFSET, offset.0);
+        space.write::<f32>(enemy + super::ENEMY_OFFSET + 4, offset.1);
+        space.write::<f32>(enemy + super::ENEMY_POSITION, place.0 + offset.0);
+        space.write::<f32>(enemy + super::ENEMY_POSITION + 4, place.1 + offset.1);
+    }
+
     /// **And a beam of one aimed and not yet firing**, which is every frame of one but the frames it is
     /// testing the player: the anchor and the angle in place with the behaviour still nought — see
     /// `BEAM_ANCHOR_ALONG`, which is the launch that measured the real game doing exactly this for
@@ -1636,6 +1817,10 @@ impl Image {
         let context = ENEMY_SCRIPTS.start + slot * ENEMY_SCRIPT_BYTES;
         space.write::<f32>(enemy + super::ENEMY_POSITION, at.0);
         space.write::<f32>(enemy + super::ENEMY_POSITION + 4, at.1);
+        space.write::<f32>(enemy + super::ENEMY_PLACE, at.0);
+        space.write::<f32>(enemy + super::ENEMY_PLACE + 4, at.1);
+        space.write::<f32>(enemy + super::ENEMY_OFFSET, 0.0);
+        space.write::<f32>(enemy + super::ENEMY_OFFSET + 4, 0.0);
         space.write::<f32>(enemy + super::ENEMY_ANGLE, angle);
         space.write::<usize>(enemy + super::ENEMY_SCRIPT, context);
         space.write::<usize>(context + super::SCRIPT_BEHAVIOUR, 0);
@@ -2034,6 +2219,16 @@ impl Image {
         space.write::<i32>(laser + super::LASER_LIVE_AT, frames);
     }
 
+    /// **And that laser going out**, its third phase `count` frames in, testing the player only while the
+    /// count is under `stops_hitting_at` — see `super::LASER_STOPS_HITTING_AT`.
+    pub fn the_laser_goes_out(&self, slot: usize, count: i32, stops_hitting_at: i32) {
+        let space = self.space();
+        let laser = self.laser_at(slot);
+        space.write::<u8>(laser + super::LASER_PHASE, super::LASER_FADING);
+        space.write::<i32>(laser + super::LASER_TIMER, count);
+        space.write::<i32>(laser + super::LASER_STOPS_HITTING_AT, stops_hitting_at);
+    }
+
     /// **And that laser past its warning**: the second phase with its count started again from nought,
     /// which is how card 198's lasers read on the real game the frame after their first phase's sixtieth —
     /// phase 1 at a count of 1 once [`the_laser_was_turned_to`](Image::the_laser_was_turned_to) has moved it
@@ -2326,7 +2521,7 @@ fn put_word_in(slot: &mut [u8], at: usize, word: u32) {
 }
 
 /// How many bytes one item of the manager's pool takes, off 0x4400b2's `imul` — `0x2e4`, and `0x831` of
-/// them from the object's own start, which is exactly the `0x17adac` its bookkeeping begins at.
+/// them from the object's own start, which is exactly the `0x17ada4` its bookkeeping begins at.
 const ITEM_BYTES: usize = 0x2e4;
 
 #[cfg(test)]

@@ -211,7 +211,8 @@ fn every_number_a_stage_of_th06c_is_played_with_reads_back_as_the_game_put_it() 
         assert!(game.state().paused);
         image.is_not_paused();
 
-        // The hit, which is orb's own count of deaths moving — this game keeps none — and where it stands:
+        // The hit, which is orb's own count of deaths moving — this game keeps none, the game manager's
+        // `+0x0` counting hits whether a bomb takes them back or not — and where it stands:
         // open while a bomb is still taken, taken once the frames run out, and a bomb where the state left
         // the hit's before they did.
         image.the_player_has_been_hit(8);

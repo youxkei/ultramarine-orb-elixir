@@ -5,12 +5,16 @@
 //! dealt with by stopping — they are dropped in the input hook, which over this game is the pad's half of the read
 //! (0x44a190) that the keyboard's word is handed to.
 //!
-//! **And this game needs that as much as th08 does.** th10 reads its keys with `GetKeyboardState` (0x44a636) on
-//! the settings it comes with, which answers what somebody typed at whatever window is in front. A launch that
-//! read it while behind is a launch playing the game with somebody else's typing.
+//! **And this game skips its keyboard while behind itself**, `[0x4924fc]` being the window's `WM_ACTIVATEAPP`
+//! (0x44a61d) — which a launch set to `always_draw` cannot lean on, the pad's half answering whatever window is
+//! in front.
 //!
-//! Which is also why there is no device to take again on the way back: `Th10::acquire_input` answers that the
-//! keyboard needs nothing done to it, so the keys are read again on the very frame the window comes forward.
+//! **And there is a device to take again on the way back, which the game takes itself.** On the settings th10
+//! comes with it reads its keys through DirectInput (0x44a628), a keyboard held `DISCL_FOREGROUND` (0x43b8d0)
+//! that the system takes away while the window is behind: the first read in front again fails, acquires, and
+//! answers nothing for that frame (0x44a766, 0x44a77a), and the keys are read on the frame after. orb's hook
+//! being the half of the read after the keyboard's, nothing of orb's can come before that — see
+//! `Th10::acquire_input`.
 
 use crate::fake::th10::Fake;
 use crate::fake::{Display, Launched, WINDOW, Work, in_its_own_process};
@@ -29,7 +33,7 @@ const ANOTHER: Hwnd = Hwnd(WINDOW.0 + 1);
 const BEHIND: u32 = 30;
 
 #[test]
-fn keys_are_dropped_while_th10s_window_is_behind_and_read_again_the_frame_it_comes_forward() {
+fn keys_are_dropped_while_th10s_window_is_behind_and_read_again_once_its_device_is_back() {
     in_its_own_process(|| {
         let game = Fake::attach_configured(
             Display::agreed(120),
@@ -76,14 +80,20 @@ fn keys_are_dropped_while_th10s_window_is_behind_and_read_again_the_frame_it_com
             "the game stopped being updated while its window was behind",
         );
 
-        // In front again, and the keys are read on that very frame: there is no device to ask for, so nothing
-        // is waited for.
+        // In front again: the frame the game's own read spends acquiring the device, and the keys read on the
+        // one after.
         game.sim().display().set_foreground(WINDOW);
         game.one_frame();
         assert_eq!(
             game.word_the_input_read_answered(),
+            0,
+            "the keys came through a device the system had taken away while the window was behind",
+        );
+        game.one_frame();
+        assert_eq!(
+            game.word_the_input_read_answered(),
             held,
-            "the keys were not read again on the frame the window came forward",
+            "the keys were not read again on the frame after the window came forward",
         );
         assert!(
             log.said("input: keyboard re-acquired"),

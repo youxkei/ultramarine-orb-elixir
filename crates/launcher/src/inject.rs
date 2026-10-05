@@ -192,6 +192,10 @@ fn wait_for_module(thread: HANDLE) -> io::Result<()> {
     if unsafe { WaitForSingleObject(thread, DLL_MAIN_TIMEOUT_MS) } != WAIT_OBJECT_0 {
         return Err(io::Error::other("DllMain did not return in time"));
     }
+    // **The low 32 bits of the module handle and not the handle**, a thread's exit code being a `u32`: on a
+    // 64-bit game a DLL mapped at a base whose low 32 bits are nought reads here as a failed load. Bases are
+    // laid on 64 KiB, so that is one launch in 65,536 told it failed where it did not; asking the process for
+    // its modules instead would settle it, and no launch has met it yet.
     let mut module = 0u32;
     if unsafe { GetExitCodeThread(thread, &mut module) } == FALSE {
         return Err(io::Error::last_os_error());

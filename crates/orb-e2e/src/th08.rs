@@ -184,7 +184,7 @@ fn the_frames_of_th08_reach_the_device_inside_a_letterbox_of_the_games_own_shape
             |config| config.screen = WIDER_THAN_THE_GAME,
         );
         // The window first and the device after it, which is the order a launch has: orb redirects the
-        // `Present` slot from the game's own device setup at 0x435810, and what it works the rectangle out
+        // `Present` slot from the game's own device setup at 0x4424c0, and what it works the rectangle out
         // from is the client area of a window that exists.
         game.creates_its_window();
         game.finds_its_device();
@@ -480,8 +480,9 @@ fn the_player_of_th08_is_made_invulnerable_without_the_life_going() {
 }
 
 /// **And a card held where it stands is let go of with that same ask**, which is the handler's own first
-/// act and not its last: a card's update does nothing at all while `[gm+0x2c]` stands, and the hit
-/// handler is the only thing that clears it — so a run made unhittable without it is a fight that can
+/// act and not its last: a card's update does nothing at all while `[gm+0x2c]` stands, and inside a stage
+/// the hit handler is the only thing that clears it, a stage's build at 0x43b7fe being the other — so a
+/// run made unhittable without it is a fight that can
 /// stop for good, and one did. A `--clear` launch held the last stage's Last Spell for eleven minutes of
 /// game time with `script=4264`, `boss_life=20000` and not a bullet on the screen.
 #[test]
@@ -507,6 +508,31 @@ fn a_card_of_th08_held_where_it_stands_is_let_go_of_by_the_invulnerable_ask() {
             game.image().the_card_is_held(),
             0,
             "the ask left the byte a card's own update stops on standing",
+        );
+    });
+}
+
+/// **And the held card holds the player with it**: 0x44c390 returns at once while `[gm+0x2c]` stands — no move,
+/// no step of its state, no countdown — so a direction held under it moves nothing.
+#[test]
+fn a_card_of_th08_held_holds_the_player_still() {
+    in_its_own_process(|| {
+        let game = Fake::attach(
+            Display::agreed(120),
+            "th08-a-card-held-holds-the-player",
+            Work::wandering(WORK_US),
+        );
+        game.is_in_a_run();
+        game.frames(5);
+        let at = game.image().where_the_player_is();
+        game.image().a_card_is_held();
+        game.keyboard().set(orb_sim::keys::LEFT, true);
+        game.frames(10);
+        game.keyboard().set(orb_sim::keys::LEFT, false);
+        assert_eq!(
+            game.image().where_the_player_is(),
+            at,
+            "the player moved under a held card",
         );
     });
 }
@@ -547,6 +573,42 @@ fn a_run_of_th08_given_up_goes_to_the_title_with_nothing_pressed() {
         });
     });
 }
+
+/// **And the hand-over takes only the bits of the run's end out of the kind word** (`& 0xffffff9f`,
+/// 0x439f3c through 0x439fb6): a bit the start screen wrote — here the one that starts a run with eight, the
+/// practice's — is still there as the front end comes back.
+#[test]
+fn a_run_of_th08_given_up_keeps_the_kind_its_start_screen_wrote() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-given-up-keeps-its-kind",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- play_until: { frames: 30 }\n- leave: true\n- wait_until: { screen: 0 }\n  \
+                     give_up_after: 600\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.its_title_menu_is_up();
+        game.is_in_a_run();
+        game.image().the_run_kind_is(A_START_SCREENS_BIT);
+        game.frames_until("the title", 240, || {
+            game.state().scene == Scene::FrontEnd as i32
+        });
+        assert_eq!(
+            game.image().the_run_kind() & A_START_SCREENS_BIT,
+            A_START_SCREENS_BIT,
+            "the hand-over took a bit of the kind word the start screen wrote",
+        );
+    });
+}
+
+/// The bit the stage practice's start screen writes, which starts a run with eight lives and bombs.
+const A_START_SCREENS_BIT: u32 = 0x1;
 
 /// **A recipe's `boss` of th08 is the boss fought to a song of her own, and not a midboss fought to the
 /// stage's** — the song the conversation before her plays out of the stage's info block (0x434dce), the
@@ -871,6 +933,26 @@ fn the_title_of_th08_reads_its_records_out_of_the_games_own_file() {
             game.reads_what_its_title_offers(),
             "score.dat",
             "the title's own read did not land in the game's file",
+        );
+    });
+}
+
+/// **The stage a build hands the seed's job reaches that job through orb's hook over it**: the build passes it
+/// in `ecx` (0x43b3dc) and the job keeps it at `[0x4e4030 + 0x820]` (0x409b27), so a hook that took it off the
+/// stack, or wrote over `ecx` before calling on, leaves whatever the register held there instead.
+#[test]
+fn the_stage_a_build_of_th08_hands_on_reaches_the_seeds_job() {
+    in_its_own_process(|| {
+        let game = Fake::attach(
+            Display::agreed(120),
+            "th08-the-stage-handed-on",
+            Work::wandering(WORK_US),
+        );
+        game.is_in_a_run();
+        assert_eq!(
+            game.image().the_stage_the_seeds_job_kept(),
+            game.image().the_games_stage_word(),
+            "the seed's job kept another stage than the one its build was of",
         );
     });
 }

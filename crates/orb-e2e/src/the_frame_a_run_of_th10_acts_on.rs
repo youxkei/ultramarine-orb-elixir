@@ -118,3 +118,39 @@ fn the_pair_a_bomb_of_th10_is_taken_from_is_this_frames_word_and_the_frame_befor
         );
     });
 }
+
+/// **Up and down held together move the player down**, and left and right left: 0x4250b0 checks a fixed order —
+/// the four diagonals, then down (0x20), up, left (0x40) and right — and takes the first that is in the word,
+/// where netting the two would stand the player still.
+#[test]
+fn opposite_directions_held_together_move_th10s_player_the_way_the_game_checks_first() {
+    in_its_own_process(|| {
+        let game = in_a_run("th10-opposite-directions");
+        let (x, y) = game.image().where_the_player_is();
+        game.keyboard().set(keys::UP, true);
+        game.keyboard().set(keys::DOWN, true);
+        game.frame();
+        game.keyboard().set(keys::UP, false);
+        game.keyboard().set(keys::DOWN, false);
+        let (after_x, after_y) = game.image().where_the_player_is();
+        assert!(
+            after_y > y && after_x == x,
+            "up and down together moved the player from {:?} to {:?}, not down",
+            (x, y),
+            (after_x, after_y),
+        );
+
+        game.keyboard().set(keys::LEFT, true);
+        game.keyboard().set(keys::RIGHT, true);
+        game.frame();
+        game.keyboard().set(keys::LEFT, false);
+        game.keyboard().set(keys::RIGHT, false);
+        let (last_x, last_y) = game.image().where_the_player_is();
+        assert!(
+            last_x < after_x && last_y == after_y,
+            "left and right together moved the player from {:?} to {:?}, not left",
+            (after_x, after_y),
+            (last_x, last_y),
+        );
+    });
+}

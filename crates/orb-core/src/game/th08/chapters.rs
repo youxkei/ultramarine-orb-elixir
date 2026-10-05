@@ -69,7 +69,9 @@
 //! `.std` tables at `0x4c731c` and `0x4c7340` and the `.ecl` one at `0x4c73cc` each have nine entries,
 //! indexed by `0x164d2cc` counted from zero, and the name table beside them names the same nine. The
 //! Last Words are the tenth name and none of those nine, loading `ecldata_yk.ecl` and its five siblings
-//! out of a table of their own, so they are not a row here.
+//! out of the spell-practice table by card — the seventeen entries at `0x4c7418` from card `0xcd`, eleven
+//! spell-practice files and then the six Last Words for cards `0xd8` to `0xdd` (0x42ed71) — so they are
+//! not a row here.
 
 use crate::game::{Boundary, hand, proposed};
 

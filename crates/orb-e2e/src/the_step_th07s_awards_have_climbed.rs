@@ -1,7 +1,7 @@
 //! **The step th07's awards have climbed to, and the run picked up that started from the bottom of it.**
 //!
 //! `[0x62f644]` is an index into the 31 dwords at 0x49ecf8 — 10, 20, 30 … 100, 200 … 1000, 2000, 3000 … 12000,
-//! 12800. 0x432efe adds one to it, 0x432f19 holds it at 30, and 0x432f42 adds a tenth of what the table holds
+//! 51200. 0x432efe adds one to it, 0x432f19 holds it at 30, and 0x432f42 adds a tenth of what the table holds
 //! there to the score. A death puts it back to nothing at 0x440d6a, and so does 0x432fb2.
 //!
 //! **The arithmetic is what says a resume has to carry it.** A run of th07 picked up in stage 2 reproduced

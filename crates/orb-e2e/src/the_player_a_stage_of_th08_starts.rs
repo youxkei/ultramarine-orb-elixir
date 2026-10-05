@@ -9,9 +9,10 @@
 //!   for as long as the build does.
 //! - **Its first update after that puts it in state 3 with 0xf0 under it** — 0x44d180 at a count of thirty or
 //!   more (0x44d24a, 0x44d252, 0x44d29f) — and state 3 counts down one an update (0x44d35c) and goes back to 0 on
-//!   the update it reaches nothing (0x44d39f). So 240 updates of every stage are ones the box tests decline,
-//!   each of them asking the state byte first (0x44a333, 0x44a445, 0x44a8f2).
-//! - **A hit is state 2 with the count from nothing** (0x44ab84); at thirty 0x44cbf0 takes the life (0x44d100)
+//!   the update it reaches nothing (0x44d39f). So 240 updates of every stage are ones the box tests take no
+//!   life on, each of them asking the state byte first (0x44a333 and 0x44a445 answering 1, 0x44a900 0).
+//! - **A hit is state 2 with the count from nothing** (0x44ab84); once the hit's own count at
+//!   `[player+0xe2a68]` has run down to the miss (0x44cbf0), at thirty 0x44cbf0 takes the life (0x44d100)
 //!   and puts the player back at the start in state 1 with the count from nothing again (0x44d012 through
 //!   0x44d07a), which thirty later is state 3 as above.
 //! - **And states 1 and 2 move nothing** — 0x44c4b5 through 0x44c4cb step over the whole of the player's own
@@ -44,6 +45,8 @@ const UNTOUCHABLE_FOR: i32 = 0xf0;
 /// thirty of coming in, each until its count has reached thirty, and one fewer than the count of the state that
 /// runs down, whose first update already takes one off.
 const A_HIT_IS_SEEN_FOR: u32 = 30;
+/// The hit's own count this hit carries: what 0x44ab40 leaves for one bomb held (0x44ac2b).
+const THE_HITS_OWN_COUNT: i32 = 6;
 const COMING_IN_IS_SEEN_FOR: u32 = 30;
 const UNTOUCHABLE_IS_SEEN_FOR: u32 = UNTOUCHABLE_FOR as u32 - 1;
 
@@ -127,6 +130,7 @@ fn a_player_of_th08_comes_out_of_a_stages_build_untouchable_for_240_updates() {
             COMING_IN,
             "the stage's build did not leave the player coming in",
         );
+        game.presses_past_the_stages_end();
         game.frames_until("the player's first update", A_BUILD, || {
             game.image().what_the_player_is_doing() != COMING_IN
         });
@@ -144,9 +148,71 @@ fn a_player_of_th08_comes_out_of_a_stages_build_untouchable_for_240_updates() {
     });
 }
 
-/// **A hit, in the three states the game takes it through**: thirty updates of the hit, the life taken and the
-/// player back at the start coming in for thirty, and then untouchable — and not moving through the first two,
-/// with a direction held all the way.
+/// **A bullet hits where its box overlaps the player's**, 0x44a230 holding the bullet's centre ± half its size
+/// against `[player+0x38c]..[player+0x398]`, the player's position ± its own half, with `<=` and `>=` — so a
+/// bullet off the player's centre by less than the two halves together is a hit.
+#[test]
+fn a_bullet_of_th08_hits_where_its_box_overlaps_the_players() {
+    in_its_own_process(|| {
+        let game = in_a_run("th08-a-bullet-overlapping-the-player");
+        game.plays_its_own_stage();
+        game.frames_until("the player playing", 600, || {
+            game.image().what_the_player_is_doing() == PLAYING
+        });
+        let (x, y) = game.image().where_the_player_is();
+        game.image().the_players_half_is(A_WIDE_HALF);
+        game.a_bullet_stands_at((x + A_BULLETS_HALF + A_WIDE_HALF - 1.0, y));
+        game.frame();
+        assert_eq!(
+            game.image().what_the_player_is_doing(),
+            HIT,
+            "a bullet overlapping the player's box missed it",
+        );
+    });
+}
+
+/// **And a hit run out with no life left is the game over** — 0x44cbf0 writes `0x164d0bb` in place of taking
+/// the life (its `0x42f2b0() < 1`), which holds the run's update (0x439bc7 tests it with the pause) and puts the
+/// continue menu up (0x404890), and which orb reads as the game paused.
+#[test]
+fn a_hit_of_th08_with_no_life_left_is_the_game_over_and_holds_the_run() {
+    in_its_own_process(|| {
+        let game = in_a_run("th08-a-hit-with-no-life-left");
+        game.plays_its_own_stage();
+        game.frames_until("the player playing", 600, || {
+            game.image().what_the_player_is_doing() == PLAYING
+        });
+        let bombs = f32::from(game.state().bombs);
+        game.image().has_lives_and_bombs(0.0, bombs);
+        game.image().the_player_has_been_hit();
+        game.image().the_hits_own_count_is(THE_HITS_OWN_COUNT);
+        game.frames_until(
+            "the game over",
+            THE_HITS_OWN_COUNT as u32 + A_HIT_IS_SEEN_FOR + 4,
+            || game.state().paused,
+        );
+        assert_eq!(
+            game.state().lives,
+            0,
+            "the game over took a life it did not have"
+        );
+        let frames = game.state().stage_frames;
+        game.frames(10);
+        assert_eq!(
+            game.state().stage_frames,
+            frames,
+            "the run went on under the game over",
+        );
+    });
+}
+
+/// A player's half wider than the game's own, and the half of the laid-out stage's bullets, 8 across.
+const A_WIDE_HALF: f32 = 10.0;
+const A_BULLETS_HALF: f32 = 4.0;
+
+/// **A hit, in the three states the game takes it through**: its own count run down, the miss counted as it
+/// runs out, thirty updates of the countdown, the life taken and the player back at the start coming in for
+/// thirty, and then untouchable — and not moving through the first two, with a direction held all the way.
 #[test]
 fn a_hit_of_th08_is_the_hit_then_the_player_coming_in_then_untouchable() {
     in_its_own_process(|| {
@@ -156,7 +222,16 @@ fn a_hit_of_th08_is_the_hit_then_the_player_coming_in_then_untouchable() {
         let hit_at = (100.0, 300.0);
         game.image().the_player_is_at(hit_at);
         game.image().the_player_has_been_hit();
+        game.image().the_hits_own_count_is(THE_HITS_OWN_COUNT);
         game.keyboard().set(keys::UP, true);
+
+        // The count run down first, the countdown standing still under it, and the miss counted as it runs out.
+        game.frames(THE_HITS_OWN_COUNT as u32);
+        assert_eq!(
+            (game.image().the_hits_own_count(), game.state().deaths),
+            (0, deaths + 1),
+            "the hit's own count did not run down to the miss",
+        );
 
         // The first update of the hit, which moves the player nowhere on the held direction.
         game.frame();

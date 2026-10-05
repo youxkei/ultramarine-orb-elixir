@@ -365,3 +365,57 @@ fn a_run_of_th07_left_through_the_games_own_menu_has_its_cards_counted_too() {
         );
     });
 }
+
+/// **And a stage the run walks into writes nothing**: the save, the records emptied and the parse are 0x42e634,
+/// called at 0x42eae7 inside the block 0x42e894 jumps over where the scene asked for is the rebuild one. So what
+/// a run counted in its first stage is still only in memory once it is in its second, and the file holds what it
+/// held.
+#[test]
+fn a_stage_of_th07_a_run_walks_into_leaves_the_score_file_alone() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-cards-across-a-transition",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.image().its_score_file_holds(
+            THE_MODES_OWN,
+            A_CARD,
+            THE_RUNS_SHOT,
+            ATTEMPTS_BEFORE,
+            CAPTURES_BEFORE,
+        );
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+
+        game.the_boss_arrives();
+        game.a_card_starts(A_CARD, A_CARDS_NAME);
+        game.frames(30);
+        game.the_card_is_over();
+        game.the_boss_is_beaten();
+
+        let saves = game.image().times_it_was_asked_to_save();
+        game.moves_on_to_the_stage(1);
+        assert_eq!(
+            game.image()
+                .its_score_file_counts(THE_MODES_OWN, A_CARD, THE_RUNS_SHOT),
+            (ATTEMPTS_BEFORE, CAPTURES_BEFORE),
+            "the stage the run walked into wrote the score file:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image().card_attempts(A_CARD, THE_RUNS_SHOT),
+            ATTEMPTS_BEFORE + 1,
+            "the stage the run walked into lost what the run had counted:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image().times_it_was_asked_to_save(),
+            saves,
+            "orb asked for a save at a stage the run walked into:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}

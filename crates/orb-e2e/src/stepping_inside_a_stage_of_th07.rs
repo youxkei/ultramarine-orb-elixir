@@ -14,7 +14,7 @@
 //! `--during-replay`, which is the launch that has nobody to answer a retry menu and every chapter kept all the
 //! same.
 
-use crate::fake::th07::Fake;
+use crate::fake::th07::{A_PLAY_TAKES, Fake};
 use crate::fake::{Display, Launched, UPDATE, Work, in_its_own_process};
 use orb_config::LogLevel;
 
@@ -261,7 +261,9 @@ fn a_chapter_of_th07_taken_while_the_sound_is_mid_ask_calls_nothing_on_the_buffe
         // **And the song back, which is the half a count of calls cannot say.** A restore that leaves the
         // sound in a state the game cannot work with is one whose track never starts — and every arm of the
         // game's own play that meets a stream it does not own gives up quietly, so the track starting is what
-        // says the restore left something playable behind.
+        // says the restore left something playable behind. Once the frames a play takes are over, the ask being a
+        // command the player walks a phase a run.
+        game.frames(A_PLAY_TAKES);
         let started = game.image().music_started();
         assert!(
             started

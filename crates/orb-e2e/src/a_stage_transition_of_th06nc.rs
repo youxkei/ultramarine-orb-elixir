@@ -10,8 +10,10 @@
 //! **And the score is one field here and not two.** `0x14003c794` copies the manager's `+0x938` into the
 //! score a chapter records, which reads as a panel being caught up to a run — but two launches of
 //! `orb_real`'s `a_chapter_of_the_stage_after_the_first` read `+0x938` as nought across a boundary while
-//! the run's score stood at 2,555,010 and 3,188,720, so there is no second field for a transition to
-//! carry and none laid out. See `game::th06nc::game_manager::SCORE`.
+//! the run's score stood at 2,555,010 and 3,188,720 — the build's shared tail zeroing it at
+//! `0x14003ced2` and the stage's own job putting it back out of the drawn score at `0x14003beef` — so
+//! there is no second field for a transition to carry and none laid out. See
+//! `game::th06nc::game_manager::SCORE`.
 //!
 //! **Read out of the game's own code rather than off this tree**, because the laid-out game is both the
 //! writer and the reader of the memory orb is driven through: a transition that put a stage's numbers

@@ -727,3 +727,28 @@ fn the_fog_is_taken_off_to_the_device_every_frame_and_not_only_where_a_stage_lef
         );
     });
 }
+
+/// **The stage the supervisor hands the stage's build reaches that build through orb's hook over it**: the
+/// supervisor passes it in `ecx` (0x42f0ae) and the build keeps it at `[0x1347b00 + 0x4c8]` (0x4074fd), so a
+/// hook that took it off the stack, or wrote over `ecx` before calling on, leaves whatever the register held
+/// there instead.
+#[test]
+fn the_stage_th07s_supervisor_hands_on_reaches_the_stages_build() {
+    in_its_own_process(|| {
+        let game = Fake::attach(
+            Display::agreed(120),
+            "th07-the-stage-handed-on",
+            Work::wandering(WORK_US),
+        );
+        game.builds_the_stage(THE_THIRD_STAGE);
+        assert_eq!(
+            game.image().the_stage_the_build_kept(),
+            THE_THIRD_STAGE,
+            "the stage's build kept another stage than the one it was asked for",
+        );
+    });
+}
+
+/// orb's own 0-based number for a stage that is neither nought nor one, so that a stage kept from whatever a
+/// register held by chance is not mistaken for it.
+const THE_THIRD_STAGE: i32 = 2;

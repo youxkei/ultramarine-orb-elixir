@@ -98,6 +98,27 @@ fn the_screen_a_finished_run_of_th10_ends_at_opens_on_the_run_over() {
     });
 }
 
+/// **And the stage stands still under it**: the run's end puts up the game object's flag `0x10` (0x4233e4 for a
+/// run won, 0x423244 for a game over), the pause menu's own, which stops the chain's walk at the game object —
+/// so neither the stage's frames nor anything of the run below it goes on, and orb reads the game as paused.
+#[test]
+fn the_stage_of_a_finished_run_of_th10_stands_still_under_its_screen() {
+    in_its_own_process(|| {
+        let game = a_practice_won("th10-the-screen-stops-the-stage", true);
+        assert!(
+            game.state().paused,
+            "the game object's flag was not up under the screen the run ends at",
+        );
+        let frames = game.state().stage_frames;
+        game.frames(30);
+        assert_eq!(
+            game.state().stage_frames,
+            frames,
+            "the stage went on under the screen the run ends at",
+        );
+    });
+}
+
 /// And the states after it are the game's own, walked by presses, with orb's one write at the menu.
 #[test]
 fn the_screens_of_a_finished_run_of_th10_are_walked_to_the_menu_orb_writes_away() {

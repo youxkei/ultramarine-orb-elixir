@@ -88,8 +88,12 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     // carries — see [`laser::HALF_OF_ITS_WIDTH`], which is two halvings read off the exe.
     //
     // **A warning is handed over with the frames until it fires and not left out**: `0x14000e7a1` runs
-    // that test only once the frames have reached [`laser::HITS_FROM`], so one still warning hits
-    // nothing at all — and whether that is a frame to be elsewhere for is the bot's to decide.
+    // that test only once the frames have reached [`laser::HITS_FROM`], so one before that hits nothing
+    // at all — and whether that is a frame to be elsewhere for is the bot's to decide. Past it, a laser
+    // still in its warning is tested on a stub and not on its line: `0x14000e753` onwards works out `w′`
+    // — `frames × width ÷ +0x250` over the warning's last `min(30, +0x250)` frames, `1.2` before them —
+    // and `0x14000e793` writes `0.5 × w′` into the length's slot, so it hits `w′ ÷ 4` to either side of
+    // its midpoint along it. It goes across here with its whole line, which holds that stub.
     for slot in 0..laser::SLOTS {
         let beam = at(LASERS) + slot * laser::BYTES;
         if unsafe { mem::read::<u8>(beam + laser::IN_USE) } == 0 {
@@ -103,10 +107,12 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         let far = unsafe { mem::read::<f32>(beam + laser::FAR) };
         // **And what a fading one takes down is its own length and not its width**, which is the one
         // thing about this game's lasers no reading would have guessed: `0x14000e8bd` works out
-        // `width × (1 − frames ÷` [`laser::NARROWS_OVER`]`)` and writes it into the *length's* slot of
-        // the pair the test is handed — `[rsp+0x30]`, which `0x14004c95a` compares along the beam — so
-        // what is left of a fading laser is a stub of its own line about the middle of it, at the width
-        // it always had. `th06c/asm.md` has the registers.
+        // `width × (1 − frames ÷` [`laser::NARROWS_OVER`]`)`, halves it, and writes it into the
+        // *length's* slot of the pair the test is handed — `[rsp+0x30]`, which `0x14004c95a` halves
+        // again and compares along the beam — so what is left of a fading laser is a stub of its own
+        // line about the middle of it, at the width it always had. The test is run on it only while its
+        // frames are under the slot's own `+0x0` (`0x14000e8fb`); it goes across here as fading on every
+        // frame of the phase. `th06c/asm.md` has the registers.
         let (near, far) = match phase >= laser::FADING {
             true => {
                 let narrows = unsafe { mem::read::<i32>(beam + laser::NARROWS_OVER) };
@@ -286,8 +292,8 @@ pub unsafe fn in_a_stage() -> bool {
 }
 
 /// **Whether there is a run at all**, which is wider than a frame to steer in: a frame the game is
-/// holding everything on is a frame of a run all the same, and [`EVERYTHING_HELD`] is what a death's own
-/// animation sets.
+/// holding everything on is a frame of a run all the same, and [`EVERYTHING_HELD`] is what an enemy's
+/// script sets — its one write in the exe is the script instruction's at 0x14001cb1d.
 ///
 /// **The two are separate because a `play_until` ends where the run does.** Asked of the narrower one, a
 /// launch's own step ended on stage 5 with three lives left and the recipe closed the game after it: the
@@ -344,8 +350,10 @@ unsafe fn a_stage_is_the_scene() -> bool {
 }
 
 /// **Whether the replay in memory is one being played back**, which is [`A_REPLAY_IS_PLAYING`] and a
-/// question about that record rather than about the screen: the run's own start is what clears the byte
-/// and the demo's own hand-over is not, so it stands through the title the demo hands back to.
+/// question about that record rather than about the screen: the demo's own hand-over at `0x140037924`
+/// leaves the byte as it was, and what clears it is the run's own start (`0x14002cc77`) and the
+/// supervisor's update as it leaves its game state for the title or for a replay's end (`0x140058512`,
+/// `0x1400585c8`).
 ///
 /// # Safety
 /// Must run on the game's main thread.
@@ -364,11 +372,11 @@ pub unsafe fn the_playback_is_the_demo() -> bool {
 
 /// The field the player may move in, as its left, top, width and height.
 ///
-/// **[`PLAYER_AREA`] where it reads as a rectangle and the field's own size where it does not.** Nothing
-/// in the exe writes those four floats — see [`PLAYER_AREA`] — so whether the game fills them is a
-/// question this reading cannot answer off the exe, and a bot given a rectangle of nought would have
-/// nowhere to move. The fallback is the size every other comparison of a coordinate is made against,
-/// at the origin the player's own spawn is measured from.
+/// **[`PLAYER_AREA`] where it reads as a rectangle and the field's own size where it does not.** Those
+/// four floats are nought in `.data` until the stage callback writes them as a run starts — see
+/// [`PLAYER_AREA`] — and a bot given a rectangle of nought would have nowhere to move. The fallback is
+/// the size every other comparison of a coordinate is made against, at the origin the player's own spawn
+/// is measured from.
 ///
 /// # Safety
 /// Must run on the game's main thread.

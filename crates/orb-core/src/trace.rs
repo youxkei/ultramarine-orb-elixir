@@ -632,6 +632,24 @@ pub fn close() {
     }
 }
 
+/// **And the same as the process exits, which takes the lock only where it is free.** By the time `DllMain`
+/// hears the process detach every other thread has been ended where it stood, and one ended inside [`said`]
+/// holds the lock for good: a close that waited would hold the process's own exit. The chunk is still written
+/// wherever the lock can be had, a launch the game itself ended being one whose last frames are in that chunk
+/// alone — and a failure is not said, the log's own lock being in the same state.
+pub fn close_at_exit() {
+    let mut held = match TRACING.try_lock() {
+        Ok(held) => held,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return,
+    };
+    if let Some(tracing) = held.as_mut() {
+        let _ = flush(tracing);
+    }
+    *held = None;
+    ON.store(false, Ordering::Release);
+}
+
 /// Every record in a trace, in the order they were taken.
 ///
 /// **Refuses the whole file on a record it cannot read**, rather than answering the ones before it: a
@@ -684,6 +702,35 @@ mod tests {
             spans: vec![("gap".to_owned(), 8333), ("update".to_owned(), frame)],
             phases: vec![("steering".to_owned(), 2100)],
         }
+    }
+
+    /// **The close orb's detach makes returns with the trace's lock held by another thread**: at process exit
+    /// every other thread has been ended where it stood, and one ended inside [`said`] holds that lock for good
+    /// — a close that waited on it would hold the process's own exit.
+    #[test]
+    fn the_close_at_exit_returns_with_the_lock_held_by_another_thread() {
+        let (held, is_held) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _guard = tracing();
+            held.send(()).unwrap();
+            let _ = released.recv();
+        });
+        is_held.recv().unwrap();
+        let (closed, is_closed) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            close_at_exit();
+            let _ = closed.send(());
+        });
+        let returned = is_closed
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_ok();
+        release.send(()).unwrap();
+        holder.join().unwrap();
+        assert!(
+            returned,
+            "the close at exit waited on a lock another thread held"
+        );
     }
 
     #[test]

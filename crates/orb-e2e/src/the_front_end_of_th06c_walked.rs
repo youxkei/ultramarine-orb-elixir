@@ -19,8 +19,8 @@
 
 use orb_config::LogLevel;
 use orb_core::game::th06c::image::{
-    SCREEN_CHARACTER, SCREEN_DIFFICULTY, SCREEN_LOGO, SCREEN_ON_ITS_OWN, SCREEN_RANKING,
-    SCREEN_SHOT_SELECT, SCREEN_TITLE,
+    RESULT_RANKING, SCREEN_CHARACTER, SCREEN_DIFFICULTY, SCREEN_LOGO, SCREEN_ON_ITS_OWN,
+    SCREEN_RANKING, SCREEN_SHOT_SELECT, SCREEN_TITLE,
 };
 use orb_sim::keys;
 
@@ -111,6 +111,37 @@ fn a_launch_of_th06c_walks_its_logo_to_its_title_on_its_own() {
         );
     });
 }
+
+/// **And a press on the logo is taken only from its thirty-first update**, `0x1e` against the count
+/// 0x14002ccf0's logo case raises at the update's end: one landing before it goes unheard, one after it goes
+/// to the title.
+#[test]
+fn a_press_on_th06cs_logo_is_taken_only_once_it_has_been_up_thirty_updates() {
+    in_its_own_process(|| {
+        let game = launched("th06c-the-front-end-a-press-on-the-logo");
+        // Up for one update short of the thirtieth, so that the press lands on that one.
+        game.frames_until("the logo", FRAMES, || {
+            game.image().the_screen_the_front_end_is_on() == SCREEN_LOGO
+                && game.image().frames_the_screen_has_been_up() == LOGO_HEARS_NOTHING_FOR as i32 - 1
+        });
+        game.press(keys::Z);
+        assert_eq!(
+            game.image().the_screen_the_front_end_is_on(),
+            SCREEN_LOGO,
+            "a press on the logo's first updates was taken",
+        );
+        game.frames(LOGO_HEARS_NOTHING_FOR);
+        game.press(keys::Z);
+        assert_eq!(
+            game.image().the_screen_the_front_end_is_on(),
+            SCREEN_TITLE,
+            "a press on the logo once it had been up thirty updates went unheard",
+        );
+    });
+}
+
+/// The updates the logo takes no press for.
+const LOGO_HEARS_NOTHING_FOR: u32 = 0x1e;
 
 /// And the title's own Start item walks the difficulty, the character and the shot into a run.
 #[test]
@@ -246,3 +277,51 @@ fn the_score_item_of_th06c_puts_its_own_ranking_up() {
         );
     });
 }
+
+/// **And the ranking is a menu of seven, left by its last item**, as 0x14004ff40 walks it: up 0x14 updates
+/// before its menu takes a key, a decide on its first item opening a page of it rather than leaving, a cancel
+/// putting the cursor on the seventh, and a decide there going 0x3c updates later to the front end.
+#[test]
+fn the_ranking_of_th06c_is_left_by_its_seventh_item() {
+    in_its_own_process(|| {
+        let game = launched("th06c-the-ranking-left");
+        game.frames_until("the title", FRAMES, || {
+            game.image().the_screen_the_front_end_is_on() == SCREEN_TITLE
+        });
+        game.press_until(keys::DOWN, "the cursor on the Score item", || {
+            game.image().the_item_the_cursor_is_on() == ITEM_SCORE
+        });
+        game.press_until(keys::Z, "the Score item's screen", || {
+            game.image().the_screen_the_front_end_is_on() == SCREEN_RANKING
+        });
+        game.frames_until("the ranking's menu", FRAMES, || {
+            game.image().the_scene_now() == game.image().scene_of_the_ranking()
+                && game.image().the_state_the_screen_a_run_ends_at_is_in() == RESULT_RANKING
+        });
+        game.frames(A_MENU_TAKES_A_KEY_AFTER);
+        game.press(keys::Z);
+        assert_ne!(
+            game.image().the_scene_now(),
+            game.image().scene_of_the_front_end(),
+            "a decide on the ranking's first item left it",
+        );
+        game.frames_until("the ranking's menu again", FRAMES, || {
+            game.image().the_state_the_screen_a_run_ends_at_is_in() == RESULT_RANKING
+        });
+        game.press(keys::X);
+        assert_eq!(
+            game.image().the_characters_typed(),
+            THE_WAY_OUT,
+            "the cancel did not move the cursor"
+        );
+        game.press(keys::Z);
+        game.frames_until("the front end", THE_WAY_OUT_TAKES + 2, || {
+            game.image().the_scene_now() == game.image().scene_of_the_front_end()
+        });
+    });
+}
+
+/// The updates the ranking's menu takes no key for, its item that leaves, and the updates leaving takes.
+const A_MENU_TAKES_A_KEY_AFTER: u32 = 0x14;
+const THE_WAY_OUT: i32 = 6;
+const THE_WAY_OUT_TAKES: u32 = 0x3c;

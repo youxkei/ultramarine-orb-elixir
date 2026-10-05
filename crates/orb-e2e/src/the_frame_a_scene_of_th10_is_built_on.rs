@@ -3,8 +3,9 @@
 //!
 //! th08's switch puts its keys' words to nothing on its way through every case (0x445adf), so a key held across
 //! a scene is a press on the other side of it. **th10's does not**: the switch at 0x4218d0 writes no word of the
-//! input at `0x474e30`, whose only writer is the read itself (0x44a8bd through 0x44a926, and its repeat counts
-//! from 0x44a950) — so a key held across a scene is read against a frame before that held it too, and is a hold
+//! input at `0x474e30`, whose words the read itself writes (0x44a8bd through 0x44a926, its repeat counted at
+//! 0x44a8d2 through 0x44a90a) and whose repeat word the run's copy alone puts at nought besides (0x40ac29) — so a
+//! key held across a scene is read against a frame before that held it too, and is a hold
 //! on the other side and not a press. Which is `the_frame_a_scene_of_th06c_is_built_on.rs`'s answer, held here to
 //! the stage after one won, whose build runs on the loader thread while the supervisor goes on reading.
 

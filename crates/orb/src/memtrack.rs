@@ -67,20 +67,17 @@ pub unsafe fn install_process_heap(module: usize) -> Result<(), hook::Error> {
     }
     THE_GAMES_HEAP.store(heap as usize, Ordering::Relaxed);
     orb_api::mem::note_heap(heap as usize);
+    let [get_process_heap_import, realloc, free] = PROCESS_HEAP_IMPORTS;
     unsafe {
         hook::install_import(
             module,
             "KERNEL32.dll",
-            "GetProcessHeap",
+            get_process_heap_import,
             hook::address(get_process_heap as _),
         )?;
         for (function, replacement, original) in [
-            (
-                "HeapReAlloc",
-                hook::address(heap_realloc as _),
-                &HEAP_REALLOC,
-            ),
-            ("HeapFree", hook::address(heap_free as _), &HEAP_FREE),
+            (realloc, hook::address(heap_realloc as _), &HEAP_REALLOC),
+            (free, hook::address(heap_free as _), &HEAP_FREE),
         ] {
             let previous = hook::install_import(module, "KERNEL32.dll", function, replacement)?;
             original.store(previous, Ordering::Relaxed);
@@ -88,6 +85,18 @@ pub unsafe fn install_process_heap(module: usize) -> Result<(), hook::Error> {
     }
     Ok(())
 }
+
+/// The `KERNEL32.dll` imports [`install_process_heap`] swaps, and [`install`]'s — the lists an attach asks
+/// about whole before either is written, see `hook::can_install_imports`.
+pub const PROCESS_HEAP_IMPORTS: [&str; 3] = ["GetProcessHeap", "HeapReAlloc", "HeapFree"];
+pub const KERNEL32_IMPORTS: [&str; 6] = [
+    "HeapCreate",
+    "HeapAlloc",
+    "HeapReAlloc",
+    "HeapFree",
+    "VirtualAlloc",
+    "VirtualFree",
+];
 
 /// The exe's `GetProcessHeap`, answered with the game's own.
 unsafe extern "system" fn get_process_heap() -> HANDLE {
@@ -99,26 +108,14 @@ unsafe extern "system" fn get_process_heap() -> HANDLE {
 /// unrecorded. Patches `module`'s imports, so nothing else may be executing it.
 pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
     unsafe {
-        for (function, replacement, original) in [
-            ("HeapCreate", hook::address(heap_create as _), &HEAP_CREATE),
-            ("HeapAlloc", hook::address(heap_alloc as _), &HEAP_ALLOC),
-            (
-                "HeapReAlloc",
-                hook::address(heap_realloc as _),
-                &HEAP_REALLOC,
-            ),
-            ("HeapFree", hook::address(heap_free as _), &HEAP_FREE),
-            (
-                "VirtualAlloc",
-                hook::address(virtual_alloc as _),
-                &VIRTUAL_ALLOC,
-            ),
-            (
-                "VirtualFree",
-                hook::address(virtual_free as _),
-                &VIRTUAL_FREE,
-            ),
-        ] {
+        for (function, (replacement, original)) in KERNEL32_IMPORTS.into_iter().zip([
+            (hook::address(heap_create as _), &HEAP_CREATE),
+            (hook::address(heap_alloc as _), &HEAP_ALLOC),
+            (hook::address(heap_realloc as _), &HEAP_REALLOC),
+            (hook::address(heap_free as _), &HEAP_FREE),
+            (hook::address(virtual_alloc as _), &VIRTUAL_ALLOC),
+            (hook::address(virtual_free as _), &VIRTUAL_FREE),
+        ]) {
             let previous = hook::install_import(module, "KERNEL32.dll", function, replacement)?;
             original.store(previous, Ordering::Relaxed);
         }

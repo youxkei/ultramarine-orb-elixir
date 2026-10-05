@@ -71,6 +71,10 @@ const PAUSE: Range<usize> = 0x0487_0000..0x0487_0000 + 0x2c8;
 /// one (0x43baf0): addresses of this file's own, the object a word and the vtable every slot up to `Poll`'s.
 const PAD_DEVICE: Range<usize> = 0x0493_0000..0x0493_0000 + 0x10;
 const PAD_DEVICE_VTABLE: Range<usize> = 0x0493_1000..0x0493_1000 + 26 * 4;
+/// **And the keyboard it makes**, which it makes on the settings the game comes with (0x43b8d0): the same
+/// shape, addresses of this file's own.
+const KEYBOARD_DEVICE: Range<usize> = 0x0493_2000..0x0493_2000 + 0x10;
+const KEYBOARD_DEVICE_VTABLE: Range<usize> = 0x0493_3000..0x0493_3000 + 26 * 4;
 /// **The replay manager**, `0xb5` words its constructor zeroes (0x428f4d through 0x428f54).
 const REPLAY_MANAGER: Range<usize> = 0x0492_0000..0x0492_0000 + 0xb5 * 4;
 const ENEMY_MANAGER: Range<usize> = 0x0482_0000..0x0482_0000 + 0x68;
@@ -129,6 +133,13 @@ const SOUND_MANAGER: Range<usize> = 0x0049_2590..0x0049_2590 + 0x14b4 * 4;
 const COMMANDS: usize = 0x1f88;
 const COMMAND_BYTES: usize = 0x10c;
 const COMMAND_SLOTS: usize = 31;
+const COMMAND_ARGUMENT: usize = 0x4;
+const COMMAND_PHASE: usize = 0x8;
+/// **A play**, kind 2 — the one 0x420b10 queues for a song — and the two of its phases that matter: the one it
+/// plays in, 4 (0x43e17a), and the one past its last, 7 (`6 < phase` in 0x43ddf0's kind 2).
+pub const A_PLAY: u32 = 2;
+const A_PLAY_IS_HEARD_AT: u32 = 4;
+const A_PLAY_IS_DONE_AT: u32 = 7;
 /// **The two commands the pause object sends**: 6 as it opens (`push 6` at 0x422bd3) and 7 as its resume takes
 /// the pause off (`push 7` at 0x422c40).
 pub const THE_PAUSES_COMMAND: u32 = 6;
@@ -226,6 +237,13 @@ const GAME_TIMER_AS_A_FLOAT: usize = 0x18;
 /// gone-down at `+0x32` (0x4297e9 through 0x429809, 0x40ac7f).
 const INPUT_PRESSED: usize = 0x6;
 const INPUT_RELEASED: usize = 0x8;
+/// **And the auto-repeat at `+0x4`, with a count per bit from `+0xa`**: a bit held past 0x19 frames of its own count
+/// sets its repeat and takes eight off the count (0x44a8d2 through 0x44a90a), and a bit let go of puts its count
+/// back to nothing.
+const INPUT_REPEATED: usize = 0x4;
+const INPUT_HELD_FOR: usize = 0xa;
+const A_BIT_REPEATS_PAST: u16 = 0x19;
+const A_REPEAT_TAKES_OFF: u16 = 8;
 const RUN_WORD: usize = 0x2c;
 const RUN_WORD_BEFORE: usize = 0x2e;
 const RUN_PRESSED: usize = 0x32;
@@ -253,6 +271,11 @@ const PLAYER_STATE_FRAMES: usize = 0x478;
 /// as its float (0x4248c2). And where a death puts it back, `0xbb80` down (0x425cfc) — `480.0` (0x425d08).
 const THE_PLAYER_IS_BUILT_AT: (i32, i32) = (0, 0x9c40);
 const A_DEATH_PUTS_THE_PLAYER_AT: (i32, i32) = (0, 0xbb80);
+/// **What a death costs past the life**: the faith's floor, 5000 (`cmp esi,0x1388` at 0x426a16), the word at
+/// `0x474c98`'s step and its bound, `0x400` (0x426cb6), and the power the dying state takes, `0x40` (0x425ab6).
+const A_DEATHS_FAITH_FLOOR: i32 = 5_000;
+const A_DEATH_TAKES_OFF_474C98: i32 = 0x400;
+const A_DEATH_TAKES_OFF_THE_POWER: i16 = 0x40;
 /// **The player's half box**, half of `[0x476fb8 + character * 4]` (0x4249eb through 0x424a0b): `1.0` for Reimu,
 /// as `asm.md`'s table of the player has it.
 const REIMUS_HALF_BOX: f32 = 1.0;
@@ -433,7 +456,8 @@ pub enum Player {
 }
 
 /// **The flags of the game object this file writes**: `0x4` while its stage is built (0x41787a, 0x417c30) and
-/// `0x10` while the pause menu is up (0x422af4, 0x422c38).
+/// `0x10` from the pause menu's opening (0x422af4), the game over (0x423244) and a run ended by its clear
+/// (0x4233e4), which only the pause menu's resume takes off (0x422c38).
 const GAME_IS_BEING_BUILT: u32 = 0x4;
 const GAME_IS_PAUSED: u32 = 0x10;
 /// **And the flags of the run the build clears as it ends**, `& ~0xb` at 0x417c34.
@@ -484,6 +508,8 @@ impl Image {
             &REPLAY_MANAGER,
             &PAD_DEVICE,
             &PAD_DEVICE_VTABLE,
+            &KEYBOARD_DEVICE,
+            &KEYBOARD_DEVICE_VTABLE,
         ] {
             space.map(block.start, block.len(), Kind::Private);
         }
@@ -921,6 +947,31 @@ impl Image {
         space.write::<i16>(super::CFG_PAD_DOWN, 600);
     }
 
+    /// **The keyboard the input's set-up makes**, on the settings the game comes with: the device at `[0x491c38]`
+    /// with its vtable's `Acquire` and `Unacquire` the functions given, and bit `0x200` of the input's flags set
+    /// (0x43bac5 on) — which is what sends the read through it rather than `GetKeyboardState` (0x44a628).
+    pub fn the_input_set_up_makes_a_keyboard(&self, acquire: usize, unacquire: usize) {
+        let space = self.space();
+        space.write::<usize>(super::G_KEYBOARD_DEVICE, KEYBOARD_DEVICE.start);
+        space.write::<usize>(KEYBOARD_DEVICE.start, KEYBOARD_DEVICE_VTABLE.start);
+        for (slot, function) in [
+            (super::DEVICE_ACQUIRE, acquire),
+            (super::DEVICE_UNACQUIRE, unacquire),
+        ] {
+            space.write::<usize>(KEYBOARD_DEVICE_VTABLE.start + slot * 4, function);
+        }
+        let flags = space.read::<u32>(super::G_INPUT_FLAGS);
+        space.write::<u32>(
+            super::G_INPUT_FLAGS,
+            flags | super::INPUT_THROUGH_DIRECTINPUT,
+        );
+    }
+
+    /// Whether the read takes the keyboard through that device, bit `0x200` of the input's flags.
+    pub fn reads_its_keyboard_through_directinput(&self) -> bool {
+        self.space().read::<u32>(super::G_INPUT_FLAGS) & super::INPUT_THROUGH_DIRECTINPUT != 0
+    }
+
     /// **The DirectInput pad the read reads, and the two thresholds its axes are read against** — `None` where the
     /// input's flags say there is none.
     pub fn the_directinput_pad(&self) -> Option<(usize, i16, i16)> {
@@ -934,6 +985,9 @@ impl Image {
         })
     }
 
+    /// **The word the read stores**, as 0x44a5f0 stores it: the frame before's, this frame's, the buttons gone
+    /// down and those let go (0x44a8bd through 0x44a926) — and not the auto-repeat word at `+0x4` or its counters
+    /// from `+0xa` (0x44a8d2 through 0x44a90a).
     pub fn the_keys_read(&self, word: u16) {
         let space = self.space();
         let before = space.read::<u16>(super::G_INPUT);
@@ -941,9 +995,34 @@ impl Image {
         space.write::<u16>(super::G_INPUT, word);
         space.write::<u16>(super::G_INPUT + INPUT_PRESSED, (word ^ before) & word);
         space.write::<u16>(super::G_INPUT + INPUT_RELEASED, (word ^ before) & !word);
+        let mut repeated = 0;
+        for bit in 0..16 {
+            let at = super::G_INPUT + INPUT_HELD_FOR + bit * size_of::<u16>();
+            let held_for = match word & (1 << bit) {
+                0 => 0,
+                _ => space.read::<u16>(at) + 1,
+            };
+            let held_for = if held_for > A_BIT_REPEATS_PAST {
+                repeated |= 1 << bit;
+                held_for - A_REPEAT_TAKES_OFF
+            } else {
+                held_for
+            };
+            space.write::<u16>(at, held_for);
+        }
+        space.write::<u16>(super::G_INPUT + INPUT_REPEATED, repeated);
     }
 
-    /// The buttons gone down this frame, which is what every menu reads.
+    /// The buttons a menu moves its cursor on, which are those gone down this frame and those repeating —
+    /// `+0x6 | +0x4`, the way every menu of the game's reads its directions (0x422c80, 0x42d420 and their kin).
+    pub fn the_buttons_moving_the_cursor(&self) -> u16 {
+        let space = self.space();
+        space.read::<u16>(super::G_INPUT + INPUT_PRESSED)
+            | space.read::<u16>(super::G_INPUT + INPUT_REPEATED)
+    }
+
+    /// The buttons gone down this frame, which every menu takes decide and cancel off, and moves its cursor on
+    /// together with the auto-repeat word at `+0x4` (0x422d1c, 0x42d52b).
     pub fn the_buttons_gone_down(&self) -> u16 {
         self.space().read::<u16>(super::G_INPUT + INPUT_PRESSED)
     }
@@ -1300,15 +1379,17 @@ impl Image {
             .write::<i32>(G_THE_PRACTICE_SELECTS_CURSOR, cursor);
     }
 
-    /// **Whether the practice of a stage is offered**, the byte at `+0x5` of the entry for `difficulty * 6 +
-    /// stage` from `+0x4dc` of the shot type's record — the shot type `character * 3 + shot` — which the select's
-    /// decide reads (0x431124 through 0x431156), counted from nought.
-    pub fn the_practice_is_offered(&self, difficulty: i32, stage: i32) -> bool {
+    /// **Whether the practice under the select's cursor is offered**, the byte at `+0x5` of the entry for
+    /// `difficulty * 6 + cursor + 1` from `+0x4dc` of the shot type's record — the shot type `character * 3 +
+    /// shot` — which the select's decide reads: `[record + (cursor + difficulty * 6) * 8 + 0x4e9]` at 0x43114f,
+    /// the cursor counted from nought. One on from the cursor, because the clear writes the entry by the stage
+    /// counted from one (`[0x474c7c]` at 0x416c08), so entry nought is no stage's.
+    pub fn the_practice_is_offered(&self, difficulty: i32, cursor: i32) -> bool {
         let space = self.space();
         let shot_type =
             space.read::<i32>(super::G_CHARACTER) * 3 + space.read::<i32>(super::G_SHOT_TYPE);
         let record = SCORE.start + 0x8 + shot_type.max(0) as usize * RECORD_BYTES;
-        let entry = (difficulty * 6 + stage).max(0) as usize;
+        let entry = (difficulty * 6 + cursor + 1).max(0) as usize;
         space.read::<u8>(record + 0x4dc + entry * 8 + 0x5) != 0
     }
 
@@ -1653,12 +1734,22 @@ impl Image {
 
     /// **Every live enemy's scripts one step on**, the float the enemy update hands each of them — the game's
     /// speed — added to the time (0x40e0e9 through 0x40e0fe, 0x44fb96).
-    pub fn the_enemies_scripts_step(&self) {
+    ///
+    /// **Except the stage's own scripts while they wait for a boss**: the bodiless enemies running the stage
+    /// stand on the instruction that waits for one, 340, which holds their time where it is for the fight — stage 2's
+    /// stood at 5864 for its boss.
+    pub fn the_enemies_scripts_step(&self, the_stage_waits_for_its_boss: bool) {
         let space = self.space();
         let speed = space.read::<f32>(super::G_GAME_SPEED);
         let mut element = space.read::<usize>(ENEMY_MANAGER.start + super::ENEMY_LIST);
         while element != 0 {
             let enemy = space.read::<usize>(element);
+            if the_stage_waits_for_its_boss
+                && space.read::<u32>(enemy + super::ENEMY_FLAGS) & super::ENEMY_HAS_NO_BODY != 0
+            {
+                element = space.read::<usize>(element + super::ELEMENT_NEXT);
+                continue;
+            }
             let time = space.read::<f32>(enemy + super::ENEMY_SCRIPT_TIME);
             space.write::<f32>(enemy + super::ENEMY_SCRIPT_TIME, time + speed);
             element = space.read::<usize>(element + super::ELEMENT_NEXT);
@@ -1675,6 +1766,20 @@ impl Image {
             element = space.read::<usize>(element + super::ELEMENT_NEXT);
         }
         enemies
+    }
+
+    /// **The body an enemy is tested against the player with**, its position and its size — `None` where its flags
+    /// `0x12` skip the test or the frames its body is off for have not run out (0x40e2bd through 0x40e2ce).
+    pub fn the_body_of(&self, enemy: usize) -> Option<((f32, f32), (f32, f32))> {
+        let space = self.space();
+        if space.read::<u32>(enemy + super::ENEMY_FLAGS) & super::ENEMY_NO_BODY != 0
+            || space.read::<i32>(enemy + super::ENEMY_BODY_OFF_FOR) > 0
+        {
+            return None;
+        }
+        let [x, y, _] = space.read::<[f32; 3]>(enemy + super::ENEMY_POSITION);
+        let [w, h] = space.read::<[f32; 2]>(enemy + super::ENEMY_BODY);
+        Some(((x, y), (w, h)))
     }
 
     /// And `main`'s flags, which is the first of them.
@@ -1754,18 +1859,25 @@ impl Image {
 
     /// **A run over by a game over**, 0x4231d0 outside a replay: the pause object on the end of the run, with the
     /// run not cleared (0x423349). Whether its score ranks is the tally's to say (0x423570 from 0x42384a).
+    ///
+    /// **And the game object's flag `0x10` put up with it** (0x423244), the pause menu's own, which stops the
+    /// walk at the game object: the stage stands still under the screen.
     pub fn the_run_is_over_with_a_game_over(&self) {
         let space = self.space();
         space.write::<i32>(PAUSE.start + PAUSE_THE_RUN_WAS_CLEARED, 0);
         self.the_pause_is_in(Pause::TheRunIsOver);
+        self.the_game_is_paused(true);
     }
 
     /// **A run over by its clear**, 0x423370 outside a replay — a practice's stage won, or the Extra's: the pause
     /// object on the end of the run with the run cleared (0x4234ed).
+    ///
+    /// With the game object's flag `0x10` up as the game over's is (0x4233e4).
     pub fn the_run_is_over_cleared(&self) {
         let space = self.space();
         space.write::<i32>(PAUSE.start + PAUSE_THE_RUN_WAS_CLEARED, 1);
         self.the_pause_is_in(Pause::TheRunIsOver);
+        self.the_game_is_paused(true);
     }
 
     /// **The tally's placing of the run's score, 0x423570 past its Extra's stage words**: out of the ranking where
@@ -1832,6 +1944,11 @@ impl Image {
 
     /// **The sound's command queued**, 0x43e460: into the first slot of the queue that holds none.
     pub fn a_sound_command_is_queued(&self, command: u32) {
+        self.a_sound_command_is_queued_with(command, 0);
+    }
+
+    /// And one with its argument — the track a play is of — and its phase at nought.
+    pub fn a_sound_command_is_queued_with(&self, command: u32, argument: u32) {
         let space = self.space();
         let queue = super::G_SOUND_MANAGER + COMMANDS;
         if let Some(slot) = (0..COMMAND_SLOTS)
@@ -1839,12 +1956,17 @@ impl Image {
             .find(|at| space.read::<u32>(*at) == 0)
         {
             space.write::<u32>(slot, command);
+            space.write::<u32>(slot + COMMAND_ARGUMENT, argument);
+            space.write::<u32>(slot + COMMAND_PHASE, 0);
         }
     }
 
     /// **And the head carried out**, what 0x43ddf0 does once a frame where there is DirectSound (0x43de00): the
-    /// command done and the queue shifted up by one (0x43e0e5 through 0x43e110). Answers the command.
-    pub fn the_head_of_the_sound_queue_is_carried_out(&self) -> Option<u32> {
+    /// command done and the queue shifted up by one (0x43e0e5 through 0x43e110).
+    ///
+    /// **A play a phase a run**: kind 2 steps its phase and stays at the head, plays on the run its phase is 4 —
+    /// which is what this answers, the track to put the source on — and leaves on the one that finds it at 7.
+    pub fn the_head_of_the_sound_queue_is_carried_out(&self) -> Option<usize> {
         let space = self.space();
         if space.read::<usize>(super::G_SOUND_MANAGER + super::SOUND_DEVICE) == 0 {
             return None;
@@ -1854,6 +1976,14 @@ impl Image {
         if head == 0 {
             return None;
         }
+        if head == A_PLAY {
+            let phase = space.read::<u32>(queue + COMMAND_PHASE);
+            if phase < A_PLAY_IS_DONE_AT {
+                space.write::<u32>(queue + COMMAND_PHASE, phase + 1);
+                return (phase == A_PLAY_IS_HEARD_AT)
+                    .then(|| space.read::<u32>(queue + COMMAND_ARGUMENT) as usize);
+            }
+        }
         let rest = space.read_bytes(queue + COMMAND_BYTES, (COMMAND_SLOTS - 1) * COMMAND_BYTES);
         space.write_bytes(queue, &rest);
         space.fill_bytes(
@@ -1861,7 +1991,7 @@ impl Image {
             0,
             COMMAND_BYTES,
         );
-        Some(head)
+        None
     }
 
     /// **The sound up, as the game's start-up leaves it**: DirectSound's wrapper (0x43cda4 through 0x43cdd9), and the
@@ -1912,6 +2042,23 @@ impl Image {
             SOURCE.start + super::SOURCE_RECORD,
             TRACKS.start + track * TRACK_RECORD_BYTES,
         );
+    }
+
+    /// And the track the source is on, by its place among the records — `None` where it is on none of them.
+    pub fn the_track_the_stream_is_on(&self) -> Option<usize> {
+        let record = self
+            .space()
+            .read::<usize>(SOURCE.start + super::SOURCE_RECORD);
+        record
+            .checked_sub(TRACKS.start)
+            .filter(|at| at % TRACK_RECORD_BYTES == 0)
+            .map(|at| at / TRACK_RECORD_BYTES)
+            .filter(|track| *track < TRACK_NAMES.len())
+    }
+
+    /// Whether the sound's queue holds a command at its head.
+    pub fn the_sound_queue_holds_a_command(&self) -> bool {
+        self.space().read::<u32>(super::G_SOUND_MANAGER + COMMANDS) != 0
     }
 
     /// **And none of it**, which is the manager as its constructor zeroes it — the launch before its sound
@@ -2276,13 +2423,39 @@ impl Image {
     }
 
     /// **A death**, 0x4269d0: a life gone (0x426a15), the player dying (0x426a44) and nothing hitting it for `180`
-    /// frames (0x426ac4).
+    /// frames (0x426ac4). The power the dying state takes after it is [`Image::the_dying_takes_the_power`].
+    ///
+    /// **And the faith and the word at `0x474c98` with it**: a third of the faith above 5000 taken off, worked out
+    /// the way 0x4269d4 through 0x426a13 work it — a multiply by `0x55555555` and one by `0x66666667` — and held at
+    /// 5000 (0x426a2a); and `0x400` off the word, held to ±`0x400` (0x426caf through 0x426cde).
     pub fn the_player_dies(&self) {
         let space = self.space();
         let lives = space.read::<i32>(super::G_LIVES);
         space.write::<i32>(super::G_LIVES, lives - 1);
         self.the_player_is_in(Player::Dying);
         space.write::<i32>(PLAYER.start + super::PLAYER_UNHITTABLE_FOR, 180);
+        let faith = space.read::<i32>(super::G_FAITH);
+        let high = |value: i32, by: i64| ((i64::from(value) * by) >> 32) as i32;
+        let toward_nought = |value: i32| value + ((value as u32) >> 31) as i32;
+        let above = faith - A_DEATHS_FAITH_FLOOR;
+        let third = toward_nought((high(above, 0x5555_5555) - above) >> 1);
+        let taken = toward_nought(high(third * 10, 0x6666_6667) >> 2);
+        space.write::<i32>(super::G_FAITH, (faith + taken).max(A_DEATHS_FAITH_FLOOR));
+        let word = space.read::<i32>(super::G_474C98) - A_DEATH_TAKES_OFF_474C98;
+        space.write::<i32>(
+            super::G_474C98,
+            word.clamp(-A_DEATH_TAKES_OFF_474C98, A_DEATH_TAKES_OFF_474C98),
+        );
+    }
+
+    /// **The power the dying state takes**, on its third frame: `0x40` off, held at nought (0x425ab6 through
+    /// 0x425ac0).
+    pub fn the_dying_takes_the_power(&self) {
+        let space = self.space();
+        let power = space
+            .read::<i16>(super::G_POWER)
+            .wrapping_sub(A_DEATH_TAKES_OFF_THE_POWER);
+        space.write::<i16>(super::G_POWER, power.max(0));
     }
 
     /// **The player put back after a death with a life left** (0x425cf6 through 0x425d1e): at the bottom of the

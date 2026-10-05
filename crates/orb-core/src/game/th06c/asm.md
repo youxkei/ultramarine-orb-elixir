@@ -20,6 +20,8 @@ objdump -p th06c.exe                          # the DLLs it imports, and where e
 objdump -h th06c.exe                          # the sections and where they are loaded
 objdump -d --start-address=0x14009b960 --stop-address=0x14009b9e0 -M intel th06c.exe
 strings -a th06c.exe                          # the names it resolves at runtime, and its own file names
+analyzeHeadless <project dir> th06c -import th06c.exe -scriptPath <dir> -postScript DumpAll.java th06c.c
+                                              # every function decompiled, each headed `// FUNCTION <entry> <name> <size>`
 ```
 
 Its image base is `0x140000000` and every address below is a virtual address at that base.
@@ -141,19 +143,24 @@ is resolved inside the function that makes the device and left in `r15`.
 | **`GetKeyboardState`** | `0x140442908` | `0x140094f62` |
 | `XInputGetState` | `0x140441f90` | `0x14008b7b0` |
 | `XInputSetState` | `0x140441f98` | `0x14008b7cb` |
-| `CreateDXGIFactory2` | `0x1408971d8` | `0x1402522e9` |
-| `CreateDXGIFactory1` | `0x1408971d8` | `0x14025238b` |
-| `CreateDXGIFactory` | `0x1408971a0` | `0x14025242b` |
+| `CreateDXGIFactory2` | — kept in `rdi` | `0x1402522e9` |
+| `CreateDXGIFactory1` | — kept in `rdi` | `0x14025238b` |
+| `CreateDXGIFactory` | — kept in `rdi` | `0x14025242b` |
 | `D3D11CreateDevice` | — kept in `r15` | `0x140251b60` |
 
 **`GetKeyboardState` is the read a run is played by**, which is the one the whole 256-key snapshot comes
 through; `GetAsyncKeyState` is imported outright and is not it — see below. Both of the XInput calls are
-one site apiece, and the two factory slots are the same slot twice because the walk asks for the newest
-name first and falls back.
+one site apiece. **The three factory names have no slot**: each answer is kept in `rdi` and called
+straight away (`call rdi` at `0x140252329`, `0x1402523c9` and `0x140252463`), every lookup asking the
+DXGI module whose handle is at `0x1408971a0`, newest name first and falling back. What `0x1408971d8`
+holds is the **factory** the call makes: `CreateDXGIFactory2` writes it into `0x1408971e8` and
+`0x140252358` copies it across, `CreateDXGIFactory1` into `0x1408971e0` and `0x1402523f8` copies it, and
+the plain one is handed `0x1408971d8` itself (`0x140252455`).
 
 **And the frame is handed over through a swapchain's own vtable**, which no name resolves: `Present` is a
-method on what `CreateDXGIFactory*` and `D3D11CreateDevice` between them make, so where it is called from
-is a reading of the function at `0x140251ab0` onwards and not a slot in the table above.
+method on what `CreateDXGIFactory*` and `D3D11CreateDevice` between them make. Where it is called from is
+the thunk at `0x140251ac0` — `mov rax,[rcx]; jmp [rax+0x40]`, `IDXGISwapChain::Present`'s slot — and
+not a slot in the table above: see *The renderer's table of windows*.
 
 **What it draws with is a D3D11-class renderer**: `D3DCompiler_33.dll` through `D3DCompiler_47.dll` are
 named in `.rdata`, which is the fallback walk an app that compiles shaders at runtime makes, and so are
@@ -162,24 +169,35 @@ named in `.rdata`, which is the fallback walk an app that compiles shaders at ru
 
 ## The keyboard: one 256-byte state, filled two ways
 
-`0x14008e180` onwards is where a frame's keys are read, and what it fills is **the 256 bytes at
+`0x14008e0f0` is where a frame's keys are read, and what it fills is **the 256 bytes at
 `0x14042893c`**:
 
 | | |
 | --- | --- |
+| `0x14008e123`–`0x14008e164` | **which of the two paths is taken.** The `GetKeyboardState` path, at `0x14008e245`, where `[0x140441fa4]` is 1, or `[0x140441fe4]` is 1, or the object at `0x140441fd0` is nought, or `[0x140441fa8]` is nought with the build number at `0x140452438` at `0x108` or above; the device path otherwise |
 | `0x140441fd0` | an object whose vtable is called at `+0x48` with `(0x100, 0x14042893c)` — `0x14008e1c8`, again at `0x14008e1f6` — and at `+0x38` with nothing, `0x14008e1d9`. A device's own state read into that buffer, in other words, with an acquire between the two tries |
-| `0x14008e22c` | `GetKeyboardState` into a 256-byte buffer on the stack, whose `[rsp+0xc1]` — `VK_RSHIFT` — is kept at `0x140428972` |
-| `0x14008e285` | the same read again on the other path, after which `0x14042893c` is memset to nought (`0x1400bb280`, `(buffer, 0, 0x100)`) and filled out of that stack buffer through the table at `0x1402bc0b0`: 0x41 entries walked as words at `+0x2`, so a mapping from the game's own key numbers to virtual keys |
-| `0x140428938` | a timestamp the walk writes — `0x14008e20a` and `0x14008e269`, held against `timeGetTime`'s answer (`0x1404421c0`) at `0x14008e25d`. What it holds to one per tick is the walk; the `GetKeyboardState` that reaches it is made 66 times a second against a game that moves 60, which is measured below |
-| `0x140441fb8`, `0x140441fd8` | a handle each: the first decides whether the device path is taken at all (`0x14008e1a2`), the second is waited on through `WaitForSingleObject` (`0x1404422a8`) and reset through `ResetEvent` (`0x140442258`) |
+| `0x14008e22c` | on the device path, `GetKeyboardState` into a 256-byte buffer on the stack as well, whose `[rsp+0xc1]` — `VK_RSHIFT` — is kept at `0x140428972` |
+| `0x14008e245` | the `GetKeyboardState` path's first test: `GetCurrentThreadId` (the slot `0x140442290`) against the id at `0x140443af0`, which `0x14009a6be` writes as the window is set up, and the read returns with the buffer untouched on any other thread |
+| `0x14008e285` | that path's own `GetKeyboardState`, after which `0x14042893c` is memset to nought (`0x1400bb280`, `(buffer, 0, 0x100)`) and filled out of the stack buffer through the table at `0x1402bc0b0`, a mapping from virtual keys to the game's own key numbers |
+| `0x140428938` | a timestamp both paths write — `0x14008e20a` and `0x14008e269` — out of `timeGetTime` (the slot `0x1404421c0`). The `GetKeyboardState` path returns at `0x14008e263` where the millisecond is the one it last read; the device path returns at `0x14008e18b` only where the millisecond is the same **and** the event below is not signalled. So it holds the read to one per millisecond and not to one per frame: the `GetKeyboardState` that reaches it is made 66 times a second against a game that moves 60, which is measured below |
+| `0x140441fb8`, `0x140441fd8` | a handle each: inside the device path the first being nought returns at `0x14008e1a9` with the buffer untouched, and the second is waited on through `WaitForSingleObject` (`0x1404422a8`) with no timeout and reset through `ResetEvent` (`0x140442258`) |
 
 **And the buffer is indexed by DirectInput's own scan codes.** The table at `0x1402bc0b0` is what the
 `GetKeyboardState` path fills it through, walked at `0x14008e2c0`: six bytes an entry — a virtual key, the
-index to write it at, and two bytes of nought — ending at a key of `0xffff`. `A` is `0x41 -> 0x1e`, `B` is
+index to write it at, and two bytes of nought — and **110 entries** before the key of `0xffff` that ends it,
+the first key being the `0x41` loaded at `0x14008e2a2` rather than read. `A` is `0x41 -> 0x1e`, `B` is
 `0x42 -> 0x30`, `C` `0x43 -> 0x2e`, `D` `0x44 -> 0x20`, `E` `0x45 -> 0x12`, which is `DIK_A`, `DIK_B`,
-`DIK_C`, `DIK_D`, `DIK_E`. So the other path needs no translation at all, which is what says what it is:
-the object at `0x140441fd0` is a DirectInput keyboard, its `+0x48` is `GetDeviceState` with 256 bytes, and
-`GetKeyboardState` is the fallback for a machine it could not be made on.
+`DIK_C`, `DIK_D`, `DIK_E`. The shifts are `VK_LSHIFT` `0xa0 -> 0x2a` and `VK_RSHIFT` `0xa1 -> 0x36`, and
+**`VK_SHIFT`, `0x10`, has no entry**: a key held at `0x10` of the snapshot reaches nothing. So the other path
+needs no translation at all, which is what says what it is: the object at `0x140441fd0` is a DirectInput
+keyboard and its `+0x48` is `GetDeviceState` with 256 bytes.
+
+```sh
+python3 -c '
+import struct; d=open("th06c.exe","rb").read(); o=0x1402bc0b0-0x1402bb000+0x2b9c00; n=0
+while struct.unpack_from("<H", d, o+6*n)[0] != 0xffff: n+=1
+print(n)'
+```
 
 The five bytes the walk does not go through are the mouse's, read out of the same stack buffer by virtual
 key and kept apart: `VK_LBUTTON` at `0x14042aa44`, `VK_RBUTTON` at `0x14042aa45`, `VK_MBUTTON` at
@@ -203,8 +221,8 @@ select, 「モードを選択してね」 with Easy, Normal and Hard on it.
 **But the read is not the tick, and it is made more often than the game moves.** Counted directly,
 once orb had a hook on the frame to count against: **683, 692, 736, 761 and 773 reads against every
 600 walks of the calc chain**, which is the frame below. So between a seventh and a quarter of the
-reads see the world the read before them saw, and the timestamp at `0x140428938` holds the *walk* of
-the keys to one per tick and not the `GetKeyboardState` call that reaches it.
+reads see the world the read before them saw, the timestamp at `0x140428938` letting through any read
+made in a new millisecond.
 
 Counted against the wall clock instead, one launch's play step was asked for a word 62,400 times in
 944.9 seconds — 66.0 a second, the rate of each six hundred of them running from 61 to 76 as the load
@@ -228,26 +246,33 @@ surface.
 ## The one call of `GetAsyncKeyState` is not the run's own read
 
 `0x14009b992` is the only call of it in the exe, and the function it is in — `0x14009b960`, three
-arguments — is a filter over a keystroke somebody else read:
+arguments — is a **low-level keyboard hook**: `SetWindowsHookExW`, looked up by name into `0x1404428f8`,
+installs it with `WH_KEYBOARD_LL` (`0xd`) and keeps the hook at `0x1404513a8`, and only where
+`[0x1404513a4]` is 1. Its third argument is a `KBDLLHOOKSTRUCT`, `[rbx]` the virtual key and `[rbx+8]`
+the flags:
 
 | | |
 | --- | --- |
-| `0x14009b96f`, `0x14009b980` | two flags at `0x140443f60` and `0x1404513a4`, both against 1, and the function answers 0 where either is not set |
-| `0x14009b98b` | and where its first argument is not nought |
+| `0x14009b96f`, `0x14009b980` | two flags at `0x140443f60` and `0x1404513a4`, both against 1, and where either is not set the event is passed on |
+| `0x14009b98b` | and where its first argument, the hook code, is not nought |
 | `0x14009b98d` | `0x11` — `VK_CONTROL` — into `ecx` and the call, whose answer is taken by its sign bit (`sar edx,0xf`) |
-| `0x14009b9a0` onwards | its third argument's own `[rbx]` against `0x1b`, `0x09` and `0x73` — Escape, Tab and F4 — and the bits `0x20` and `0x80` of `[rbx+8]` |
-| `0x14009b9c1` | 1 where one of those matched, 0 at `0x14009b9d6` where none did |
+| `0x14009b9a0` onwards | the key against `0x1b`, `0x09` and `0x73` — Escape, Tab and F4 — and the flags' `0x20` (`LLKHF_ALTDOWN`) and `0x80` (`LLKHF_UP`) |
+| `0x14009b9c1` | 1, the event swallowed: Escape with Control held, Escape, Tab or F4 with Alt, and **any key's release**, whatever the key — `0x14009b9bb` tests `0x80` on every path |
+| `0x14009b9d6` | everything else, a tail jump into `CallNextHookEx` with the hook at `0x1404513a8` |
 
-Which is a shortcut being swallowed — Control with Escape, Tab or F4 — and not the word a run is played
-with. **So the keyboard a run acts on does not come through `GetAsyncKeyState` at all**, and the two
-flags above are worth reading for what turns that swallowing on.
+Which is the system's own shortcuts being swallowed, and not the word a run is played with. **So the
+keyboard a run acts on does not come through `GetAsyncKeyState` at all**, and the two flags above are
+worth reading for what turns that swallowing on.
 
 ## The dialog it puts up before it starts anything
 
-**Every launch, and whatever is beside the exe.** `DialogBoxIndirectParamW` is imported outright
-(`0x1402bb3b0`), with `EndDialog`, `CheckRadioButton`, `CheckDlgButton` and `IsDlgButtonChecked` beside
-it, so the template is built in memory rather than taken from `.rsrc`. Measured: a launch with the
-`th06.cfg` and `th06.env` an earlier launch wrote put the same dialog up again.
+**On a launch of a desktop, whatever is beside the exe — with two ways past it.** `DialogBoxIndirectParamW`
+is imported outright (`0x1402bb3b0`), with `EndDialog`, `CheckRadioButton`, `CheckDlgButton` and
+`IsDlgButtonChecked` beside it, so the template is built in memory rather than taken from `.rsrc`.
+Measured: a launch with the `th06.cfg` and `th06.env` an earlier launch wrote put the same dialog up again.
+The startup skips it where Steam's `IsSteamRunningOnSteamDeck` answers true (`0x14002c307`, which sets
+`[0x140bc28d4]` instead), and where the command line holds `--skip_start_dialog` (`0x14030cad0`, compared
+at `0x14002c3e1`) while the saved byte at `0x140bc28f8` is not nought.
 
 Its title is `東方紅魔郷：Classic` and it asks 「解像度を選択してください」. Read off the dialog while it
 was up — `EnumChildWindows` over it, each control's `GetDlgCtrlID`, class, text and `BM_GETCHECK`:
@@ -255,19 +280,23 @@ was up — `EnumChildWindows` over it, each control's `GetDlgCtrlID`, class, tex
 | control | what it is |
 | --- | --- |
 | `1` | 「ゲーム起動」, the button that starts the game — `IDOK` |
-| `200` | ボーダーレスウィンドウ, and the one the dialog comes up with checked |
+| `200` | ボーダーレスウィンドウ, and the one the dialog came up with checked |
 | `201`–`205` | フルスクリーン at 最大, 3840x2160, 2560x1440, 1920x1080, 1280x720 |
 | `206`–`210` | ウィンドウ at 2560x1920, 1920x1440, 1280x960, 960x720, 640x480 |
 | `400` | 「VSyncを有効」, a checkbox, and it comes up ticked |
 | `100`, `102`–`111` | the static labels beside them |
 
-**The radio buttons are read when the start button is pressed** and not as they are clicked, which is what
-makes the order matter: a launch that clicked `1` first would come up in whatever `200` opened on.
+**Which ones come up checked is the saved configuration's**: the dialog's procedure `0x140026ad0`, on
+`WM_INITDIALOG` (`0x140026b6e`), checks the radio `200` plus the mode index it is handed and ticks `400` by
+the byte after it, so `200` and a ticked `400` are what the launches above had saved. **The radio buttons
+are read when the start button is pressed** and not as they are clicked — `IsDlgButtonChecked` over
+`200`–`210` — which is what makes the order matter: a launch that clicked `1` first would come up in
+whatever the dialog opened on.
 
 ## It needs Steam running, not just `steam_appid.txt`
 
 `SteamAPI_RestartAppIfNecessary` is imported, so a process started outside Steam asks Steam to launch the
-game and exits. `steam_appid.txt` beside the exe — holding `4924840`, this game's app id — is what stops
+game and exits. `steam_appid.txt` beside the exe — holding `4771400`, this game's app id — is what stops
 that, and it is **not** what makes the API work: with Steam closed the game prints
 `SteamAPI_Init() failed. Steam must be running to play this game.` and exits with its own `log.txt` at the
 122 bytes of its header. With Steam running and logged in, the same launch reaches the dialog above.
@@ -280,11 +309,15 @@ that, and it is **not** what makes the API work: with Steam closed the game prin
 and `SteamInternal_ContextInit`. `orb::steam` answers them by name, so the order is nothing it reads.
 
 **Its startup is `0x140048940`**: `SteamAPI_RestartAppIfNecessary` at `0x14004894e` with the app id
-`0x48ce48` loaded at `0x140048949` — and `jne` to the exit at `0x140048984` where it answers true — then
+`0x48ce48` — 4,771,400 — loaded at `0x140048949` — and `jne` to the exit at `0x140048984` where it answers true — then
 `SteamInternal_SteamAPI_Init(0x14030d110, 0)` at `0x140048961`, whose `test eax,eax; je` takes **nought**
 as the good answer and anything else to the message above. Past those it takes `0x28` bytes for a callback
 object, fills it with the vtable at `0x14030d068` and the handler at `0x140048910`, hands it to
-`SteamAPI_RegisterCallback` at `0x1400489ec`, and keeps it at `0x140bc2a78`.
+`SteamAPI_RegisterCallback` at `0x1400489ec` for the callback `0x14b` — `GameOverlayActivated` — and keeps
+it at `0x140bc2a78`. The handler writes whether the overlay is up into the object's `+0x20`
+(`0x140048916`); the frame loop, where that byte is set, sets `[0x140bc2589]` (`0x14002c620`), which the
+game manager's update takes as a press of pause (`0x140023c0b`) and the calc walk clears again
+(`0x140025740`).
 
 **Four interfaces, each through a getter of its own**, and each getter has its own context block in
 `.data` whose first word is that getter:
@@ -292,7 +325,7 @@ object, fills it with the vtable at `0x14030d068` and the handler at `0x14004891
 | version string | getter | block |
 | --- | --- | --- |
 | `SteamUtils010` (`0x14030d0a8`) | `0x140048850` | `0x1403ef170` |
-| `STEAMUSERSTATS_INTERFACE_VERSION013` (`0x14030d0b4`) | `0x140048880` | `0x1403ef158` |
+| `STEAMUSERSTATS_INTERFACE_VERSION013` (`0x14030d0b8`) | `0x140048880` | `0x1403ef158` |
 | `STEAMAPPS_INTERFACE_VERSION009` (`0x14030d0e0`) | `0x1400488b0` | `0x1403ef128` |
 | `SteamInput006` (`0x14030d100`) | `0x1400488e0` | `0x1403ef140` |
 
@@ -305,7 +338,7 @@ two instructions to walk.
 
 | interface | slot | method | where, and what the answer does |
 | --- | --- | --- | --- |
-| Utils | `+0x110` | `IsSteamRunningOnSteamDeck` | `0x14002c2ff`; true sets `[0x140bc28d4]` at `0x14002c30d` |
+| Utils | `+0x110` | `IsSteamRunningOnSteamDeck` | `0x14002c2ff`; true sets `[0x140bc28d4]` at `0x14002c30d` and skips the dialog |
 | UserStats | `+0x48` | `StoreStats` | `0x14002c605`, in the frame loop behind a flag at `0x14002c5f0`; true clears `[0x1409552db]` |
 | Apps | `+0x20` | `GetCurrentGameLanguage` | `0x140048a5e`; the string is compared against `0x14030ccd8` onwards |
 | Input | `+0x00` | `Init` | `0x140048a49`, with `bExplicitlyCallRunFrame` false |
@@ -334,10 +367,21 @@ of an angle times a radius at `[rbx+0x64]`, and hand the result to the bullet ma
 this game's is read against those numbers and nothing has to be scaled.
 
 **Its width and height are read out of `.data` and not out of an immediate**: `0x1403ed024` and
-`0x1403ed028`, two floats the startup fills, and every comparison a coordinate is held against goes
-through them — `0x14000e13d` and `0x14000e164` in the bullet manager, `0x140020957` and `0x14002097e`,
-and `0x140049f09` onwards, which is where the player is put back. `0x1400079b6` and `0x1400079c5` turn
-the same two into integers, so they are the size in pixels.
+`0x1403ed028`, two floats, and every comparison a coordinate is held against goes through them —
+`0x14000e13d` and `0x14000e164` in the bullet manager, `0x140020957` and `0x14002097e`, and `0x140049f09`
+onwards, which is where the player is put back. `0x1400079b6` and `0x1400079c5` turn the same two into
+integers, so they are the size in pixels.
+
+**And they are not constant through a run.** They and the corner before them (`0x1403ed01c`, below)
+are initialised in `.data` to 32, 16, 384 and 448; the stage callback writes the same four as a run starts
+(`0x140024329` onwards), and so does the game manager's update as it opens the pause menu
+(`0x140023c1b`–`0x140023c39`). Between those, **`0x140055c70` moves them**: a calc-chain job's frame
+callback, built by six sites from `0x140009d1f` to `0x14000b7f2`, which for the frames its object's `+0x0`
+holds draws from the game's own generator (`0x14095538c`, `0x140055d25` onwards) and moves the corner
+and the size on one axis or the other by an amount that runs from its `+0x20` to its `+0x24`
+(`0x140055da5`, `0x140055dd9`, `0x140055e8c`, `0x140055ec4`), and puts back 32, 16, 384, 448 once the
+frames are done (`0x140055cc0`) or while `[0x1403ed7d2]` is set (`0x140055c7c`). So for those frames a
+bullet, an enemy and a life's start are held against a field of another size.
 
 **And the rectangle it is drawn in is `0x14030e260`**, four floats — `32`, `16`, `416`, `464` — loaded
 whole by one `movdqa` at `0x14000a194`, `0x140055c47` and `0x140056ae0`; `0x14030e278` holds `640` and
@@ -350,10 +394,12 @@ the field's own, with nothing added.
 in it names one constant and says nothing about what the constant is for. What a value's address *is*
 good for is the grep that finds the code loading it, which is how the two paragraphs above were read.
 
-**The bullet manager is a static at `0x140955410`**, `0xe8810` bytes of it, zeroed at
-`0x140024edd`–`0x140024eef` by the startup that registers every manager. That startup also puts its
-update at `[0x1403ec538]`, its draw at `[0x1403ec540]` and the manager itself at `[0x1403ec568]`, which
-is the callback chain this game runs a frame through.
+**The bullet manager is a static at `0x140955410`**, `0xf7c20` bytes of it: the startup that registers
+every manager zeroes the first `0xe8810` at `0x140024edd`–`0x140024eef`, writes a pointer
+(`0x14030c348`) at `+0xe8810` (`0x140024f17`), and zeroes the lasers' `0xf408` from `+0xe8818`. It also
+fills the static `ChainElem` at `0x1403ec530`: the update at `[0x1403ec538]`, the callback run as it is
+registered at `[0x1403ec540]`, the one run as it is taken out at `[0x1403ec548]` and the manager itself at
+`[0x1403ec568]`, which is the callback chain this game runs a frame through.
 
 Its update is `0x14000db90`, and the array is read off that function's own loop:
 
@@ -363,11 +409,11 @@ Its update is `0x14000db90`, and the array is read off that function's own loop:
 | how far apart | `0x5d0` — `add rbx,0x5d0` at `0x14000e4da` |
 | how many | `0x280`, six hundred and forty — `cmp ebp,0x280; jl` at `0x14000e4fb` |
 | how many are live | `[0x140955410 + 0xe8808]`, counted up per live one at `0x14000dccb` |
-| one bullet's step | `+0x08`, three floats — `rsi = rbx+8`, read at `0x14000dcf9` onwards |
-| one bullet's place | `+0x30`, three floats — `rdi = rbx+0x30`, written at `0x14000dd32` |
+| one bullet's step | `+0x08`, three floats — `rsi = rbx+8` (`0x14000dc4b`), read at `0x14000dcf9` onwards |
+| one bullet's place | `+0x30`, three floats — `rdi = rbx+0x30` (`0x14000dc58`), written at `0x14000dd32`; both registers move on with `rbx` by `0x5d0` a slot (`0x14000e4e1`, `0x14000e4e8`) |
 | **which of five states it is in** | `+0x44`, a word — `cmp WORD PTR [rbx+0x44], 0` at `0x14000dcc0`, and nought is a slot nothing is in; `0x14000dcd2` jumps on it |
-| the size the player's own test is given | `+0x5a4`, two floats, handed over at `0x14000e47e` beside the place — and that test halves what it is given |
-| whether it is armed | `+0x5c8`, a byte: nought runs `0x14004c3e0` and sets it to 1, and only then does `0x14000e47e` run the player's own test |
+| the size the player's own test is given | `+0x5a4`, two floats, handed over at `0x14000e47e` beside the place, the call at `0x14000e490` — and that test halves what it is given |
+| whether it has grazed the player | `+0x5c8`, a byte: nought runs the graze test `0x14004c3e0` (`0x14000e40f`) on the place and size, whose answer 1 sets it (`0x14000e419`) and whose 2 puts the bullet in state 5 and spawns an item of kind 6 (`0x14000e464`–`0x14000e470`); only while it is 1 does `0x14000e490` run the player's own test |
 | the frame it is on | `+0x28` and `+0x2c`, the second counting up and the first keeping what it was |
 
 **The state decides both whether it can hit and what its step is scaled by**, and there is no one
@@ -375,23 +421,31 @@ motion scale on this manager at all:
 
 | state | where it is moved | what its step is multiplied by | tested against the player |
 | --- | --- | --- | --- |
-| 1 | `0x14000e372` | nothing: `[+0x30] += [+0x8]` | **yes** — this is the only path that reaches `0x14000e3fb` and the two calls of `0x14004c690` |
-| 2 | `0x14000dd57` | `1.0 / 2.0` | no |
-| 3 | `0x14000dd6d` | `1.0 / 2.5` | no |
-| 4 | `0x14000dd7e` | `1.0 / 3.0` | no |
-| 5 | `0x14000dcf9` | nothing either: `[+0x30] += [+0x8]` | no |
+| 1 | `0x14000e372` | nothing: `[+0x30] += [+0x8]` | **yes** — this is the only path that reaches `0x14000e3fb`, the graze test and the one call of `0x14004c690` |
+| 2 | `0x14000dd57` | `1.0 / 2.0` | on the frame it becomes 1 |
+| 3 | `0x14000dd6d` | `1.0 / 2.5` | on the frame it becomes 1 |
+| 4 | `0x14000dd7e` | `1.0 / 3.0` | on the frame it becomes 1 |
+| 5 | `0x14000dcf9` | `0.5`: `[+0x30] += 0.5 × [+0x8]` | no |
 
 **The jump at `0x14000dcd2` is a chain of subtractions and not a table.** `0x14000dcd6` onwards takes
 `r15d` — one — off the state four times over, sending 1 to `0x14000de04`, 2, 3 and 4 to the divisor
-chain at `0x14000dd52`, and letting 5 fall through to `0x14000dcf9`, which is where the step is added
-whole.
+chain at `0x14000dd52`, and letting 5 fall through to `0x14000dcf9`.
 
-**State 5 was read as a half, and a run contradicted it.** `0x14000dd15`'s `mulss xmm1,xmm13` is in
-the code that fall-through reaches and `xmm13` is `0x14030dfc8`'s `0.5`, so the half looked like the
-answer — but what that block scales is `[rsi]`..`[rsi+8]` into `[rdi]`..`[rdi+8]` off the `rbx+0x490`
-the `lea` before it takes, and **not** the bullet's own `+0x8` into its `+0x30`. A launch said so
-outright: `the widest of them moved 3.30,5.38 saying 1.65,2.69, in the game's own state 5` — twice
-what a half predicts, on both axes.
+**States 2 to 4 are a bullet still coming out: each runs an animation of its own and becomes 1 when it
+ends**. The divisor chain hands `+0x160`, `+0x270` or `+0x380` to `0x1400062c0` with the scaled step
+added (`0x14000ddd3`), and where that answers non-zero `0x14000ddee` writes the state 1, `+0x2c` nought
+and `+0x28` -999 and falls into
+`0x14000de04`, state 1's own code. So on that frame the bullet is stepped twice — the scaled step and then
+the whole one — and tested against the player.
+
+**State 5 is moved by half its step and then cleared**: `xmm13` is `0x14030dfc8`'s `0.5`, and
+`0x14000dcf9`–`0x14000dd3c` adds `0.5 × [rsi]`..`[rsi+8]` into `[rdi]`..`[rdi+8]` — the bullet's own `+0x8`
+into its `+0x30`. The `lea rdx,[rbx+0x490]` at `0x14000dcfe` is the animation handed to `0x1400062c0` at
+`0x14000dd40`, and where that answers non-zero `0x14000e447` zeroes the whole slot. The hit test and the
+graze test send a bullet to state 5 (`0x14000e499`, `0x14000e464`), so it is the state of a bullet already
+spent — and one sent there has
+been moved its whole step that frame as state 1, so a bullet read in state 5 on its first frame of it has
+moved twice what the half says.
 
 **A flat half over all five is what one launch cost.** Read that way, the rules judged ten of ten
 bullets as moved by something other than their own step, so each was feared over the box it had just
@@ -414,7 +468,8 @@ held" flag rather than this manager's.
 of the bullet manager — which is that address — and the loop after the bullets' own runs sixty-four of
 them, `0x278` apart (`0x14000e690`, `0x14000e697`). A slot whose `+0x254` is nought holds nothing
 (`0x14000e570`), and `0x14000e66e` clears it once the near end has run off the far edge. The startup
-zeroes the region at `0x140024ef6` and `0x14000d920` is what walks it for a free slot.
+zeroes the region at `0x140024ef6` and `0x14000d920` is what walks it for a free slot, filling it from a
+descriptor — and starting it in phase 1 where its warning frames are nought (`0x14000db7a`).
 
 **What one is is a line and not a box**, which the player's own test for it says: `0x14004c890` turns
 the player's offset from the laser's origin by its angle — `sin` at `0x1402b6c80` and `cos` at
@@ -439,8 +494,8 @@ frame (`rdx`, `[rsp+0x40]` at the call site), the size pair (`r8`, `[rsp+0x30]`)
   turn that offset into `dx·cos + dy·sin` **along** the beam and `dy·cos − dx·sin` **across** it
 - `0x14004c95a` halves the pair's **first** float against the along axis and `0x14004c96c` its
   **second** against the across axis, so `[rsp+0x30]` is the length and `[rsp+0x34]` the width
-- `0x14004c94d` and `0x14004c95e` are the player's own half, `[0x140bbfc54]` and `[0x140bbfc58]`, read
-  straight and not halved
+- `0x14004c95e` and `0x14004c94d` are the player's own half, `[0x140bbfc54]` (`+0x7264`) along and
+  `[0x140bbfc58]` (`+0x7268`) across, read straight and not halved
 - the four `comiss`/`ja` at `0x14004c997` onwards are one box overlap: the player's box about the turned
   offset against the beam's about `rdx`
 - and **the origin goes into both sides of that comparison and cancels**: `0x14004c955` and
@@ -448,21 +503,29 @@ frame (`rdx`, `[rsp+0x40]` at the call site), the size pair (`r8`, `[rsp+0x30]`)
   put the same two into `[rsp+0x40]` and `[rsp+0x44]` beside the along midpoint — so what the test
   compares is the beam's own frame after all, `[near, far]` along it and the width across
 
-So the live path at `0x14000e5c2` hands over `(far − near, width × 0.5)` and the test halves both: the
-length is the two ends as they are read, and the width reaches a quarter of itself to each side.
+So the live path at `0x14000e5c2` hands over `(far − near, width × 0.5)` and the test halves both: in
+phase 1 the length is the two ends as they are read, and the width reaches a quarter of itself to each
+side.
+
+**A warning one is tested on a stub and not along its line.** In phase 0 with `+0x244`'s bit clear,
+`0x14000e753` onwards works out `w′` — `frames × width ÷ +0x250` over the last `min(30, +0x250)` frames of
+the warning, and `1.2` (`[0x14030dffc]`) before them — and `0x14000e793` writes `0.5 × w′` over
+`[rsp+0x30]`, the length's slot. So a warning laser past its `+0x26c` hits on a piece `w′ ÷ 4` to either
+side of its midpoint along it, and not on `[near, far]`.
 
 **And a fading one narrows by `frames / +0x18` of its width**: `0x14000e8bd` onwards reads `+0x4` and
 `+0xc`, works out `width × (1 − frames ÷ +0x18)`, halves it with the same `[0x14030dfc8]` and writes it
-to `[rsp+0x30]` — the length's slot rather than the width's, which is not what a narrowing beam would
-want and is written down here as what the exe does. `+0x108` beside it gets the same number times
-`[0x14030df9c]`, which is `0.0625`.
+to `[rsp+0x30]` — the length's slot rather than the width's, the same slot the warning writes.
+`+0x108` beside it gets the same number times `[0x14030df9c]`, which is `0.0625`. The test then runs
+only while `+0xc` is under the slot's own `+0x0` (`cmp ecx,[rbx]` at `0x14000e8fb`).
 
 | | |
 | --- | --- |
+| `+0x0` | **the frames of its last phase it hits for**, out of the descriptor's `+0x4` (`0x14000db75`) |
 | `+0x4` | **how wide it is**, and the test is given half — `0x14000e5dc` |
 | `+0x8`, `+0xc` | the frames it has been in its phase, the pair a `Timer` is |
 | `+0x10`, `+0x14` | **how far along it runs**, near end and far |
-| `+0x18` | **the frames it goes out over**, which the fraction above is of — and nought here skips the whole of that block (`0x14000e8bb`) |
+| `+0x18` | **the frames it goes out over**, which the fraction above is of — nought here skips the whole of that block (`0x14000e8bb`), and ends the slot as phase 1 does (`0x14000e872`) |
 | `+0x240` | **which way it points** |
 | `+0x24c` | **how much further the far end reaches each frame**, added straight on with no scale (`0x14000e57d`); the near end follows once the two are `+0x268` apart, and stops at nought |
 | `+0x244` | a flag the warning and the fading branches both test — `0x14000e71b` and `0x14000e87e` — and take another way where it is set |
@@ -472,7 +535,7 @@ want and is written down here as what the exe does. `+0x108` beside it gets the 
 | `+0x258` | **where it is fired from**, which is the pivot the test turns the player about |
 | `+0x268` | how long it is once grown |
 | `+0x26c` | **the frame of its first phase it starts hitting on**: `0x14000e7a1` runs the test only from there, so one still warning is drawn and hits nothing |
-| `+0x270` | its phase: nought is that warning, 1 fires every frame (`0x14000e847`), 2 fires and narrows (`0x14000e93d`), and past that `0x14000e664` turns it off |
+| `+0x270` | its phase: nought is that warning, 1 fires every frame (`0x14000e847`), 2 narrows and fires while `+0xc` is under `+0x0` (`0x14000e93d`) and clears the slot once `+0xc` reaches `+0x18` (`0x14000e94e`). A phase that ends moves on within the same frame. Whatever the phase, `0x14000e664` clears a slot whose near end is at `640.0` (`[0x14030e198]`) or past it |
 
 **And the origin at `+0x258` is not fixed for the life of a laser.** Nothing in the laser's own update
 writes it, so it is the script that fired the laser that moves it, and the Extra boss's scripts do: the
@@ -493,17 +556,16 @@ is not read at all**, so that beam hits every frame of its charge whatever `+0x2
 ## Every function's bounds, out of `.pdata`
 
 A 64-bit build carries a `RUNTIME_FUNCTION` for each function it can unwind, and this one's `.pdata` is
-nothing but those: three RVAs each — start, end, unwind info — from file offset `0x3a4000`, ending at the
-first entry whose start is nought. There are 3,664 of them, which is what makes a function's *start*
-answerable at all in an exe with no symbols: `objdump -d` gives one flat listing of `.text`, and walking
-backwards to the nearest `int3` finds a padding boundary rather than an entry.
+nothing but those: three RVAs each — start, end, unwind info — from file offset `0x3eda00`, filling the
+section's `0xd398` bytes with no terminator. There are 4,514 of them, which is what makes a function's
+*start* answerable at all in an exe with no symbols: `objdump -d` gives one flat listing of `.text`, and
+walking backwards to the nearest `int3` finds a padding boundary rather than an entry.
 
 ```sh
 python3 -c '
 import struct; d=open("th06c.exe","rb").read()
-for i in range(0, 0xabc0, 12):
-    b,e,_ = struct.unpack_from("<III", d, 0x3a4000+i)
-    if b==0: break
+for i in range(0, 0xd398, 12):
+    b,e,_ = struct.unpack_from("<III", d, 0x3eda00+i)
     print(f"0x{0x140000000+b:x} 0x{0x140000000+e:x} {e-b:#x}")'
 ```
 
@@ -516,9 +578,11 @@ another module is read the same way against that module's exports:
 objdump -p /mnt/c/Windows/System32/ntdll.dll   # the export table, to find the name below an offset
 ```
 
-**Adjacent entries are often one function and not several.** `0x140049ea0`–`0x14004b398` comes back as
-nine entries whose ranges touch, and the code runs straight through every boundary: the extra entries are
-chained unwind info for a function whose prologue is too long for one. So a listing says where a function
+**Adjacent entries are often one function and not several.** The player's frame callback
+`0x14004a4b0` comes back as nine entries whose ranges touch, to `0x14004b799`, and its register
+`0x140049ea0` as four to `0x14004a472`, and the code runs straight through every boundary: the extra
+entries are chained unwind info for a function whose prologue is too long for one. Between the two runs,
+past a gap either side, is a third function, the taken-out callback `0x14004a480`–`0x14004a4a5`. So a listing says where a function
 *can* begin and the instruction at that address says whether it does — a `mov [rsp+0xd8],r13` with `rdi`
 already holding an object is inside one.
 
@@ -546,8 +610,9 @@ exe make before they walk.
 | `+0x38` | what the three callbacks are called on |
 
 **And the priority is what settles the order of a frame**, which three of them are read off their own
-registrations: the input job at `0x140058330` writes nought (`xor edi,edi` at `0x14005884f`, `mov [rbx],di`
-at `0x1400588d1`), the player writes 7 (`mov esi,0x7` at `0x140049cb1`, `mov [rbx],si` at `0x140049d3e`)
+registrations: the supervisor's update at `0x140058330` — the job the word is built in — writes nought
+(`xor edi,edi` at `0x14005884f`, `mov [rbx],di` at `0x1400588d1`), the player writes 7 (`mov esi,0x7` at
+`0x140049cb1`, `mov [rbx],si` at `0x140049d3e`)
 and the bullets write 11 (`mov r13d,0xb` at `0x140024f4f`, `mov [0x1403ec530],r13w` at `0x140024f5f`).
 Ascending order, so one walk of the chain builds the word, then moves the player on it, then moves each
 bullet and tests it against the player where it now stands.
@@ -566,16 +631,22 @@ named ones and for nothing else in the table.
 | --- | --- | --- | --- | --- |
 | `0x140049d30` | `0x140bb89f0` — **the player** | `0x14004a4b0` | `0x140049ea0` | `0x14004a480` |
 | `0x140024f3a` | `0x140955410` — **the bullets** | `0x14000db90` | `0x14000f010` | `0x14000f2c0` |
-| `0x14000f3e0` | `0x140b7d260` | | | |
 | `0x14001787b` | `0x140a7e030`, `0x140a4d030` | `0x140017630` | `0x140017720` | `0x140017800` |
 | `0x140017fc1` | | `0x140018110` — **the ending** | `0x140018c40` | `0x140018ec0` |
 | `0x14002052c` | `0x140a7e1e0` | `0x140020780` | `0x140021890` | `0x140021980` |
 | `0x140036ee5` | `0x140ba73c0` | `0x14002ccf0` | `0x140037050` | `0x140037970` |
-| `0x140039b55` | `0x140bc60a8`, `0x140bc2cf0` | `0x140039ca0` | `0x14003a200` | `0x14003a980` |
+| `0x140039b55` | `0x140bc2c50` | `0x140039ca0` | `0x14003a200` | `0x14003a980` |
 | `0x14004d260` | | `0x14004d800` | `0x14004d940` | `0x14004dc00` |
 | `0x14004fdf3` | | `0x14004ff40` | `0x1400544a0` | `0x140054ab0` |
 | `0x140057334` | `0x1403eef30` | `0x140056160` | `0x140056e90` | `0x140057550` |
-| `0x1400588c6` | `0x140bc2ae0`, `0x140bc2580` | `0x140058330` | `0x140058a00` | `0x140058e40` |
+| `0x1400588c6` | `0x140bc2580` — **the supervisor** | `0x140058330` | `0x140058a00` | `0x140058e40` |
+
+**The player has two more, in the draw chain**: `0x14004bd40` at priority 5 and `0x14004bfd0` at 7,
+registered at `0x140049dc8` and `0x140049e29`. **And the item manager `0x140b7d260` is on no chain**: the
+bullets' update walks it itself, `0x14002aa70` on `0x140b7d260` from `0x14000dbc7`. `0x14000f340`, which
+walks the calc chain from `0x1403ec5f0` (`0x14000f3e0`) and then the draw chain from `0x1403ec5b0`
+(`0x14000f524`), calls `0x14000f620` and each element's taken-out callback on every one and frees it, is
+the teardown the frame loop runs once as it leaves (`0x14002c63f`).
 
 **And which job an ending is was read off a launch and not off the exe**, which is the way to anything of
 this game that neither moves nor is pointed at. `th06ED.dat` is the file one reads, and its string at
@@ -599,9 +670,9 @@ whether the chain holds this callback. The screen a run ends at is registered on
 leaves, which is what `0x14004ff40` appearing at `f106680` is.
 
 **And `0x14030e260`'s own statics are past the end of `.data`'s raw bytes.** `objdump -h` says `.data` is
-`0xca600` long, which is what is *in the file*; the managers above sit from `0x140955410` to
-`0x140bc60a8`, so the section's virtual size runs to `.pdata`'s `0x140bc7000` and everything between is
-zero-filled at load. A read of the game's state that only looks at `.data`'s raw extent finds none of
+`0xcb600` long, which is what is *in the file*; the managers above sit from `0x140955410` to
+`0x140bc60a8`, so the section's virtual size, `0x8a24d4`, runs to `0x140bc64d4` just short of `.pdata`'s
+`0x140bc7000`, and everything past the raw bytes is zero-filled at load. A read of the game's state that only looks at `.data`'s raw extent finds none of
 them — measured: a search for the player's position over `0x140324000`–`0x1403ef590` and the private
 heap came back with heap addresses and no static one.
 
@@ -610,7 +681,8 @@ heap came back with heap addresses and no static one.
 **The loop is `0x14002c5b7`..`0x14002c639`**, four calls and a jump back: something of the window's
 (`0x140099a70`, handed two pointers into the frame's own stack), `0x14009ca50`, Steam's
 `SteamAPI_RunCallbacks` through `[0x1402bb480]`, and then **the frame at `0x1400258a0`**, which it leaves on a non-zero answer from
-that or from `0x1400a14e0`. Nothing in the loop waits: what paces a run is inside the frame.
+that or from `0x1400a14e0`, or where the byte at `0x140955344` is set; leaving runs the teardown
+`0x14000f340` at `0x14002c63f`. Nothing in the loop waits: what paces a run is inside the frame.
 
 **And the frame is this, in order:**
 
@@ -618,25 +690,30 @@ that or from `0x1400a14e0`. Nothing in the loop waits: what paces a run is insid
 | --- | --- |
 | `0x1400258bb` | the view: nought for the corner at `0x140bc28fc` and `0x280` by `0x1e0` — 640 by 480 — at `0x140bc2904` and `0x140bc2908`, and then **`0x1400591d0`**, which flushes the sprites the renderer's batch holds (below), hands `0x140075940` the corner, the corner plus the size and the two floats at `0x140bc290c` and `0x140bc2910`, and puts the matrix in place: `0x1400d05a0`, whose answer is a `0x40`-byte matrix copied to its stack, and `0x1400778a0` after it |
 | `0x1400258e0` | **the calc chain walked, unconditionally** — `0x1400256b0` |
-| `0x140025900` | and walked **again up to seven more times**, `cmp ebx,0x7`, while `[0x1403ed7b8]` is set, `[0x1403ed7d1]` and `[0x1403ed7cc]` are clear, `[0x140bc28ac]` is 2 and `[0x140955390]` has `0x8000` |
-| `0x140025992` | how many of those to run, out of the sound: `0x1400a4700` and `0x1400a4600` answer a position in samples, `0xac44` — 44,100 — stands in where the first answers nothing, and `0x1400a9660` is handed the result |
+| `0x140025900` | and walked **again up to seven more times**, `cmp ebx,0x7`, while `[0x1403ed7b8]` is set, `[0x1403ed7d1]` and `[0x1403ed7cc]` are clear, `[0x140bc28ac]` is 2 and `[0x140955390]` has `0x8000` — each extra walk counted up in `0x1403eea60` (`0x14002594f`). A calc walk answering non-zero ends the frame there (`0x1400258e7`, `0x14002593f`) |
+| `0x140025968` | **the music caught up after a fast-forward**: on a frame that made no extra walk, while `0x1403eea60` is above nought, a track is playing (`0x1403eea3c`, `0x1403eea4c`), the count is cleared and the music seeked with `0x1400a9660` to its position (`0x1400a4600`) plus its rate (`0x1400a4700`, `0xac44` — 44,100 — where that answers nothing) over sixty times the walks counted, wrapped inside the loop at `0x1403eea50`..`0x1403eea58` where `0x1403eea4d` is set |
 | `0x140025a2d` | **the draw chain walked, inlined** — `lea rdi,[0x1403ec5b0]` and the same walk as below, in the frame's own code and not in a function of its own, with the renderer's batch of sprites flushed after every job |
-| `0x140025abb` | `0x140025af0`, which is the frame's own timing: it calls a clock through the pointer at `0x140bc2a80`, averages over `0x5f` of them and divides by a hundred |
+| `0x140025abb` | `0x140025af0`, which is the frame's own timing: it calls `0x1400592d0` and `0x1400755c0`, and then a clock through the pointer at `0x140bc2a80` |
 
-**And that timing is a frame limiter and not only a measurement.** `0x140025c00` onwards works out how far
-off its own deadline the frame is, turns that into a wait with the frequency at `0x140bc2a98`, and calls
-the pointer at `0x140bc2a90` with it — then reads the clock again and waits some more while anything is
-left, and finally `0x140025c54` spins on `pause` until the deadline itself. So a frame of this game holds
+**And that timing is a frame limiter and not only a measurement.** It keeps an epoch at `0x140bc2ac8`
+and a count of frames since it at `0x140bc2ad0`, so each deadline is `epoch + count × [0x140bc2aa0]`, and
+a frame more than one period late starts a new epoch instead of waiting (`0x140025b6a`). Otherwise
+`0x140025c00` onwards works out how far off the deadline less the margin at `0x140bc2ab8` the frame is,
+turns that into nanoseconds with the frequency at `0x140bc2a98`, caps it at 95% of `[0x140bc2ab0]`
+(`imul ...,0x5f` at `0x140025bab` and a division by a hundred), and calls the pointer at `0x140bc2a90`
+with it — then reads the clock again and waits some more while anything is left, and finally
+`0x140025c54` spins on `pause` until the deadline itself. So a frame of this game holds
 sixty a second by sleeping and then spinning, and orb's own loop does not call it at all: measured, it was
 `14.7ms` of a `16.6ms` frame, and a launch at `--pace=2` ran at sixty a second like every other until it
 was left out. What goes with it is the `60.00fps` the game draws in its own corner, which the same
-function works out and formats (`0x1400219b0` at `0x140025d23`).
+function works out over windows of half a second of `0x140090330`'s clock and formats (`0x1400219b0` at
+`0x140025d23`). Past that it serves the renderer's request at `+0x1c608` through `0x140007620` and counts
+`0x140bc258c` down by one.
 
-**So a run's rate is the sound's**, not the display's and not a sleep: the frame runs as often as the
-loop gets round to it and the calc chain is walked as many times as the samples played say it should
-be. Which is what a launch at `--pace=2` measured — 66.0 words a second asked of the rules became
-136, and stage 1 took 79 seconds against 169 — the clocks orb answers being what the sound's own
-position is read against.
+**So a run's rate is the limiter's, and the sound follows it**: the calc chain is walked once a frame and
+more only in a fast-forward, and the music is moved on to where the extra walks have taken the run, not
+the run to where the music is. What a launch at `--pace=2` measured is the rate of the whole: 66.0 words
+a second asked of the rules became 136, and stage 1 took 79 seconds against 169.
 
 ### The chain walk
 
@@ -648,15 +725,21 @@ what the callback answers decides what the walk does next:
 | --- | --- |
 | 2 | call it again, without moving on — `je` straight back to the call |
 | 0 | take the element out: `0x14000f620` with the element in `rdx` and the walk already moved on |
-| 1 | start the walk over from the head (calc only) |
-| 3, 4, 5 | end the walk, each with its own answer for the frame |
+| 1, and any other | move on to the next element (`0x140025707`) |
+| 6 | start the walk over from the head (calc only, `0x140025705`) |
+| 3 | end the walk, and the frame carries on |
+| 4 | end the walk with `1` written to the frame's out value and a non-zero answer, which ends the frame and the loop with it (`0x14002c630`) — as a walk does that reaches its end with no element having answered 0 or 1 |
+| 5 | the same with `2` written (`0x140025724`, `0x1400257b7`) |
+
+In the draw walk (`0x140025a8e`–`0x140025aa8`) 3, 4 and 5 all end the walk, every other answer but 0 and
+2 moves on, and the frame answers nought either way (`0x140025ac0`).
 
 **And the draw walk draws what each job queued before it acts on the answer**, anything but the 2 that
 calls it again. Every draw of this build queues its sprites into a batch at the end of the renderer's own
 block — `0x32ba8` bytes where the build before had `0x22c40`, `mov ecx,0x32ba8` at `0x14002c571` — and
 nothing reaches the screen until the batch is flushed: `0x140025a51`..`0x140025a88` read the renderer out
 of `0x1409552d0`, and where its count at `+0x32b9c` is above nought call `0x140062330(renderer + 0x22c3c,
-count, 4, [renderer + 0x32ba0], 1)` and zero the count. 136 sites touch that count, the batch being how
+count, 4, [renderer + 0x32ba0], 1)` and zero the count. 78 instructions touch that count, the batch being how
 the whole of the drawing now goes; `0x1400591d0` flushes it too, before it moves the viewport, and
 `0x140059160` is a second wrapper round the same flush.
 
@@ -666,10 +749,11 @@ what a transition is — is reached in that same walk. **Which is why a scene of
 update on the frame it was built on**, and why `State::stage_frames` reads one rather than nought on the
 first frame orb sees a stage.
 
-**And the calc walk is where the frame's queued sound effects go**: `0x140025734` onwards walks the
-three dwords at `0x1403eea40`, each an index into `0x1403eec64`, and hands every one that is not
-`-1` to `0x1400a7e60` as `(index, 1, 1)` — the same job th06 1.02h does in
-`SoundPlayer::PlaySounds` after its own update.
+**And the calc walk is where the frame's queued sound effects go**: where the byte at `0x140bc28c7` is
+set (`0x140025734`), `0x140025760` onwards walks the three dwords at `0x1403eea40` up to the first
+negative one, puts each back to `-1`, maps it through the table at `0x1403eec64` and hands the mapped
+value to `0x1400a7e60` as `(sound, 1, 1)`, passing over one that maps to `-1` — the same job th06 1.02h
+does in `SoundPlayer::PlaySounds` after its own update.
 
 **What that leaves for orb is an update to stand in and no draw to stand in.** The calc chain has a
 function of its own, so one call per walk is a seam a patch can take; the draw chain is inlined in
@@ -708,12 +792,13 @@ own end**: `0x1400a8036` hands `0x140497f10` to `0x1400e22a0` while holding `0x1
 lock before it plus `0x230`.
 
 **The block's bounds are where the references stop.** Every address anything in the exe reaches in
-`0x140496f80`–`0x140498f80` lies between `0x1404979b4` and `0x1404987a8`, and every instruction that
-reaches one is at `0x1400a14xx` or past it — the sound library's own code, and the runtime helpers at
-`0x14024xxxx`. Not one of the game's own functions touches a byte of it:
+`0x140496f80`–`0x140498f80` lies between `0x1404979b4` and `0x1404987a8` — 415 instructions — and every
+instruction that reaches one is at `0x14009fbcd` or past it: the library code the game is built over,
+the sound library's from `0x1400a1xxx` on, and the runtime helpers at `0x14024xxxx`. Not one of the
+game's own functions touches a byte of it:
 
 ```sh
-objdump -d -M intel th06c.exe | grep -oE '^ *1[0-9a-f]+:.*# 0x14044[de][0-9a-f]+'
+objdump -d -M intel th06c.exe | grep -oE '^ *1[0-9a-f]+:.*# 0x14049[6-8][0-9a-f]{3}$'
 ```
 
 **Which is why orb holds the whole of it back from a restore.** A chapter put back over a lock says a
@@ -742,6 +827,27 @@ indexes it off `0x1407e3750`, so the fields read there as `+0x150` onwards; off 
 | `+0x108` | the render target view made of it | `0x140235573` |
 | `+0x110` | a second view made of it | `0x140235598` |
 
+**And `0x14023b630` is what presents**: `0x14023bde1` calls the thunk `0x140251ac0` — `jmp [rax+0x40]`,
+`IDXGISwapChain::Present` — on the entry's `+0x18`, with a sync interval of 1 where `[0x1403ef704]` is
+nought and of nought otherwise (`0x14023bdd2`). The thunk has three other callers, `0x14021e681`,
+`0x140222fef` and `0x14023c696`.
+
+**What orb presents through needs none of those addresses**: `0x1402522e9` asks `GetProcAddress` for
+`CreateDXGIFactory2` — the string is at `0x1402c9860`, and the module it asks of is kept at
+`0x1408971a0` — so orb answers that name, hands the game a factory of the host's own with
+`CreateSwapChainForHwnd` written over, and takes the swapchain the game then makes. A launch says so:
+
+```text
+hook: the game asked for CreateDXGIFactory2 and got orb's, the host's being at 0x7fff4d1bf290
+frame: the swapchain this game makes will be orb's to present through
+frame: both of the presents are orb's to call now, the game's own doing nothing
+```
+
+The swapchain is the window table's and not one of the renderer's statics: `0x140251a24` onwards
+releases `0x1408971b8`, `0x230`, `0x238`, `0x240`, `0x248` and `0x260`, and a launch that asked every one
+of those and every pointer in the renderer's own object besides — nine objects whose vtable is a mapped
+image's — had not one answer to `IID_IDXGISwapChain`.
+
 **Every frame, the window's client is held against the buffer's size.** `0x14023b630` — reached from the
 picture's finish, `0x140072c85` calling `0x14021d0a0`, which calls it at `0x14021d126` — asks
 `GetClientRect` through `0x140442600` into `rbp-0x80` (both slots filled by name at `0x140094463` and
@@ -760,22 +866,24 @@ a vtable of nought, which is why `Th06c::live_handles` holds the whole table bac
 ## The player
 
 **A static object at `0x140bb89f0`**, `0x9b88` bytes of it — `0x140049bb0` clears it in two pieces,
-`0x7374` from the front at `0x140049bd1` and `0x2814` from `0x140bbfd6c` at `0x140049be5`, which is that
-address plus that size. The same function builds the three `ChainElem`s of the table above and hands each
-of them `0x140bb89f0`, at priority 7 in the calc chain and 5 in the draw chain.
+`0x7374` from the front at `0x140049bd1` and `0x2814` from `0x140bbfd6c` (`+0x737c`) at `0x140049be5`, and
+writes the eight bytes between, the `Timer` at `+0x7374`, as -999 and nought (`0x140049bec`,
+`0x140049bfb`). The same function builds the player's three `ChainElem`s and hands each of them
+`0x140bb89f0`: the frame's callback `0x14004a4b0` at priority 7 in the calc chain, and two draws in the
+draw chain, `0x14004bd40` at 5 and `0x14004bfd0` at 7.
 
 | | |
 | --- | --- |
-| `+0x7248`, `+0x724c`, `+0x7250` | **where the player is**, three floats, and the third is a depth rather than a coordinate — `0x140049f53` writes `0.49` into it and nothing else does |
+| `+0x7248`, `+0x724c`, `+0x7250` | **where the player is**, three floats, and the third is a depth rather than a coordinate — `0x140049f53` writes `0.49` into it as a life starts and `0x14004aa0a` writes `0.2` at a death's respawn, and nothing else writes it |
 | `+0x7228`, `+0x722c` | what a frame's movement is scaled by on each axis before it reaches the position — `mulss` at `0x14004afd4` and `0x14004afe4` |
 | `+0x7500` | **which way it is being moved**, one signed byte, and nought is standing still: `0x14004b1a0` reads it, `0x14004b1b3` returns where it is nought, and what follows subtracts one at a time down a chain of comparisons |
 | `+0x410`, `+0x414` and `+0x41c`, `+0x420` | **the two corners the game's own hit test compares**, `0x14004c752`–`0x14004c788`, and `0x14004b087` onwards writes both from the position every frame |
-| `+0x7264` | **the half those corners are the position plus and minus**: `0x14004b060` hands it to the subtract at `0x14000fef0` and the add at `0x140009580`, and `0x14004c94d` reads it straight as the player's half in the laser's own test |
+| `+0x7264` | **the half those corners are the position plus and minus**: `0x14004b060` hands it to the subtract at `0x14000fef0` and the add at `0x140009580`, and `0x14004c95e` reads it straight as the player's half along the beam in the laser's own test, `0x14004c94d` reading `+0x7268` across it |
 | `+0x9830` | the half of a second box, written the same way into `+0x9b74` and `+0x9b80`, and what that box is for is unread |
-| `+0x7274` onwards | **sixteen boxes of `0x10` bytes** — width, height, and a centre — which the hit test at `0x14004c6f6` walks before it reaches the player's own: a hazard inside one of them is answered 1 rather than 2, and `0x14004a59b` onwards clears all sixteen every frame |
+| `+0x7274` onwards | **sixteen boxes of `0x10` bytes** — width, height, and a centre — which the hit test at `0x14004c6f6` walks before it reaches the player's own: a hazard overlapping one of them is answered 2 (`0x14004c828`), where the player's own box answers 1, and `0x14004a59b` onwards clears all sixteen every frame |
 | `+0x73b8` | **which of four states it is in**, one byte: nought is the only one a hit lands in (`0x14004c78e` gates on it), 2 is what the hit writes (`0x14004c7f4`), 3 is the invulnerability `0x14004ac4e` counts down and 1 is what `0x140049ea0` and `0x14004a9d8` leave behind |
-| `+0x7374`, `+0x7378` | that countdown, the pair a `Timer` is — the frame `+0x7378` reaches nought is the frame state 3 becomes nought |
-| `+0x7254` | **the frames a bomb still takes the hit back in**, taken one off a frame at `0x14004a7ae`; `0x14004a655` is the bomb refusing to fire where it is nought, and the frame it reaches nought is the frame the death is made final — `0x14004a7bd` onwards reads the lives |
+| `+0x7374`, `+0x7378` | that countdown, the pair a `Timer` is — the frame `+0x7378` reaches nought is the frame state 3 becomes nought. In every other state it counts up (`0x14004acd5`–`0x14004acdd`), and states 1 and 2 read it (`0x14004aaeb`, `0x14004a93e`) |
+| `+0x7254` | **the frames a bomb still takes the hit back in**, taken one off a frame at `0x14004a7ae`; `0x14004a655` is the bomb refusing to fire where it is nought, and the frame it reaches nought is the frame the death is made final — `0x14004a7bd` onwards reads the lives. The register writes it 8 (`0x14004a45d`), state 1 nought (`0x14004ab32`) and the walk-in's end 6 (`0x14004abb4`) |
 | `+0x75cc` | frames of invulnerability, which `0x14000a190` holds against 60 to pick the alpha it draws the field's flash at, and `0x14004a6cb` sets |
 | `+0x438` onwards | its own ANM vms, `0x160` apart — `0x14004a19a` onwards writes the same word into eighteen of them |
 
@@ -789,26 +897,28 @@ coordinates.
 `[0x1403ed024] * 0.5` and `+0x724c` is `[0x1403ed028] - 64.0` — the field's width halved, and 64 up from
 its bottom.
 
-### What a stage's own build leaves the player as, and the 270 frames after it
+### What a stage's own build leaves the player as, and the 240 frames after it
 
 **`0x140049ea0` is the player's register and it runs at every stage's build**, not only at a run's start:
 its own `cmp DWORD PTR [0x140bc28ac],0x3` at `0x140049ec1` is it telling a stage move from a run's start by
 the supervisor's state, and what it reads to fill the four speeds is the character at `0x1403ed02c` and the
 shot at `0x1403ed02d`, out of the table at `0x1403e0090`.
 
-**What it leaves behind is three writes**: the state `1` at `0x14004a132`, the count `+0x7378` at **120**
-(`0x14004a14c`), and the timer `+0x7374` at **-999** (`0x14004a156`).
+**What it leaves behind is four writes**: the state `1` at `0x14004a132`, the count `+0x7378` at **120**
+(`0x14004a14c`), the timer `+0x7374` at **-999** (`0x14004a156`), and `+0x7254` at 8 (`0x14004a45d`).
 
-**The walk-in that follows lasts thirty frames.** `0x14004ab7a`'s `cmp r8d,0x1e` is the gate, and past it
-`0x14004ab80` onwards writes the state `3`, the count **`0xf0`**, the timer -999, a scale of `1.0` on both
-axes and **six** frames of deathbomb window at `+0x7254`. State 3 then counts down —
-`0x14004ac4e`–`0x14004ac69`, which puts the state back to nought and the count to nothing where it runs out,
-and flashes the player (`+0x74cc` to `0xff404040`) every few frames while it does not.
+**State 1 is the walk-in, and it ends where the count reaches thirty.** It reads the count at
+`0x14004aaeb`; `0x14004ab7a`'s `cmp r8d,0x1e` is the gate, and past it `0x14004ab80` onwards writes the
+state `3`, the count **`0xf0`**, the timer -999, a scale of `1.0` on both axes and **six** frames of
+deathbomb window at `+0x7254`. State 3 then counts down — `0x14004ac4e`–`0x14004ac69`, reached in that same
+update, which puts the state back to nought and the count to nothing where it runs out, and flashes the
+player (`+0x74cc` to `0xff404040`) every few frames while it does not.
 
-**So a stage of this game begins with 30 + 240 = 270 frames in which nothing can reach the player**, the
-hit at `0x14004c78e` being gated on that byte reading nought. The death's own respawn is the same walk with
-another count under it: `0x14004a9d8` writes the state `1` and `0x14004aa1c` leaves the count at nothing,
-where the register leaves 120 — and no state but 3 ever reads that field.
+**So a stage of this game begins with 240 frames in which nothing can reach the player**, the hit at
+`0x14004c78e` being gated on that byte reading nought: the register leaves the count at 120, already past
+the gate, so the stage's first update of the player turns state 1 into 3 and starts the countdown. The
+death's own respawn is the one that walks in: `0x14004a9d8` writes the state `1` and `0x14004aa1c` leaves
+the count at nothing, which the thirty frames are then counted up from — 30 + 240 frames untouchable.
 
 ### What one frame of a direction moves it by
 
@@ -840,11 +950,15 @@ scale in the player's path, where the bullet manager's has one.
 edge is taken from, held against each other at `0x14004a683` where a bomb is pressed. `0x14002cd69`
 clears both, and `0x140955398` and `0x1409553ac` with them, in the **front end's own state nought** —
 that state's case in the table at `0x140036414`, which goes on to load `th06TL.dat` and
-`data/title01.anm` through `0x14002cdb8` onwards. What those last two words are is unread.
+`data/title01.anm` through `0x14002cdb8` onwards. **Those last two are the held key's repeat**, worked out
+in the supervisor's update right after the word: `0x1409553ac` counts the updates the word has stayed
+the same and is put back to nought where it changes, and `0x140955398`, nought on every other update
+(`0x1400583d5`), is 1 on every eighth update once that count has reached thirty — `0x1400583e3`–
+`0x1400583fb`, the count pulled back to `0x1e` past `0x26`.
 
 **And that is the only clear of the pair in the exe.** Three places write either word, which a grep for
-`90a110` and `90a114` over the whole disassembly answers: this one, the input job's own copy and read at
-`0x1400583b8` and `0x1400583cf`, and the replay playback at `0x14004d8ff`. So this game zeroes the pair
+`0x140955390` and `0x140955394` over the whole disassembly answers: this one, the supervisor's own copy
+and read at `0x1400583be` and `0x1400583cf`, and the replay playback at `0x14004d8ff`. So this game zeroes the pair
 where its title's data is loaded and **at no transition of its own** — where th06 1.02h zeroes it at the
 end of every one of its supervisor's, so that a scene's first update is acted on with nothing held.
 
@@ -878,13 +992,15 @@ run were that same reversal.
 
 ### Where that word comes from
 
-**The job at `0x140058330`**, whose calc-chain priority is nought and which therefore runs first of the
-frame: `0x1400583b8` copies `0x140955390` into `0x140955394`, `0x1400583c4` calls `0x14000fa80` for the
-new word, and `0x1400583cf` writes it back. So the word is built, the player moves on it and the bullets
+**The job at `0x140058330`**, the supervisor's own update, whose calc-chain priority is nought and which
+therefore runs first of the frame: `0x1400583b8` copies `0x140955390` into `0x140955394`, `0x1400583c4`
+calls `0x14000fa80` for the new word, and `0x1400583cf` writes it back. After the word and its repeat it
+acts on the supervisor's state: where `+0x328`, the state it last acted on, is not `+0x32c`, it switches
+over the two and builds the screen asked for, and its last act is `+0x328 = +0x32c`. So the word is built, the player moves on it and the bullets
 test against where it moved, all inside one walk of the calc chain.
 
 **And `0x14000fa80` builds it out of the 256 bytes at `0x14042893c`**, which the read at `0x14008e280`
-fills: `GetKeyboardState` into the stack, `0x14008e297` memsets those 256 bytes to nought, and the walk at
+fills: `GetKeyboardState` into the stack, `0x14008e29d` memsets those 256 bytes to nought, and the walk at
 `0x14008e2c0` puts `snapshot[entry.key]` at `buffer[entry.index]` for every entry of the table at
 `0x1402bc0b0` until its `0xffff`. **So the game's own read is a whole state and not a set of presses** —
 every key nobody holds is written up — and that read is made at its own rate rather than once a frame.
@@ -900,14 +1016,17 @@ every key nobody holds is written up — and that read is made at its own rate r
 - The hazard's place is `rdx`, and the edges are that place plus and minus its own half:
   `0x14004c6e2`–`0x14004c6f2`.
 - **Sixteen boxes of the player's come first.** `lea rax,[rcx+0x7274]` and the walk at `0x14004c6f6`
-  onwards compares the hazard against each of them and answers 1 rather than 2 where one contains it;
-  a slot whose first float is nought is empty and skipped, which `0x14004a59b` onwards makes of all
-  sixteen every frame. **That prologue is not the player's own box**, and reading it as one is a player
+  onwards compares the hazard against each of them and answers **2** where the two overlap
+  (`0x14004c828`), whatever the player's state; a slot whose first float is nought is empty and skipped,
+  which `0x14004a59b` onwards makes of all sixteen every frame. **That prologue is not the player's own box**, and reading it as one is a player
   modelled as a point: a launch that did read `half of it 0.0,0.0` off it had nowhere open to it on
   every frame of a stage.
 - **The player's own box is the two corners at `+0x410` and `+0x41c`**, compared at
   `0x14004c752`–`0x14004c788`, which is `+0x7264`'s half either side of the position. It comes out
-  `1.2` by `1.2`. They are absolute and they are the position's: a hit's dump read them against
+  `1.2` by `1.2`. Overlapping it answers **1** (`0x14004c864`), and lands the hit only where the state
+  at `+0x73b8` is nought (`0x14004c78e`): the state 2, the `Timer` reset (`0x14004c7f4` onwards), and the
+  game manager's `+0x0` stepped up (`0x14004c836`). No overlap answers nought. The bullet a 1 or a 2
+  answers is put in state 5, and a 2 spawns an item of kind 6 where it was (`0x14000e499`–`0x14000e4b0`). They are absolute and they are the position's: a hit's dump read them against
   `+0x7248` and got `193.4,365.4..195.9,367.9` against a position of `194.6,366.6`.
 - **And the bullet is already where its step took it.** `0x14000e377`–`0x14000e397` adds `+0x8`,`+0xc`
   into `+0x30`,`+0x34` and `0x14000e485` hands *that* to the test — so the place compared is this frame's
@@ -921,9 +1040,11 @@ to draw it; the second is the field's own size, and every comparison a coordinat
 `0x1403ed024` and `0x1403ed028`.
 
 **`0x1403ee7f4` onwards is a second rectangle, and it is the one the player is held to** — left, top,
-width, height, read at `0x14004b006`–`0x14004b05f`. It initialises to nought in `.data` and no
-instruction in the flat listing writes it; what does is not established, and the flat listing is not
-evidence of that — see the note on `.pdata` above.
+width, height, read at `0x14004b006`–`0x14004b05f`. It initialises to nought in `.data`, and the stage
+callback writes it as a run starts, as the game manager's `+0x17e4`..`+0x17f0` off `rcx` and so with no
+rip-relative address to grep for: **8, 16, 368 and 416**, at `0x140024345`, `0x14002434f`, `0x140024359`
+and `0x140024363`, just after the field's own 32, 16, 384, 448 at `+0xc`..`+0x18` (`0x140024329`
+onwards). So the player is held to x from 8 to 376 and y from 16 to 432.
 
 ## The run's own numbers
 
@@ -931,7 +1052,7 @@ evidence of that — see the note on `.pdata` above.
 | --- | --- |
 | `0x1403ee804` | **lives**, one byte. `0x14002b638` stops it at 8 and `0x14002b647` steps it up; `0x14004a7bd` is where a death reads it |
 | `0x1403ee805` | **bombs**, one byte, the same shape at `0x14002b609` and `0x14002b618`, and what `0x14004a6b2` takes one off when a bomb is pressed |
-| both together | `0x14002cc30` writes `0x302` over the pair as a run starts — two lives and three bombs |
+| both together | `0x14002cc30` writes `0x302` over the pair as an Extra or a practice run starts — two lives and three bombs |
 | `0x1403ee7e0` | a dword something multiplies into at `0x14002b8e0` |
 | `0x1403ee7ec` | a dword `0x14001556a` adds `0x708` to and `0x140020243` steps up by one |
 | `0x1403ed034` | **the power**, a word. `0x14002ab8e` is the `0x80` every case of the item walk writes it back at, so 128 is where it stops; `0x140027286` is the `Power * 100` line of the bonus screen; and `0x14004a82c` takes 16 off it on a death, or to nought where it had less |
@@ -963,13 +1084,20 @@ and not a stage.
 
 ## The front end
 
-**Its cursor is `0x140ba73c0 + 0x28`**, one dword and one field whatever list is up: `0x140030740` steps
-it up and wraps it at seven, and the decide at `0x140030785` reads the record of the item it names
-through `+0x11610`. That record's own bytes are what a run is started from — `+0x7` into
-`0x1403ed7d8`, the difficulty, and `+0x6` split in two at `0x1400307ef` and `0x140030803` into
-`0x1403ed02c` and `0x1403ed02d`.
+**Its cursor is `0x140ba73c0 + 0x28`**, one dword and one field whatever list is up. **The replay list's
+stage select** is one of those lists: `0x140030740` steps the cursor up, wraps it at seven and passes over
+a stage the replay holds no record of, and the decide at `0x140030785` — refused where the cursor's stage
+has no record at `+0x38` of the loaded replay's `T6RP` header, which `+0x11610` points at — starts the
+playback. It sets `0x1403ed7b8` (`0x14003079b`), copies the replay's path out of the list's own record
+into `0x1403ee86c` (`0x1400307c0`), puts the header's `+0x7` into `0x1403ed7d8`, the difficulty, and its
+`+0x6` split in two at `0x1400307ef` and `0x140030803` into `0x1403ed02c` and `0x1403ed02d`, takes the
+lives and the bombs from the first stage the replay has a record of (`0x140030837`, `0x14003084d`), frees
+the header, and writes **the cursor into the stage word** at `0x140030869` and the supervisor's state 2 at
+`0x14003086f`. The stage callback steps that word up by one as the stage is built (`0x140024d31`), so
+cursor 0 plays stage 1, and `0x140030869` is the one write a playback's chosen stage goes in at.
 
-**And its menus repeat a held key rather than taking one edge from it.** Measured by walking one: a
+**And its menus repeat a held key rather than taking one edge from it** — the repeat at `0x140955398`
+above. Measured by walking one: a
 launch whose presses were thirty frames long moved two screens on one press and three on another — its
 own `front end:` lines went 6, 7, 9 across steps that pressed nothing — so the aim written for the
 difficulty was a step later than the difficulty and the run came out Lunatic three launches in a row.
@@ -1014,12 +1142,15 @@ with the instruction it was read off:
 
 | | | |
 | --- | --- | --- |
-| `+0x8` | the run's captures | `inc DWORD PTR [0x1403ed018]` at `0x140014e99` |
+| `+0x0` | **the hits the run has taken**, deathbombed or not | `inc` at `0x14004c836` in the hit test and at `0x14004ca69` in the laser's |
+| `+0x4` | the bombs the run has used | `inc` at `0x14004a6a9` |
+| `+0x8` | the run's captures | `inc DWORD PTR [0x1403ed018]` at `0x140014e99`; the three zeroed as a run starts (`0x140024cec`) and drawn in a row by the result screen (`0x140054374`, `0x14005439a`) |
 | `+0x1c`, `+0x1d` | the character and the shot, bytes | `0x14004d997` puts `character * 2 + shot` into the replay's header; written at `0x140035329` and `0x140035901` |
 | `+0x20` | the stage, from one | `0x14004da49` |
 | `+0x24` | the power, a word | `0x1403ed034` |
 | `+0x7a8` | a replay is playing | `0x1403ed7b8`, see the next section |
 | `+0x7ac`, `+0x7b0` | the score the panel draws and the score the run counts | `0x14004da37` saves the second; `0x140014e1f` adds the bonus to it |
+| `+0x7b8` | the high score the panel draws | written `0x186a0` at `0x140024382` and then, in the same callback, the larger of 1,000,000 and the score file's best (`0x140024b58`), or a practice record's (`0x140024c5b`); the update raises it to `+0x7ac` (`0x1400240c9`) |
 | `+0x7bc`, `+0x7bd` | the pause menu and the continue menu are up, bytes | th06 1.02h's own two, at the same distance from the score |
 | `+0x7be` | the run is running, the byte the recording is gated on | `0x14004d800`; cleared at `0x14002568e` |
 | `+0x7c0` | practice | |
@@ -1030,11 +1161,11 @@ with the instruction it was read off:
 | `+0x17e0` | the retries, a byte | drawn by the result screen |
 | `+0x17e1` | the power items towards the score, a byte | `0x14004dbba` |
 | `+0x17e4` | the field the player is held in, four floats | `0x1403ee7f4` |
-| `+0x17f4`, `+0x17f5`, `+0x17f6` | the lives, the bombs, the extra lives the score paid for | `0x1403ee804`, `0x1403ee805` |
+| `+0x17f4`, `+0x17f5`, `+0x17f6` | the lives, the bombs, the extra lives the score paid for | `0x1403ee804`, `0x1403ee805`; `+0x17f6` indexes the thresholds at `0x14030a130` — 10, 20, 40 and 60 million, then 1.9 billion — and starts at 4 for the Extra and at nought otherwise (`0x1400243bb`) |
 | `+0x17fc` | four `CLRD` records of `0x18` | `0x140054a0d` |
 | `+0x195c` | **the seed the stage started from**, a word | `0x140024e9c` copies the generator into it as the stage begins |
 | `+0x196c` | **the frames the stage has run** | |
-| `+0x1970`, `+0x1974`, `+0x1978`, `+0x197c` | the rank, its most, its least, the sub-rank | `0x1400243cf` starts the rank at eight; `0x140024e7e` picks the bounds out of a table by difficulty |
+| `+0x1970`, `+0x1974`, `+0x1978`, `+0x197c` | the rank, its most, its least, the sub-rank | a run's first stage takes all three out of the table at `0x1403e0010`, twelve bytes a difficulty (`0x140024cac`–`0x140024ce6`): rank 16 on every difficulty, between 12 and 20 on Easy, 10 and 32 on Normal, Hard and Lunatic, 14 and 18 on the Extra. A playback's every stage takes the bounds again out of the same numbers at `0x1403e0050` (`0x140024e65`–`0x140024e86`) |
 
 **The supervisor is the static at `0x140bc2580`**, whose first field is the pointer to the sound object
 (`mov rcx,[0x140bc2580]; test rcx,rcx; je` at `0x14002cc82`). Its state is the dword at `+0x32c`
@@ -1045,11 +1176,14 @@ start at `0x14002cc40` writes two, the result screen leaving writes one at `0x14
 writes seven at `0x140018f05`, and `0x1400242f9` reads three as the stage callback begins to tell a stage
 move from a run's start. `+0x344` and `+0x345` are the lives and the bombs a run starts with, out of
 `th06.cfg`'s `+0x10` and `+0x11`: `0x14002cc0b` copies them over the pair and `0x14002cc30` writes two and
-three instead where the difficulty is four.
+three instead where the difficulty is four or `0x1403ed7d0`, practice, is set.
 
 **The run's own start is `0x14002cc00`**: the lives and the bombs from the configuration, the supervisor's
-state to two, `0x1403ed7b8` cleared, and the music stopped and the track put to `-1` at `0x14002cc9e`
-onwards — which writes `0x1403eea38` to `0x1403eea60` together, the block a restore leaves alone.
+state to two, sound effect 10 queued into `0x1403eea40`, `0x1403ed7b8` cleared, and then by the
+configuration byte `0x140bc28c6`: where it is 1, the music stopped and the track put to `-1` at
+`0x14002cc9e` onwards — which writes `0x1403eea3c`, `0x1403eea4c`, `0x1403eea38` and `0x1403eea60`, the
+block a restore leaves alone — and where it is 2, `0x1400381d0` called on the sound object instead and
+none of those written.
 
 **The generator is one word at `0x14095538c`**, every draw being `xor cx,[0x14095538c]; sub cx,0x6553;
 shl cx,2; shr ax,0xe; add ax,cx; mov [0x14095538c],ax` (`0x1400243f6` onwards), and the count of draws is
@@ -1061,12 +1195,18 @@ the reason a resumed stage's seed goes in before that callback runs anything.
 **And that callback is one function reached two ways**, the whole difference being its first condition:
 `0x1400242f9`'s `cmp DWORD PTR [0x140bc28ac],0x3` jumps a stage move to `0x140024cf5` and lets a run's first
 stage fall through. What falls through is a run being *made* — the movement area at `+0xc`..`+0x18` and the
-box at `+0x17e4`..`+0x17f0`, the rank at `+0x1970` set to eight (`0x1400243cf`), and the `0x186a0` the next
-extra life costs at `0x140024382`. **What the move takes is eight instructions and no number of the run's**:
-`0x140024cf5` copies the score at `+0x7b0` into the panel's own copy at `+0x7ac`, zeroes `+0x7b4`, the
-sub-rank at `+0x197c` (`0x140024d10`), `+0x7c4`, `+0x17d0` and `+0x7bc`, and steps the stage word at `+0x20`
-up by one. The lives, the bombs, the power and the rank are written nowhere in it, which is what a run is:
-six stages with one set of numbers walked through them.
+box at `+0x17e4`..`+0x17f0`, the high score at `+0x7b8`, the extra lives' index at `+0x17f6`, the rank and
+its bounds out of the table by difficulty (`0x140024cac`–`0x140024ce6`, over the eight `0x1400243cf`
+writes first), and the hits, bombs and captures zeroed — and then joins the move at `0x140024d08`.
+**What the move takes on its own is three instructions**: `0x140024cf5`–`0x140024d01` copy the score at
+`+0x7b0` into the panel's own copy at `+0x7ac` and zero `+0x7b4`. What both take is the rest: the sub-rank at
+`+0x197c` (`0x140024d10`), `+0x7c4`, `+0x17d0` and `+0x7bc` zeroed and the stage word at `+0x20` stepped up
+by one; where no replay is playing, the `CLRD` record's stages reached raised (`0x140024d33`–`0x140024da9`,
+see the title's items); and where `+0x7c0`, practice, is set, the power written — `0x40` on stage 2, `0x80`
+on any later one (`0x140024db1`–`0x140024dce`). On a playback, the extra lives' index and the rank's bounds
+are worked out again (`0x140024e1d`–`0x140024e86`). So a full run that is not a playback has its lives, its
+bombs, its power and its rank written nowhere in a move, which is what a run is: six stages with one set of
+numbers walked through them.
 
 **And the callback's tail leaves the run's own score at nought**, whichever branch it came by:
 `0x14002548d` `mov DWORD PTR [rdi+0x7b0],r14d`, `r14d` nought since `0x1400242f3`. What carries the score
@@ -1076,8 +1216,8 @@ writes it into the run's where it is the larger. So between the callback returni
 score is in `+0x7ac` alone: measured on a Normal run's stage 6 (2026-10-05), `+0x7ac` 55,221,580 on its
 frame 2 where a chapter written down off `+0x7b0` read nought.
 
-**The two seams.** The stage callback `0x1400242d0` puts the stage's numbers in place — the rank's bounds
-at `0x140024e7e`, the seed copied at `0x140024e9c` — and then calls the stage's own build `0x1400572d0`
+**The two seams.** The stage callback `0x1400242d0` puts the stage's numbers in place — the rank and its
+bounds at `0x140024cac` onwards on a run's first stage, the seed copied at `0x140024e9c` — and then calls the stage's own build `0x1400572d0`
 at `0x140024ea3`, the one call of it in the exe, with the stage in `ecx`; it answers nought where it built
 one and `-1` where it could not (`0x140024ebf`). So the seed of a resumed run goes in in front of
 `0x1400572d0` and the rest of its numbers after `0x1400242d0` has returned, which is what `Hooks::stage_begun`
@@ -1087,12 +1227,17 @@ and `48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20`, fifteen bytes each and none 
 **The replay manager is the pointer at `0x140955380`**, an object of `0x78` bytes made at `0x14004d170`
 for a recording as much as for a playback: `+0x8` says which, `+0x30` is the frames of the stage the
 record is at (cleared at `0x14004d950`, stepped at `0x14004d861`), `+0x70` the `T6RP` header, and
-`+0x38` onwards the seven stages' records. **Its stage record is what a stage is restarted from**: the
-recording init `0x14004d940` saves the score (`0x1403ed7c0`), the seed (`0x1403ee96c`), the point items
-(`0x1403ed7d6`), the power, the lives, the bombs, the rank (`0x1403ee980`) and the power items
-(`0x1403ee7f1`) at `0x14004da71` onwards, and the playback init `0x14004dae0` puts every one of them back
-at `0x14004db3a` onwards — the seed into the generator at `0x14004db70` with the count cleared at
-`0x14004db77`. Those eight, and orb's own two beside them, are `th06c/resume.rs`. An entry of the record
+`+0x38` onwards the seven stages' records. **Its stage records are what a stage is restarted from**: as a
+stage begins, the recording init `0x14004d940` writes the score (`0x1403ed7c0`) into the **previous**
+stage's record, its `+0x0` (`0x14004da37`, at `[record + (stage − 2) × 8]`), and makes the new stage's own
+with the other seven at `0x14004da71` onwards — `+0x4` the seed (`0x1403ee96c`), `+0x6` the point items
+(`0x1403ed7d6`), `+0x8` the power as a byte, `+0x9` the lives, `+0xa` the bombs, `+0xb` the rank
+(`0x1403ee980`) as a byte, and `+0xc` the power items (`0x1403ee7f1`). The playback init `0x14004dae0`
+puts the character, the shot and the difficulty back out of the header (`0x14004db3a`–`0x14004db59`), the
+seven out of the stage's own record — the seed into the generator only, at `0x14004db70`, with the count
+cleared at `0x14004db77`, and `0x140024e9c` copying it into `+0x195c` after — and, from stage 2 on, the
+score out of the previous record into both `+0x7ac` and `+0x7b0` (`0x14004dbe1`, `0x14004dbe7`). Those
+eight, and orb's own two beside them, are `th06c/resume.rs`. An entry of the record
 is `{frame, input & 0x3ff, previous & 0x3ff}`, twelve bytes, written where the word changes
 (`0x14004d80f`–`0x14004d85e`); the playback puts the low ten bits of `0x140955390` back at `0x14004d8ff`.
 
@@ -1114,8 +1259,10 @@ conversation is up and negative for none (`0x140021232`, and the playback's fast
 
 **The player's states** at `+0x73b8` are nought, one for a respawn, two for the hit and three for
 invulnerable; `+0x7254` is the frames a bomb still takes the hit back in, `+0x7378` the frames of
-invulnerability, and `+0x97d0` is set while a bomb goes off. **This exe keeps no count of deaths**: nothing
-of the game manager is stepped by `0x14004c7f4`'s write of the hit, so orb counts the hits itself.
+invulnerability, and `+0x97d0` is set while a bomb goes off. **The run keeps a count of hits and not of
+deaths**: every hit that lands steps the game manager's `+0x0` — `0x14004c836` after `0x14004c7f4`'s write
+of the state, and `0x14004ca69` in the laser's own test — whether a bomb then takes it back or not, and the
+result screen draws it beside the bombs used at `+0x4` and the captures at `+0x8`.
 
 **The result screen's states** at `screen + 0x5194`: ten is the question about saving a replay, whose case
 calls the save at `0x1400528cc`, and seventeen is the way out, whose case puts the supervisor back to one at
@@ -1130,20 +1277,32 @@ has a run given up written into the file: the screen's deinit `0x140054ab0` writ
 built for the ranking as much as for a run's own end.
 
 **The title's own frames** are `front end + 0x9450`, zeroed as each screen arrives: the title reads its
-decide past `0x14` (`0x14002d614`) and the shot select past `0x1e` (`0x1400354d8`). The title's items are
-th06 1.02h's eight in its order — `0x14002d592` steps the cursor over the second where no clear unlocked
-the Extra — so nought starts a run, one the Extra, two a practice, three is the replay list and four the
-ranking.
+decide past `0x14` (`0x14002d614`) and the shot select past `0x1e` (`0x1400354d8`). The title has nine
+items — `mov edx,0x9` for the menu walk `0x1400364b0` at `0x14002d513`, and the decide's switch over nought
+to eight at `0x14002d657` — and its first five are th06 1.02h's in its order: `0x14002d592` steps the cursor
+over the second where no clear unlocked the Extra, and nought starts a run, one the Extra, two a practice,
+three is the replay list and four the ranking.
 
 **What that step is decided by** is `cmp DWORD PTR [rdi+0x28],0x1` at `0x14002d520` — the cursor on the
 second item and nothing else reaches the check — and then twelve `cmp BYTE PTR [...],0x63` each jumping
 past the step where the byte is a clear, from `0x14002d526` to `0x14002d589`. The twelve bytes are
 `0x1403ee819`–`0x1403ee81b`, `0x1403ee831`–`0x1403ee833`, `0x1403ee849`–`0x1403ee84b` and
 `0x1403ee861`–`0x1403ee863`: three consecutive bytes in each of four blocks `0x18` apart, which is the
-size of a `CLRD` record and one block per shot. Where none is `0x63`, `0x14002d592`'s `inc eax` and
-`0x14002d594`'s `mov DWORD PTR [rdi+0x28],eax` put the cursor on the third item. `CLEARED` in
-`th06c/score_file.rs` is that `0x63`, and `a_clear_is_among` is what builds a copy the check answers
+size of a `CLRD` record and one block per character and shot. Where none is `0x63`, `0x14002d592`'s
+`inc eax` and `0x14002d594`'s `mov DWORD PTR [rdi+0x28],eax` put the cursor on the third item. `CLEARED`
+in `th06c/score_file.rs` is that `0x63`, and `a_clear_is_among` is what builds a copy the check answers
 for.
+
+**Which three bytes those are is the record's own layout.** A `CLRD` record is the magic, its sizes, and
+then two arrays of five bytes indexed by difficulty, at `+0xc` and at `+0x11`, with the character and shot
+at `+0x16`; the game manager's four are at `+0x17fc`, indexed by `character × 2 + shot`. The stage callback
+raises the `+0xc` array to the stage just cleared **only where the run has used no retry** — `+0x17e0` is
+tested at `0x140024d3c` and the byte written at `0x140024d7c` — and the `+0x11` array whatever the retries
+(`0x140024da9`), neither while a replay plays. So `+0xc` is the stages reached without a retry and `+0x11`
+those reached at all, and `0x1403ee819` is `0x1403ed010 + 0x17fc + 0xd`: **the title reads the no-retry
+array's Normal, Hard and Lunatic**, `+0xd`..`+0xf` of each of the four records. The clear `orb-e2e`'s cases
+put in, `clrd(0, [1, CLEARED, 1, 1, 1], [1; 5])` at `+0xd`, is the first record's Normal of that array, a
+byte the title reads.
 
 **The score file** is read once at startup (`0x14002c239`, into `0x140bc2ad8`), never again; every screen
 parses that copy through `0x14004e600`, and the result screen's deinit `0x140054ab0` writes the whole file
@@ -1176,25 +1335,28 @@ walk as read off those two.
 
 | | |
 | --- | --- |
-| `0x1403ed7b8` | **a replay is being played back.** `0x14003079b` sets it where the replay list's own decide runs, `0x14002f9fd` sets it where the logo screen starts the demo, and `0x14002cc77` clears it — in the same code that writes `0x302` over the lives and the bombs at `0x14002cc30`, which is a run starting. What reads it is `0x140024e02`: set, the path at `0x1403ee86c` goes to `0x14004d170` to be *read*; clear, `replay/th6_00.rpy` at `0x14030c428` goes to that same call from `0x1400253c6` to be written |
+| `0x1403ed7b8` | **a replay is being played back.** `0x14003079b` sets it where the replay list's own decide runs and `0x14002f9f6` where the logo screen starts the demo. `0x14002cc77` clears it — in the same code that writes `0x302` over the lives and the bombs at `0x14002cc30`, which is a run starting — and so does the supervisor's update as it leaves its state 2 for 1, the title (`0x140058512`), or for 8, a replay's end (`0x1400585c8`). What reads it is `0x140024e02`: set, the path at `0x1403ee86c` goes to `0x14004d170` to be *read*; clear, `replay/th6_00.rpy` at `0x14030c428` goes to that same call from `0x1400253c6` to be written |
 | `0x1403ed7d1` | **and the playback is the attract demo.** `0x14002f9fd` is the only writer that sets it and `0x140037930` the only one that clears it |
 | `0x1403ee86c` | **the path being played.** `0x14002fa11`–`0x14002fa2b` copies the 21 bytes of `data/demo/demo00.rpy` (`0x14030cc38`) over it; `0x1400307c0` copies the NUL-terminated name out of the record the replay list's cursor is on. How long the buffer is, is unread |
 | `0x140ba73c0 + 0x9454` | **how long the logo screen has been idle**, in frames — see state 1 above |
 
-**The demo is played inside whichever screen started it.** Its start at `0x14002f9f6` sets both bytes,
-writes the path, and puts `3` into the stage at `0x1403ed030` and `3` into the difficulty at
-`0x1403ed7d8` — `r13d`, which the frame callback's prologue loads at `0x14002cd55` — and then returns
-**without writing the manager's state at all**. So the state stays whatever it was: one launch's own
-lines read `scene 1` for the whole of a demo started off the logo screen and `scene 2` for one started
-off the title, with a run's own lives and bombs moving underneath — `2 live and 3 bomb(s)`, then a bomb
-spent.
+**The demo is played with the front end's state left as it was.** Its start at `0x14002f9f6` sets both
+bytes, clears `0x1403ee808` (`0x14002fa04`), writes the path, and puts `3` into the stage at `0x1403ed030`
+and `3` into the difficulty at `0x1403ed7d8` — `r13d`, which the frame callback's prologue loads at
+`0x14002cd55` — and then writes the **supervisor's** state 2, its game, at `0x14002fa3f` (`r12d`, loaded at
+`0x14002cd61`) and returns **without writing the front end's own `+0x11608`**. So that state stays
+whatever it was: one launch's own lines read `scene 1` for the whole of a demo started off the logo
+screen and `scene 2` for one started off the title, with a run's own lives and bombs moving underneath —
+`2 live and 3 bomb(s)`, then a bomb spent.
 
 **And the state is not what tells a demo from a run.** Another launch read
 `stage 7 on difficulty 4, scene 11` while the screen said `DEMO PLAY` over stage 4's library, and a
-third `stage 4 on difficulty 1, scene 11` for 34,200 frames of one. Neither of those pairs is the `3`
-and `3` the start writes, so the numbers a playback ends up showing come out of the replay's own header,
-and where *that* is read is unread — which leaves `0x1403ed7b8` as the only thing that answers, and is
-why `sight::in_a_run` asks it rather than asking the scene.
+third `stage 4 on difficulty 1, scene 11` for 34,200 frames of one. The numbers a playback shows are the
+replay's own: the playback init `0x14004dae0` puts the header's `+0x6` and `+0x7` into the character, the
+shot and the difficulty as every stage begins (`0x14004db3a`–`0x14004db59`), and the stage word is what
+the start wrote stepped up by one by the stage callback (`0x140024d31`) — the demo's `3` playing stage 4.
+Which leaves `0x1403ed7b8` as the only thing that tells a playback from a run, and is why
+`sight::in_a_run` asks it rather than asking the scene.
 
 **What said it was a demo was a picture**: ` DEMO PLAY` at `0x14030ca90`, which `0x140029b3f` draws in
 place of the stage's own name — `Stage %d` at `0x14030ca60` and the two at `0x14030ca70` and
@@ -1206,8 +1368,8 @@ place of the stage's own name — `Stage %d` at `0x14030ca60` and the two at `0x
 **And the hand-over back to the title tells them apart as well.** `0x140037050` is what a stage ends
 into: `0x140037576` tests `0x1403ed7d1` and, where it is set, jumps to `0x140037924` — which clears that
 byte and `0x1403ee808` and returns, without the `bgm/th06_01.mid` at `0x14030cc70` that a run's own
-ending gets. `0x1403ed7b8` is not cleared there, so it stands through the title a demo hands back to and
-until the next run starts.
+ending gets. `0x1403ed7b8` is not cleared there; what clears it is the supervisor's update, as it leaves
+its game state for the title or for a replay's end (`0x140058512`, `0x1400585c8`).
 
 ## The replay a run records, and the name it is registered under
 
@@ -1264,13 +1426,15 @@ element's `+0x38` — so a walk of the chain from `0x1403ec5f0` for that callbac
 **Which is th06 1.02h's own shape with the cursor moved to the front**: that build has the name at
 `[this+0x5193]`, the count at `[this+0x10]` and the cursor at `[this+0x20]`.
 
-**And the grid is reached off the image base in a register**: `movzx edx,[rax+r11*1+0x2c8af0]` at
-`0x14005202b`, `r11` holding `0x140000000` from the `lea` at `0x14004ff91`. That is why no search of the
-exe finds a reference to it — **no rip-relative displacement anywhere in `.text` resolves to
-`0x14030d500`, to the pointer at `0x14030ae00` that holds it, or to `score.dat` at `0x14030c228`, and
-none of the three is a `movabs` operand**, swept by reading every four-byte window of `.text` as a
-displacement and the whole file for the addresses as words. **So a negative from that sweep says
-nothing about this exe**: it keeps its own base in a register and indexes with a 32-bit displacement.
+**And the grid is reached off the image base in a register**: `movzx edx,[rax+r11*1+0x30d500]` at
+`0x14005202b`, `r11` holding `0x140000000` from the `lea` at `0x14004ff91`, and the same `+0x30d500` from
+`0x140051e70` to `0x14005286f`. That is why no search of the exe for a rip-relative reference finds one —
+**no rip-relative displacement anywhere in `.text` resolves to `0x14030d500` or to the pointer at
+`0x14030ae00` that holds it, and neither is a `movabs` operand**, swept by reading every four-byte window
+of `.text` as a displacement and the whole file for the addresses as words. **So a negative from that
+sweep says nothing about this exe**: it keeps its own base in a register and indexes with a 32-bit
+displacement. `score.dat` at `0x14030d628`, by contrast, is reached rip-relative, by the startup's read
+(`0x14002c22f`) and the write (`0x140055593`).
 
 ## The enemies
 
@@ -1290,7 +1454,8 @@ and fifty-six of them (`cmp r15d,0x100` at `0x140021365`).
 
 ## The items
 
-**A static of `0x2a160` bytes at `0x140b7d260`**, walked by `0x14002aa70`: the live count in its first
+**A static of `0x2a160` bytes at `0x140b7d260`**, walked by `0x14002aa70`, which the bullets' update
+calls on it (`0x14000dbc7`) — the items are on no chain of their own: the live count in its first
 dword, the array at `+8`, `0x150` apart (`0x14002ba32`), five hundred and twelve of them
 (`cmp r9d,0x200` at `0x14002ba56`). A slot whose first byte is nought holds nothing — `0x14002abe0`.
 
@@ -1305,13 +1470,14 @@ dword, the array at `+8`, `0x150` apart (`0x14002ba32`), five hundred and twelve
 | 3 | the bombs, stopped at eight and stepped up at `0x14002b609` |
 | 4 | the power written to its cap from `0x14002b6eb` — the one that fills it |
 | 5 | the lives, the same shape at `0x14002b638` — a 1up |
-| 6 | a score off the graze at `0x14002b8db`, and the bullet manager spawns this one as kind 6 at `0x14000e46d` where a bomb clears a bullet |
+| 6 | a score off the graze at `0x14002b8db`, and the bullet manager spawns this one as kind 6 where a bullet meets one of the player's sixteen boxes, at `0x14000e470` off the graze test and at `0x14000e4b0` off the hit test |
 
 `+0x10` is where it is, three floats, and `0x14002ae68`–`0x14002ae91` is the box around the player it is
 collected inside — `0x140bc2568` onwards, three floats this reading has not gone into.
 
 **And the bullet's own size is `+0x5a4`**, which `0x14000e47e` hands to `0x14004c690` beside the position
-at `+0x30`: that is the box the player is tested against, and `+0x5c8` is the byte the graze sets.
+at `+0x30`, the call at `0x14000e490`: that is the box the player is tested against, and `+0x5c8` is the
+byte the graze sets.
 
 ## What the update changed
 
@@ -1354,26 +1520,9 @@ What did change, and what orb had to change with it:
   and put back with a chapter. Its statics in `.data` are held back (`Th06c::live_handles`); these are not,
   and a file opened or closed between a chapter being taken and being put back is the case that would
   find its handle table as it was.
-- **Where the `HWND` the game plays in is kept**, and what its class's `WndProc` does with a message:
-  the calls that make the window and pump it are the slots above, and what they are given and what is
-  done with what they answer is unread.
-- **Which of the draw chain's jobs calls `Present`**, and from what address. What the swapchain *is* is
-  established and needed no address at all: `0x1402522e9` asks `GetProcAddress` for
-  `CreateDXGIFactory2` — the string is at `0x1402c9860`, and the module it asks of is kept at
-  `0x1408971a0` — so orb answers that name, hands the game a factory of the host's own with
-  `CreateSwapChainForHwnd` written over, and takes the swapchain the game then makes. A launch says so:
-
-  ```text
-  hook: the game asked for CreateDXGIFactory2 and got orb's, the host's being at 0x7fff4d1bf290
-  frame: the swapchain this game makes will be orb's to present through
-  frame: both of the presents are orb's to call now, the game's own doing nothing
-  ```
-
-  **And it is not among the objects the release names.** `0x140251a24` onwards releases `0x1408971b8`,
-  `0x230`, `0x238`, `0x240`, `0x248` and `0x260`; a launch asked every one of those and every pointer in
-  the renderer's own object besides — nine objects whose vtable is a mapped image's — and not one
-  answered to `IID_IDXGISwapChain`. So the swapchain is kept somewhere no reading of the exe has found,
-  and the factory is the way to it.
+- **What the game's window class's `WndProc` does with a message.** The window itself is kept at
+  `0x140443aa8`, written at `0x14009b2aa` and `0x14009b4c7` from `0x140091970`, a jump through the
+  `CreateWindowExW` slot; the procedure it is registered with is unread.
 - **What a launch with no client does past the frames a recipe reaches.** The nine imports, the four
   interfaces and the seven slots are read — see *What it asks that DLL* — and every slot but the
   language's is answered with nought, which the game passes over. What has not been watched is a whole
@@ -1381,7 +1530,6 @@ What did change, and what orb had to change with it:
   every other entry answers nought as well.
 - **Which of the front end's twenty-one states is which screen**, past the six named above and the
   practice stage select.
-- **A count of deaths**: none was found in the game manager, and orb counts the hits itself.
 - **Where the game's sprites keep their textures**, which a restore would have to leave alone were one
   released between two chapters of a stage; only the renderer's own COM statics are known.
 - **What the sound library is**, past the block at `0x1404979b4` its own code alone reaches and the five
@@ -1391,22 +1539,6 @@ What did change, and what orb had to change with it:
   answer; the rest is unread.
 - **What `0x140a3dc28 + 0x9e00` onwards is.** Sixty-four lasers of `0x278` fill the first `0x9e00` of
   the `0xf408` the startup zeroes there, and what the rest holds is unread.
-- **What writes `0x1403ee7f4`**, the rectangle the player is held to — see the section on the field.
-- **Which three of a `CLRD` record's ten stages-reached the title's Extra check reads.** The twelve
-  addresses are established and so is the `0x18` between the four blocks — see the title's items — and
-  where a block begins is not, so the three consecutive bytes are `+0xc`–`+0xe` of the array reached
-  with retries or `+0x11`–`+0x13` of the one reached without, and which difficulties those are is
-  unread. Orb itself needs none of it, installing the file's own records and leaving the check to the
-  game; what rests on it is `orb-e2e`'s fake, whose `score_file::a_clear_is_among` offers the Extra
-  for a clear anywhere in either array where the real title reads three bytes of each record. The
-  cases put their clear in `+0xd`, the second of the array reached with retries
-  (`clrd(0, [1, CLEARED, 1, 1, 1], [1; 5])`), which the first candidate has the title reading and the
-  second has it not — so which candidate holds is what says whether those cases stand on a byte the
-  real game looks at. The first is the likelier of the two and that is an argument rather than a
-  measurement: it has the title reading the first three difficulties, and an Easy clear unlocking the
-  Extra would be the game's own rule broken were Easy a difficulty this game can be cleared on.
-- **Which of the bullet's five states is a bullet still coming out and which is one already spent.**
-  Which one *hits* is established — state 1 and no other — and what the other four mean is not.
 - **What scaled one bullet's step by √2 on one frame of one launch.** It moved `-2.25,5.13` while its
   step said `-1.60,3.66` — `1.41` on both axes, the same number twice, which is a scale and not a
   bullet turning; and since the step a dump prints was itself scaled by the half the model applied to
@@ -1414,17 +1546,18 @@ What did change, and what orb had to change with it:
   What is ruled out: neither `1.41421` nor `0.70711` is a float of the pool at
   `0x14030dfa8`..`0x14030e0c8` or anywhere else in `.rdata`, as an `f32` or an `f64`; no ratio between
   the five states' own multipliers is `1.4`, `0x14000dd8d`'s divisor chain loading `1.0` from
-  `0x14030dff0` against `2.0`, `2.5` and `3.0`. **And the state-5 half it was read alongside was a
-  factor of two and is fixed** — see the table above — after which five launches in a row have every
-  dump reading `0 bullet(s) no step of their own explained` and not one has met this again. So it is
-  either a branch nothing has reached since or a reading of a frame the game was part-way through, and
-  `steer::OutBy` names the state in the line beside what a bullet moved so that the next occurrence
-  says which.
+  `0x14030dff0` against `2.0`, `2.5` and `3.0`, and state 5's own is the half of `0x14030dfc8`. Five
+  launches in a row since have every dump reading `0 bullet(s) no step of their own explained` and not
+  one has met this again. So it is either a branch nothing has reached since or a reading of a frame the
+  game was part-way through — a bullet changing state within the update, as one turned 1 or 5 does, being
+  the candidate the exe offers — and `steer::OutBy` names the state in the line beside what a bullet
+  moved so that the next occurrence says which.
 - **What `+0x7500` of the player is for.** It takes the same eight values `+0x7270` does and the switch
   at `0x14004b1a0` turns them into the rotation `+0x73a0` onwards is drawn with.
 - **What its `.dat` files hold and how**, and whether `th06.cfg` and `th06.env` are anything like
   1.02h's configuration.
-- **Which of the replay list's writes starts a playback at a stage of its choosing**, which is what
-  `Game::jump_to_stage` would be.
-- **Whether the device read at `0x140441fd0`'s `+0x48` is used as well as `GetKeyboardState`**, and what
-  the two flags at `0x140443f60` and `0x1404513a4` turn on.
+- **Which of the two keyboard paths a machine takes.** The choice is read — see the keyboard — and it
+  turns on `[0x140441fa4]`, `[0x140441fe4]`, `[0x140441fa8]` and the build number at `[0x140452438]`,
+  which this reading has not followed to their writers, besides the object at `0x140441fd0` that orb
+  leaves at nought. And what the two flags at `0x140443f60` and `0x1404513a4` turn on past the keyboard
+  hook: the first is tested in some sixty places.

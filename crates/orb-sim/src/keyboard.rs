@@ -98,6 +98,9 @@ pub mod keys {
     pub const ESCAPE: u8 = 0x1b;
     pub const UP: u8 = 0x26;
     pub const DOWN: u8 = 0x28;
+    /// And the other two arrows, which a run is moved by as much as the two above.
+    pub const LEFT: u8 = 0x25;
+    pub const RIGHT: u8 = 0x27;
     /// The game's bomb key, which its own menus read as back.
     pub const X: u8 = 0x58;
     /// And its shot key, which they read as decide.

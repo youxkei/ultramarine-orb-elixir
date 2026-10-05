@@ -11,7 +11,7 @@
 //! than by reading — see `orb_sim::Sound`. What no e2e test can say is what any of it sounds like; the numbers
 //! below stand in for that.
 
-use crate::fake::th07::{Fake, STREAM_BUFFER, STREAM_NOTIFY, TRACK};
+use crate::fake::th07::{A_PLAY_TAKES, Fake, STREAM_BUFFER, STREAM_NOTIFY, TRACK};
 use crate::fake::{Display, Launched, PRESENT, SOUND, Work, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::Game;
@@ -208,9 +208,9 @@ fn a_chapter_of_th07_taken_under_another_track_gets_its_own_track_back() {
             "the music was not taken down through the game's own call",
         );
         // And the chapter's own track started again through the game's own call, which answers for both of this
-        // game's sound backends — see `Th07::restart_stage_music`. A frame later, the ask being a command the
-        // player walks over more than one run of its own sound.
-        game.frame();
+        // game's sound backends — see `Th07::restart_stage_music`. The frames a play takes later, the ask being a
+        // command the player walks over more than one run of its own sound.
+        game.frames(A_PLAY_TAKES);
         assert_eq!(
             game.music_started(),
             vec![TRACK.name.to_str().unwrap().to_owned()],
@@ -282,7 +282,8 @@ fn a_chapter_of_th07_taken_with_nothing_audible_comes_back_to_that_silence() {
              \n  {}",
             log.lines().join("\n  ")
         );
-        game.frame();
+        // The frames the play takes and the one after it, which is the frame orb finds the queue empty on.
+        game.frames(A_PLAY_TAKES + 1);
 
         // And a track asked for, which is what leaves the player holding a stream at all.
         assert_eq!(
@@ -383,14 +384,14 @@ fn the_song_of_th07_is_put_back_where_the_ask_for_its_track_was_carried_out() {
             "the song was seeked in the restore's own frame, where the track asked for is not playing yet:\n  {}",
             log.lines().join("\n  ")
         );
-        game.frame();
-
-        assert!(
-            log.said(&format!(
-                "restore: the song picked up at {HEARD_AT} in the track's own file"
-            )),
-            "the song was not put where the chapter had it once the ask had been carried out:\n  {}",
-            log.lines().join("\n  ")
+        game.frames_until(
+            "the song picked up once the ask had been carried out",
+            A_PLAY_TAKES + 1,
+            || {
+                log.said(&format!(
+                    "restore: the song picked up at {HEARD_AT} in the track's own file"
+                ))
+            },
         );
         // And the file itself is where that seek left it: the chapter's own offset and the buffer filled from
         // there, which is what `Music::play_from` does with one read rather than wait for the streaming

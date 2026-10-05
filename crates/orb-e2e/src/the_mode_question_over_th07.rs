@@ -395,3 +395,53 @@ fn th07s_ranking_is_asked_the_same_way_and_says_it_is_about_a_ranking() {
         });
     });
 }
+
+/// The updates the ranking stands in its build for: 0x445db3's state 0 moves to 1 once the timer at `+0x4` has
+/// reached 0x14.
+const THE_RANKINGS_BUILD_TAKES: u32 = 0x14;
+/// And the two states either side of that, the screen's own numbers.
+const THE_RANKING_BUILDING: i32 = 0;
+const THE_RANKING_UP: i32 = 1;
+
+/// **And the ranking reads the file it shows**: the Score item's scene is built with `0x44a302(0)` (0x437f3a),
+/// whose added callback 0x449b05 reads the score file and lays its card records over memory in every phase but
+/// a run's end's — and the screen it puts up stands in its build for 20 updates before its menu is up.
+#[test]
+fn th07s_ranking_reads_the_modes_file_and_stands_in_its_build_first() {
+    in_its_own_process(|| {
+        let game = game("th07-mode-ranking-read");
+        let log = game.log();
+        game.image().the_title_menu_points_at(TITLE_ITEM_SCORE);
+        game.one_frame();
+        game.press_until(keys::Z, "the question over the ranking", || {
+            log.said("menu: Scores is under the cursor, asking which mode")
+        });
+        game.frames(READS_KEYS_AFTER);
+        let from = log.written();
+        let image = game.image();
+        game.press_until(keys::Z, "the Pointdevice ranking", || {
+            image.the_scene_now() == image.scene_of_the_ranking()
+        });
+        assert!(
+            log.said_since(
+                from,
+                "score: pointdevice_score.dat opened in place of the game's own, read"
+            ),
+            "the ranking was built without a read of the file it shows:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            image.the_phase_the_screen_is_in(),
+            THE_RANKING_BUILDING,
+            "the ranking came up past its own build",
+        );
+        // One more than the count: the timer goes up at the update's end (0x446a11), so the update that finds it at
+        // 0x14 is the 21st, and whether the screen's own registration update is one of them is not read.
+        game.frames(THE_RANKINGS_BUILD_TAKES + 1);
+        assert_eq!(
+            image.the_phase_the_screen_is_in(),
+            THE_RANKING_UP,
+            "the ranking's build did not hand over to its menu",
+        );
+    });
+}

@@ -32,6 +32,9 @@ use orb_core::mode::title;
 use orb_sim::keys;
 
 const SLOT: &str = "normal-reimu-a";
+
+/// The frames of an attempt watched one at a time before it is asked about.
+const A_FEW_FRAMES: u32 = 4;
 /// The date the simulated host's calendar is set to, which a kept replay's name and the line the list shows
 /// it on both carry.
 const DATED: &str = "20040815-214233";
@@ -348,10 +351,16 @@ fn a_replay_is_chosen_by_stage_chapter_and_attempt_and_watched() {
 
         // ── 7. And then it is watched: the game plays on, a frame of the attempt to a frame of the game,
         // with the buttons the attempt was made with rather than the keyboard's.
-        game.frames(10);
+        // **Fewer frames than the attempt holds**, which is the frames from the card to the death its hit
+        // stands for — the window a bomb is taken in, eight frames on this laid-out game.
+        assert!(
+            died_at - CARD_STARTS > A_FEW_FRAMES,
+            "the attempt is shorter than the frames it is watched over",
+        );
+        game.frames(A_FEW_FRAMES);
         assert_eq!(
             game.state().stage_frames,
-            CARD_STARTS + 10,
+            CARD_STARTS + A_FEW_FRAMES,
             "the attempt is not being played a frame at a time",
         );
 

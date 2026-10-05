@@ -68,7 +68,13 @@ mod a_confirmation_declined_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_confirmation_declined_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_continue_of_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_conversation_of_th06nc_pressed_past;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_death_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_death_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_pointdevice_run_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
@@ -186,6 +192,10 @@ mod the_snapshot_of_th06c_held_against_itself;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_snapshot_of_th06nc_held_against_itself;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod the_start_of_a_run_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_start_of_a_run_of_th06nc;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod the_title_menu_of_th06c_walked;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_track_heard_of_th06c;
@@ -195,6 +205,8 @@ mod the_track_heard_of_th06nc;
 mod the_updates_a_resume_of_th06c_takes;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_updates_a_resume_of_th06nc_takes;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod the_way_a_stage_of_th06c_ends;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod the_window_a_bot_plays_in_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
@@ -260,6 +272,8 @@ mod a_confirmation_declined_of_th07;
 mod a_confirmation_declined_of_th08;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_confirmation_declined_of_th10;
+#[cfg(all(test, target_arch = "x86"))]
+mod a_death_of_th10;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_pad_the_game_has_no_device_for;
 #[cfg(all(test, target_arch = "x86"))]
@@ -475,8 +489,6 @@ mod the_music_across_a_restore;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_music_across_a_restore_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
-mod the_number_th07s_shot_is_scaled_by;
-#[cfg(all(test, target_arch = "x86"))]
 mod the_numbers_a_run_of_th06_was_made_with;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_numbers_a_run_of_th07_was_made_with;
@@ -508,6 +520,8 @@ mod the_player_a_stage_of_th10_starts;
 mod the_player_a_stage_starts;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_process_orb_woke_up_in;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_rank_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_recipe_a_bot_plays_to;
 #[cfg(all(test, target_arch = "x86"))]
@@ -582,6 +596,10 @@ mod the_screens_of_th07_in_english;
 mod the_screens_of_th08_in_english;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_screens_of_th10_in_english;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_script_clock_of_th10;
+#[cfg(all(test, target_arch = "x86"))]
+mod the_seal_of_a_run_of_th08;
 #[cfg(all(test, target_arch = "x86"))]
 mod the_snapshot_held_against_itself;
 #[cfg(all(test, target_arch = "x86"))]

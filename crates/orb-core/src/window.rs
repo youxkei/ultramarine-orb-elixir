@@ -594,11 +594,13 @@ pub unsafe extern "system" fn direct3d_create9(sdk: u32) -> *mut c_void {
 }
 
 /// **The device made with Direct3D told to leave the focus window alone**, where orb plays the game in a window of
-/// its own: `D3DCREATE_NOWINDOWCHANGES` beside the game's own flags. **Because the device is what brought the window
-/// to the front**: made hidden, shown with `SW_SHOWNA`, `WS_EX_NOACTIVATE` on it and the game's own
-/// `SetForegroundWindow` swallowed, th10's window still came to the front some 110 milliseconds after it was made —
-/// tick 3501540094 to 3501540109 on the log's clock, between the window made at 3501539993 and the pad read at
-/// 3501540233, WinMain's device (0x439890) being the one thing between those.
+/// its own: `D3DCREATE_NOWINDOWCHANGES` beside the game's own flags. **Because the device's making is the one call of
+/// the game's that can have brought the window to the front**: made hidden, shown with `SW_SHOWNA`,
+/// `WS_EX_NOACTIVATE` on it and the game's own `SetForegroundWindow` swallowed, th10's window still came to the front
+/// some 110 milliseconds after it was made — tick 3501540094 to 3501540109 on the log's clock, between the window
+/// made at 3501539993 and the pad read at 3501540233, WinMain's device (0x439890) being the one call of the game's
+/// between those. Whether it is the device or Windows bringing a new process's first window forward is not
+/// established — see th10's `asm.md`, where the window still comes to the front with this flag on.
 ///
 /// **And made presenting without waiting for the display**, where the launch is paced faster than it — see
 /// [`presents_without_waiting`]. **Written into the game's own parameters** rather than a copy of them, because
@@ -1372,9 +1374,14 @@ pub unsafe fn hook_device(device: orb_api::Device) {
     // no address until it is coerced to a pointer, so `present as usize` would ask for the address of a
     // thing that does not have one yet and get it by an implied coercion.
     let replacement = present as *const () as usize;
+    // **The game's own kept before the slot is written over**, and not out of what the write answers: a present
+    // through the slot between the two would reach orb's with nothing to hand on to.
+    PRESENT.store(
+        unsafe { orb_api::mem::read::<usize>(slot) },
+        Ordering::Relaxed,
+    );
     match unsafe { orb_api::mem::replace_word(slot, replacement) } {
-        Some(original) => {
-            PRESENT.store(original, Ordering::Relaxed);
+        Some(_) => {
             // With the client as it is now: the device has just been created, and creating one is
             // the other thing that can resize a window out from under whoever asked for it.
             log!(
@@ -1385,7 +1392,11 @@ pub unsafe fn hook_device(device: orb_api::Device) {
                 }
             );
         }
-        None => log!("screen: cannot hook Present: the slot's page cannot be made writable"),
+        None => {
+            // And nothing kept where nothing was swapped, which is what says the letterbox is not in.
+            PRESENT.store(0, Ordering::Relaxed);
+            log!("screen: cannot hook Present: the slot's page cannot be made writable");
+        }
     }
 }
 

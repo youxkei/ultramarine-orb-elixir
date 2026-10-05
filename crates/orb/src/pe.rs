@@ -87,9 +87,11 @@ pub unsafe fn import_slot(module: usize, dll: &str, function: &str) -> Option<us
         while (*descriptor).name != 0 {
             let imported = cstr(module + (*descriptor).name as usize);
             if imported.eq_ignore_ascii_case(dll.as_bytes()) {
-                // Bound imports leave the name array empty and only fill the IAT.
+                // **No names, no slot**: a descriptor with no `OriginalFirstThunk` has only the IAT, and once the
+                // loader has bound it the IAT holds addresses and not names — read as names, they are wild
+                // memory, read from inside `DllMain`. None of the exes orb runs has such a descriptor.
                 let names = match (*descriptor).original_first_thunk {
-                    0 => (*descriptor).first_thunk,
+                    0 => return None,
                     thunk => thunk,
                 };
                 let names = (module + names as usize) as *const Thunk;

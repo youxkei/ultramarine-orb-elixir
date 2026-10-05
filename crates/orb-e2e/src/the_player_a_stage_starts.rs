@@ -5,8 +5,8 @@
 //! `respawnTimer = 8`. **None of those three is what the stage is played with**, and reading only that
 //! callback is how the number 120 gets believed: `Player::OnUpdate`'s spawning branch tests
 //! `30 <= invulnerabilityTimer.AsFrames()`, which 120 already satisfies, so the very first update of the
-//! stage flips the state to `PLAYER_STATE_INVULNERABLE`, zeroes the respawn timer and calls
-//! `SetCurrent(240)`. The countdown below it then runs in that same update, leaving **239**.
+//! stage zeroes the respawn timer (0x428f19), flips the state to `PLAYER_STATE_INVULNERABLE`, writes 6
+//! over the respawn timer (0x428f9e) and calls `SetCurrent(240)`. The countdown below it then runs in that same update, leaving **239**.
 //!
 //! So a stage begins with **240 updates nothing can kill the player in**, and the 121st is not special.
 //! `src/Player.cpp`, and `src/ZunTimer.hpp` for what `SetCurrent` and `Decrement` do to the count.
@@ -101,10 +101,26 @@ fn nothing_kills_the_player_until_a_stages_invulnerability_runs_out() {
             after.lives, FRESH.0,
             "the life went with the hit, inside the frames a bomb is still taken in",
         );
-        game.frames_until(
-            "the life the death takes once its window has run out",
-            A_BOMB_IS_TAKEN_FOR as u32 + 2,
-            || game.state().lives == FRESH.0 - 1,
+        // **And the window is 6 frames on the life a run starts with, as on every other**: the 8
+        // `Player::AddedCallback` leaves (0x42a09c) is written over by the spawning branch the stage's first
+        // update takes — nought at 0x428f19, then 6 at 0x428f9e as it hands over to the invulnerable state.
+        // **And the life goes thirty updates after that**: with the window at nought the dying branch takes
+        // 0x428c48, which steps the timer `Player::Die` put back to nought (0x4277d1) and, the update it
+        // reaches 30 (0x428d16), writes the spawning state (0x428d23) and takes the life (0x428ded).
+        game.frames(A_BOMB_IS_TAKEN_FOR as u32 + DYING_FOR - 1);
+        assert_eq!(
+            game.state().lives,
+            FRESH.0,
+            "the life went before the window a bomb is taken in and the death's own frames had run out",
+        );
+        game.frame();
+        assert_eq!(
+            game.state().lives,
+            FRESH.0 - 1,
+            "the life was still there once the window and the death's own frames had run out",
         );
     });
 }
+
+/// The updates a death is shown dying for once its window has run out, `0x428d16`'s `cmp $0x1e`.
+const DYING_FOR: u32 = 30;

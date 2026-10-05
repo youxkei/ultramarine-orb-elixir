@@ -34,17 +34,22 @@ type CreateThread = unsafe extern "system" fn(
 /// # Safety
 /// Must run before the game creates any thread, and `module` must be the exe.
 pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
+    let [create_thread_import] = IMPORTS;
     let previous = unsafe {
         hook::install_import(
             module,
             "KERNEL32.dll",
-            "CreateThread",
+            create_thread_import,
             hook::address(create_thread as _),
         )
     }?;
     CREATE_THREAD.store(previous, Ordering::Relaxed);
     Ok(())
 }
+
+/// The `KERNEL32.dll` import [`install`] swaps, which an attach asks about together with the memory hooks'
+/// before writing any of them — see `hook::can_install_imports`.
+pub const IMPORTS: [&str; 1] = ["CreateThread"];
 
 unsafe extern "system" fn create_thread(
     attributes: *const c_void,

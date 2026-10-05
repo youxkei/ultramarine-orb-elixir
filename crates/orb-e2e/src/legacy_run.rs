@@ -17,6 +17,9 @@ use orb_core::menu_ui::{NORMAL, SELECTED};
 use orb_core::mode::{Mode, aside, title};
 use orb_sim::keys;
 
+/// How many frames a death is given to take its life in: its window, the dying state's thirty, and some.
+const A_DEATH_TAKES: u32 = 60;
+
 /// The run this e2e test plays, which is the other e2e test's: Normal, Reimu A, from stage one.
 fn the_run() -> RunStart {
     RunStart {
@@ -150,10 +153,12 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         // ── 4. The hit. A life, and no menu: the game takes the death, respawns, and carries on.
         let before = game.state();
         game.dies();
-        // **Two frames, because the life goes after the death and not with it**: the first runs the last of
-        // the frames a bomb is taken in out, and the second is the one the game takes the life on — see
-        // `Fake::update_the_player`.
-        game.frames(2);
+        // **Waited on, because the life goes after the death and not with it**: the frames a bomb is taken in
+        // run out first, and the dying state stands thirty updates after them before the life goes (0x428c48,
+        // the `cmp $0x1e` at 0x428d16) — see `Fake::update_the_player`.
+        game.frames_until("the life taken", A_DEATH_TAKES, || {
+            game.state().lives < before.lives
+        });
         assert_eq!(
             game.state().lives,
             before.lives - 1,
@@ -207,8 +212,11 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         // and `score.rs`'s own tests are what hold it to that. The screen itself, and what it wrote, is
         // `the_screen_a_finished_run_ends_at.rs`'s.
         for _ in 0..2 {
+            let lives = game.state().lives;
             game.dies();
-            game.frames(2);
+            game.frames_until("the life taken", A_DEATH_TAKES, || {
+                game.state().lives < lives
+            });
         }
         assert_eq!(game.state().lives, -1, "the run is out of lives");
         game.frames_until("the run over", 60, || !game.state().in_run);

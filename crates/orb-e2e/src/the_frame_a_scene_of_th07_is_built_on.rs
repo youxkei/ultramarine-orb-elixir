@@ -2,9 +2,10 @@
 //!
 //! Its supervisor's own job is the first of the calc chain and everything it registers goes in behind the walk's
 //! current position, so the walk reaches the new jobs before it returns: a scene gets its own first update on the
-//! very frame it was built. Which for this game is the whole of a transition — 0x4380b4 asks for the rebuild
-//! scene, 0x42f45d tears the stage down, 0x42f3c5 registers the manager for the next one and 0x4380df puts the
-//! scene asked for back — so no frame of one is a frame outside the scene a run is played in.
+//! very frame it was built. Which for this game is the whole of a transition — the stage's end at 0x427ea5
+//! asks for the rebuild scene, and the supervisor tears the stage down through 0x42f45d at 0x438123, registers
+//! the manager for the next one at 0x438128 and puts the scene asked for back at 0x43813c — so no frame of one
+//! is a frame outside the scene a run is played in.
 //!
 //! **And the last thing that block does is zero the input words**: 0x438294 clears 0x4b9e5c, copies it into
 //! 0x4b9e54 and from there into 0x4b9e4c, and every transition reaches it — 0x4381cc jumps straight there. So the

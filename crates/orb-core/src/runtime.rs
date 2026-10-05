@@ -515,9 +515,11 @@ pub struct Runtime {
     said_not_written: Option<(i32, u32)>,
     /// Frames spent waiting for the game to build the stage a resume asked for.
     starting: u32,
-    /// Whether the game has been asked to read its keyboard the way it does without DirectInput,
-    /// which is asked once and cannot be asked before the device exists.
+    /// Whether the game has been asked to read its keyboard the way it does without DirectInput, and whether
+    /// a device has been let go of: asked every frame until one has, the device being one a thread of the
+    /// game's may make after the first.
     sent_keys: bool,
+    sent_keys_let_go: bool,
     /// Which language every screen of orb's own is written in, settled at the attach: `orb.yaml` says,
     /// or the machine does where it says nothing. Kept here rather than read per screen because it
     /// cannot change while a process runs and the machine's own is a call to the host.
@@ -1166,7 +1168,7 @@ pub struct Originals {
     /// setting it found there has been overruled. A patch over that function's prologue in a real launch;
     /// here the game calls the hook where it would have created its window, and this is what the hook
     /// calls back into.
-    pub create_game_window: extern "C" fn(*mut c_void),
+    pub create_game_window: extern "C" fn(*mut c_void) -> i32,
     /// And its own `joyGetPosEx`, as its import table held it: what [`joystick::answer`] calls through on
     /// the reads it has no sample for. The import entry is what a real launch patches; a laid-out game
     /// hands the entry over and calls the replacement where its own read would have gone through it.
@@ -1191,7 +1193,7 @@ pub struct Originals {
     /// Not something a real launch hands over — the hook is always installed there, and orb attaches before
     /// the device exists — so a laid-out game that wrote its device before orb was attached would leave this
     /// unreachable. See `Fake::attach_before_its_device`.
-    pub init_d3d_device: extern "C" fn(),
+    pub init_d3d_device: extern "C" fn() -> i32,
     /// And its own refill of the music buffer, which [`tops_up_the_music`] says what is being fed through and
     /// then calls: `__thiscall` on the stream with the one argument both games' own threads pass it.
     /// **Of the 32-bit games and no other**, which is what the ABI settles: `__thiscall` is an x86
@@ -1580,6 +1582,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             said_not_written: None,
             starting: 0,
             sent_keys: false,
+            sent_keys_let_go: false,
             language,
         });
     }
@@ -1746,6 +1749,16 @@ unsafe fn what_is_reached(runtime: &Runtime) {
     playing.reached.chapter = the_chapter_of_the_stage(runtime, Some(playing.reached.stage - 1));
     let started = profile::now();
     playing.pressing = (playing.word)(runtime.game, playing.reached);
+    // **And a stage's end the game waits on a press for, pressed past** — one of the menu's decide bits down
+    // on every other tick and let go of between, a word held down being no press at all — see
+    // `Game::a_stages_end_waits_for_a_press`.
+    if unsafe { runtime.game.a_stages_end_waits_for_a_press() } {
+        let down = !A_STAGES_END_PRESSED.fetch_xor(true, Ordering::Relaxed);
+        playing.pressing = Some(match down {
+            true => runtime.game.menu_decide().isolate_lowest_one(),
+            false => 0,
+        });
+    }
     unsafe { profile::record(profile::Phase::Steering, started) };
     // **And pushed on the virtual pad rather than handed over, for a launch pressing through one**, before the
     // game's read of the frame: the device the game holds stood in front of once it has one, and the pad let go
@@ -1777,6 +1790,9 @@ unsafe fn what_is_reached(runtime: &Runtime) {
 
 /// Whether the line saying a game takes no word as a pad has been written, which it is once a launch.
 static SAID_NO_PAD: AtomicBool = AtomicBool::new(false);
+
+/// Whether the press past a stage's end was down on the tick before — see [`what_is_reached`].
+static A_STAGES_END_PRESSED: AtomicBool = AtomicBool::new(false);
 
 /// **What the bot's word hands to the game's read, and to orb's menus**: what it is pressing, unless that went
 /// onto the virtual pad — which is then read as a person's pad is, and handed nowhere. See
@@ -2262,7 +2278,34 @@ unsafe fn the_draw_chain(chain: *mut c_void) -> i32 {
 /// Borderless mode needs a window; a game that has taken the display exclusively
 /// has none to resize, and by the time anything of ours runs per frame the device
 /// already exists.
-pub extern "C" fn create_game_window(instance: *mut c_void) {
+///
+/// **The game's answer handed back**, which its startup tests (th07's 0x4340e2, th08's 0x44199e) and leaves on
+/// anything but nought.
+pub extern "C" fn create_game_window(instance: *mut c_void) -> i32 {
+    the_window_is_about_to_be_made();
+    let original: extern "C" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(CREATE_GAME_WINDOW.load(Ordering::Relaxed)) };
+    original(instance)
+}
+
+/// [`create_game_window`] over a call that is handed the instance in `ecx` — th07's and th08's, see
+/// `Hooks::create_window`.
+///
+/// **No e2e test holds the instance to what the call was handed**, because nothing of the laid-out games keeps
+/// it: the real ones put it in the window class and the window they make, and a laid-out game's window is the
+/// host's, made by `Fake::creates_its_window` rather than out of this call. What a hook entered the wrong way
+/// did there was hand the game a register's leftover for its instance — `the_stage_*_reaches_*` in the e2e
+/// tests hold the same mistake to its number for the stage builds, which do keep theirs.
+#[cfg(target_arch = "x86")]
+pub extern "fastcall" fn create_game_window_in_ecx(instance: *mut c_void) -> i32 {
+    the_window_is_about_to_be_made();
+    let original: extern "fastcall" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(CREATE_GAME_WINDOW.load(Ordering::Relaxed)) };
+    original(instance)
+}
+
+/// What both entries do before the game's own window creation: its display setting overruled, once.
+fn the_window_is_about_to_be_made() {
     if FORCE_WINDOWED.swap(false, Ordering::Relaxed)
         && let Some(game) = unsafe { chosen() }
         && !game.windowed()
@@ -2270,9 +2313,6 @@ pub extern "C" fn create_game_window(instance: *mut c_void) {
         unsafe { game.force_windowed() };
         log!("borderless: overrode the game's fullscreen setting");
     }
-    let original: extern "C" fn(*mut c_void) =
-        unsafe { std::mem::transmute(CREATE_GAME_WINDOW.load(Ordering::Relaxed)) };
-    original(instance)
 }
 
 the_games_own_convention! {
@@ -2622,16 +2662,24 @@ unsafe fn pushed(trampoline: &AtomicUsize, argument: *mut c_void) -> i32 {
 /// setup would have been reached, there being no prologue to patch. A
 /// laid-out game that had its device before orb was attached would never reach it at all, which is what
 /// `Fake::attach_before_its_device` exists for.
-pub extern "C" fn init_d3d_device() {
+///
+/// **The device is asked for once the original has returned and not before it**, because one of the setups
+/// this stands over is the call that makes the device: th08's 0x4424c0 calls `IDirect3D8::CreateDevice` into
+/// `[0x17ce760]` (0x442681, 0x4426c8, 0x442710), so asking first found nothing there on every real launch and
+/// no `Present` was ever swapped. th06's and th07's setups set render states on a device that already exists,
+/// which is still there when they return. And the answer is the game's, handed back: th08 tests it (0x4419ac)
+/// and leaves its startup on anything but nought.
+pub extern "C" fn init_d3d_device() -> i32 {
+    let original: extern "C" fn() -> i32 =
+        unsafe { std::mem::transmute(INIT_D3D_DEVICE.load(Ordering::Relaxed)) };
+    let answer = original();
     if let Some(game) = unsafe { chosen() } {
         let device = unsafe { game.d3d_device() };
         if !device.is_null() {
             unsafe { crate::window::hook_device(device) };
         }
     }
-    let original: extern "C" fn() =
-        unsafe { std::mem::transmute(INIT_D3D_DEVICE.load(Ordering::Relaxed)) };
-    original()
+    answer
 }
 
 /// What the game sees on the keyboard this frame — nothing, while its window is not
@@ -3916,6 +3964,17 @@ pub extern "C" fn stage_building(stage: i32) -> i32 {
     original(stage)
 }
 
+/// [`stage_building`] over a call that takes its one number in `ecx` — see `game::Building`.
+#[cfg(target_arch = "x86")]
+pub extern "fastcall" fn stage_building_in_ecx(stage: i32) -> i32 {
+    let original: extern "fastcall" fn(i32) -> i32 =
+        unsafe { std::mem::transmute(STAGE_BUILDING.load(Ordering::Relaxed)) };
+    if let Some(game) = unsafe { chosen() } {
+        unsafe { resume::stage_building(game) };
+    }
+    original(stage)
+}
+
 /// [`stage_building`] over a call that takes two and pops them itself — see `game::Building`.
 #[cfg(target_arch = "x86")]
 pub extern "stdcall" fn stage_building_of_two(first: u32, second: u32) -> u32 {
@@ -4092,18 +4151,22 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         unsafe { replay::stage_begun(runtime.game) };
     }
 
-    // Asked once, and here rather than at startup because the device does not exist until the game
-    // has made one — which it does after `DllMain` has been and gone.
-    if runtime.config.sent_keys && !runtime.sent_keys {
+    // Here rather than at startup because the device does not exist until the game has made one — which it
+    // does after `DllMain` has been and gone. **And every frame until one has been let go of**, not once: th10
+    // makes its devices on a thread of its own (0x43ba90), so a first frame that came before it found nothing
+    // and the device's bit was set under it afterwards. Said once either way.
+    if runtime.config.sent_keys && !runtime.sent_keys_let_go {
+        if unsafe { runtime.game.take_sent_keys() } {
+            runtime.sent_keys_let_go = true;
+            log!(
+                "input: the game's own keyboard device let go of; keys sent to it are read the other way"
+            );
+        } else if !runtime.sent_keys {
+            log!(
+                "input: the game had no keyboard device to let go of; it was already reading the other way"
+            );
+        }
         runtime.sent_keys = true;
-        log!(
-            "input: {}",
-            if unsafe { runtime.game.take_sent_keys() } {
-                "the game's own keyboard device let go of; keys sent to it are read the other way"
-            } else {
-                "the game had no keyboard device to let go of; it was already reading the other way"
-            }
-        );
     }
 
     if let Some(menu) = &mut runtime.retry {
@@ -5750,9 +5813,10 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
     // **And a frame in no stage at all is that same end for a game whose scene does not say so**: th06c
     // counts the state its manager is rebuilt in as a stage being played — `sight::a_stage_is_the_scene`,
     // whose reason is that a stage move is where the frame counter restarts — so `playing` stays set right
-    // through the transition and the wall above had nothing to fire on. Its stage word reads nought there,
-    // which is `State::stage` of -1: measured, a pass stepping forward off the last boundary of a th06c
-    // stage ran on into the next one and the chapters of the one it was judging were gone.
+    // through the transition and the wall above had nothing to fire on. Its `State::stage` is -1 there, the
+    // rebuild asked for and not yet made — see `Th06c::read_state`: measured, a pass stepping forward off the
+    // last boundary of a th06c stage ran on into the next one and the chapters of the one it was judging
+    // were gone.
     //
     // **Only where the chapters are of a stage already**, which is the same trap `runtime.played` is
     // guarding against one door along: the frames before a pass's *first* stage is built say that same

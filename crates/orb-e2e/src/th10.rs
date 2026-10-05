@@ -144,7 +144,8 @@ fn the_queue_of_quads_of_th10_is_drawn_before_the_scene_ends_and_emptied_as_it_b
 
 /// **The camera and the fog are set every frame, in the order the game's own frame sets them**: the queue drawn,
 /// the camera and its viewport before the update, and the fog inside the scene before the draw walk — the fog's
-/// word forced first (0x4394c2), 0x420cd0 doing nothing where it already says nought.
+/// word forced to `0xff` first (0x4394c2), so that 0x420cd0, which does nothing where that word says nought,
+/// draws the queue, puts the word at nought and sets the fog off on every frame (0x420cd6 through 0x420cfa).
 #[test]
 fn the_camera_and_the_fog_of_th10_are_set_every_frame_in_the_games_own_order() {
     in_its_own_process(|| {

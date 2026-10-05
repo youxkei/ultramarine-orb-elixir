@@ -13,10 +13,10 @@
 //!   (0x441bd0), 0x43e375 returns without a death for any other non-zero state, and 0 falls through to the death
 //!   at 0x43edc0 — **no count of frames is read anywhere in it**. So what makes th07's player unkillable is
 //!   being in one of the four states that are not 0, and nothing else.
-//! - **What puts the player in state 3 is a bomb or the respawn**, never a stage's start: the twelve routines at
-//!   0x408710 through 0x40da80 write it beside sound 0xd, and the respawn writes it at 0x441785, 0x441a42,
-//!   0x4412a6 and 0x441d5c. The frames under it are ticked by 0x4394c7 and the state goes back to 0 at 0x4413fa
-//!   where they run out.
+//! - **What puts the player in state 3 is a bomb, a death's end or a border's**, never a stage's start: the
+//!   twelve routines at 0x408710 through 0x40da80 write it beside sound 0xd, the death handler at 0x4412a6 once
+//!   its 30 updates are out, and the border's end at 0x441785 and its breaking at 0x441d5c. The frames under it
+//!   are ticked by 0x4394c7 and the state goes back to 0 at 0x4413fa where they run out.
 //!
 //! **So a stage of this game begins with a player anything can kill**, and there is no e2e test to be written
 //! about how long that is not so for. What is left to say is what a build leaves in the two fields orb writes for
@@ -34,14 +34,14 @@ const WORK_US: i64 = 700;
 /// that the build below is a build with a stage behind it.
 const THE_NEXT_STAGE: i32 = 1;
 
-/// The state a run is played in, and the one the respawn walks a player back in under. Written out here rather
-/// than read off `Th07`, which keeps both: a test that took its numbers from the code under test would agree with
-/// it whatever either said.
+/// The state a run is played in, and the one a death's end leaves a player untouchable in. Written out here
+/// rather than read off `Th07`, which keeps both: a test that took its numbers from the code under test would
+/// agree with it whatever either said.
 const PLAYING: i8 = 0;
 const COMING_BACK: i8 = 3;
 
-/// And the frames a respawn leaves under that state, which is what the stage before this one is left holding:
-/// 0x441756's own first write, before it settles on the walk-in's own count.
+/// And the frames a death's end leaves under that state, which is what the stage before this one is left
+/// holding: 0x4411c0's write beside the state.
 const FRAMES_A_RESPAWN_LEAVES: i32 = 0xf0;
 
 #[test]
@@ -70,10 +70,13 @@ fn a_stage_of_th07_starts_its_player_playing_with_nothing_left_on_the_timer() {
             (COMING_BACK, FRAMES_A_RESPAWN_LEAVES),
             "the player is not where a respawn left them, so the stage below starts from nothing",
         );
-        // And what orb reads of that: a run in the middle of something, which is no place for a chapter.
+        // And what orb reads of that: a player playing, the death being over. 0x4411c0 holds the dying state for
+        // its 30 updates and then writes this one with 0xf0 under it (0x4412a6), and the update moves the player
+        // in it (0x43ee50 at 0x44203b) as in the state a run is played in — the frames are untouchable, and not
+        // a death still going.
         assert!(
-            game.state().unsettled,
-            "a player walking back in reads as a run standing still",
+            !game.state().unsettled,
+            "the frames after a death read as the death still going",
         );
 
         // The next stage built over it, which is where the player's own register runs again.

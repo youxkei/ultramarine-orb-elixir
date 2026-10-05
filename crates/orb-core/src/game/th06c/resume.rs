@@ -3,8 +3,10 @@
 //! Its own for the reason th07's is: a file is the game's, and one version number over two games' numbers is
 //! what let a field go into th06's file without being raised — see `th06::resume`. th06c is the same game
 //! played and another program playing it, and what a stage of it is restarted from is the eight fields its
-//! own replay record carries — `ReplayManager::AddedCallbackDemo` at 0x14004dae0 puts them back, field for
-//! field, out of the record at 0x14004d940 — plus the two orb counts for itself. Those eight are th06 1.02h's
+//! own replay records carry — `ReplayManager::AddedCallbackDemo` at 0x14004dae0 puts them back, field for
+//! field, out of the records the recording init at 0x14004d940 wrote: the score out of the previous stage's
+//! record and only from stage 2 on, the other seven out of the stage's own — plus the two orb counts for
+//! itself. Those eight are th06 1.02h's
 //! eight, which is why this file reads like th06's and is not it: th06's is frozen at what shipped and reads
 //! two versions, and this one starts at 1 with the generators required.
 //!
@@ -21,9 +23,10 @@ use crate::resume::{Kept, MAX_STAGE_FRAMES};
 
 /// **The numbers a stage of th06c starts with, which is what a stage of it needs to be played again.**
 ///
-/// The eight the game's own per-stage replay record holds — `0x14004d940` writes them out of the statics
-/// and `0x14004dae0` writes them back: the score, the seed, the point items, the power, the lives, the bombs,
-/// the rank and the count of power items towards the next step of the score — and the two the record leaves
+/// The eight the game's own per-stage replay records hold — `0x14004d940` writes them out of the statics
+/// and `0x14004dae0` writes them back: the score, which goes into the previous stage's record and comes back
+/// from stage 2 on, and the seed, the point items, the power, the lives, the bombs, the rank and the count of
+/// power items towards the next step of the score, which go into the stage's own — and the two the record leaves
 /// behind because only the result screen and orb read them: how many extra lives the score has paid for, and
 /// the deaths.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
@@ -42,8 +45,10 @@ pub struct Numbers {
     pub power_items: i8,
     /// How many extra lives the score has already paid for, so the next one is not paid twice.
     pub extra_lives: i8,
-    /// **orb's own count and not the game's**: this exe keeps no count of deaths — see `Th06c::read_state`,
-    /// which counts them off the player's own state — so what goes back in is what orb had counted.
+    /// **orb's own count and not the game's**: this exe keeps no count of deaths — the game manager's `+0x0`
+    /// at 0x1403ed010 counts the hits, deathbombed or not (0x14004c836, 0x14004ca69) — see
+    /// `Th06c::read_state`, which counts them off the player's own state — so what goes back in is what orb
+    /// had counted.
     pub deaths: i32,
 }
 

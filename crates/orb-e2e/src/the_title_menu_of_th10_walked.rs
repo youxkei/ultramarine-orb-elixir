@@ -144,6 +144,30 @@ fn a_cancel_at_th10s_main_menu_puts_the_cursor_on_the_item_that_ends_the_game() 
     });
 }
 
+/// The frames a direction is held for below, and the moves of the cursor that holding makes: the press, and the
+/// auto-repeat 0x44a5f0 keeps at `+0x4` — a bit's own count past 0x19 sets it and takes eight off (0x44a8d2
+/// through 0x44a90a), so the 26th frame held repeats and every eighth after it.
+const HELD_FOR: u32 = 40;
+const MOVES_IT_MAKES: i32 = 3;
+
+/// **A direction held at the main menu moves the cursor on its own**, which the menu reads as `+0x6 | +0x4`
+/// (0x42d52b) — so a recipe holding one for more than a press walks further than the one press.
+#[test]
+fn a_direction_held_at_th10s_main_menu_moves_the_cursor_on_by_itself() {
+    in_its_own_process(|| {
+        let game = at_the_main_menu("th10-title-held", true);
+        assert_eq!(the_cursor(&game), THE_ITEM_FOR_A_RUN);
+        game.keyboard().set(keys::DOWN, true);
+        game.frames(HELD_FOR);
+        game.keyboard().set(keys::DOWN, false);
+        assert_eq!(
+            the_cursor(&game),
+            THE_ITEM_FOR_A_RUN + MOVES_IT_MAKES,
+            "the cursor did not repeat where the down was held",
+        );
+    });
+}
+
 /// And the cursor counts round the eight both ways, so up from the first item is the last.
 #[test]
 fn the_cursor_of_th10s_main_menu_counts_round_its_eight_items() {

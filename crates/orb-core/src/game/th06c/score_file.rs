@@ -65,25 +65,27 @@ pub fn th6k() -> Record {
     record(b"TH6K", &[])
 }
 
-/// A `CLRD` record for one shot — `character * 2 + shot` — with the stage each difficulty has reached with
-/// retries and without, [`CLEARED`] being a clear: `0x18` bytes, the two arrays at `+0xc` and `+0x11`, the
-/// shot at `+0x16`. See `th06c/asm.md`.
-pub fn clrd(shot: u8, reached_with_retries: [u8; 5], reached_without: [u8; 5]) -> Record {
+/// A `CLRD` record for one shot — `character * 2 + shot` — with the stage each difficulty has reached without a
+/// retry and at all, [`CLEARED`] being a clear: `0x18` bytes, the two arrays at `+0xc` and `+0x11`, the shot at
+/// `+0x16`. The first is raised only where the run has taken no retry (`+0x17e0` nought, 0x140024d3c and
+/// 0x140024d7c), the second whatever it has (0x140024da9). See `th06c/asm.md`.
+pub fn clrd(shot: u8, reached_without_a_retry: [u8; 5], reached_at_all: [u8; 5]) -> Record {
     let mut body = Vec::with_capacity(12);
-    body.extend_from_slice(&reached_with_retries);
-    body.extend_from_slice(&reached_without);
+    body.extend_from_slice(&reached_without_a_retry);
+    body.extend_from_slice(&reached_at_all);
     body.push(shot);
     body.push(0);
     record(b"CLRD", &body)
 }
 
-/// Whether any `CLRD` among `records` says a run has cleared the game: what the title reads at `0x14002d526`
-/// to offer the Extra — see `th06c/asm.md`.
+/// Whether any `CLRD` among `records` says a run has cleared the game the way the title asks to offer the Extra
+/// (0x14002d526): Normal, Hard or Lunatic of the array reached without a retry, the record's `+0xd` to `+0xf`
+/// — see `th06c/asm.md`.
 pub fn a_clear_is_among(records: &[Record]) -> bool {
     records.iter().any(|record| {
         record.magic() == b"CLRD"
-            && record.bytes.len() >= 0x16
-            && record.bytes[0xc..0x16].contains(&CLEARED)
+            && record.bytes.len() >= 0x10
+            && record.bytes[0xd..0x10].contains(&CLEARED)
     })
 }
 
@@ -216,7 +218,8 @@ mod tests {
         assert_eq!(clrd.bytes[0x16], 3);
     }
 
-    /// A clear is a `CLRD` whose stages reached hold the clear's own byte, in either array.
+    /// A clear the title offers the Extra on is a `CLRD` whose Normal, Hard or Lunatic reached without a retry
+    /// holds the clear's own byte — and not one reached with retries, nor an Easy or an Extra one.
     #[test]
     fn a_clear_is_read_off_the_clrd_records() {
         assert!(!a_clear_is_among(&[th6k(), clrd(0, [1; 5], [1; 5])]));
@@ -224,7 +227,13 @@ mod tests {
             th6k(),
             clrd(0, [1, CLEARED, 1, 1, 1], [1; 5])
         ]));
-        assert!(a_clear_is_among(&[clrd(1, [1; 5], [1, 1, 1, CLEARED, 1])]));
+        assert!(a_clear_is_among(&[clrd(1, [1, 1, 1, CLEARED, 1], [1; 5])]));
+        assert!(!a_clear_is_among(&[clrd(1, [1; 5], [1, 1, 1, CLEARED, 1])]));
+        assert!(!a_clear_is_among(&[clrd(
+            1,
+            [CLEARED, 1, 1, 1, CLEARED],
+            [1; 5]
+        )]));
     }
 
     /// Every byte of every record comes back out of the file it was written into, whichever seed the cipher

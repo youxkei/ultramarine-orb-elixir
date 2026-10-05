@@ -37,6 +37,56 @@ const CARD_NAME: &str = "幽夢「猫の見た夢」";
 /// The frames between the stage's own start, the pause, and the card: past the shortest a chapter may be.
 const APART: u32 = 120;
 
+/// The updates the pause menu takes no decide in, `[menu+0x4]` held against 4 at 0x402e2e being its first item's
+/// gate.
+const THE_MENU_HOLDS_ITS_DECIDE_OFF_FOR: u32 = 4;
+/// And the updates it takes to go down once 続ける is decided: state 4 waits for the timer to reach 0x14
+/// (0x403416) before it puts the flag down.
+const THE_MENU_GOES_DOWN_IN: u32 = 0x14;
+
+/// **The game's own pause menu takes no decide on its first updates, and goes down a while after one**: the
+/// decide sends 0x402780 to its state 4, which clears 0x62f64c only once its timer has passed 0x13 — the frames
+/// the menu slides off in, with the run still stopped under it.
+#[test]
+fn th07s_pause_menu_goes_down_twenty_updates_after_its_decide() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-pause-menu-goes-down",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+        game.frames(APART);
+
+        game.press(keys::ESCAPE);
+        game.press(keys::Z);
+        assert!(
+            game.state().paused,
+            "the menu took a decide on the update after it went up",
+        );
+
+        game.frames(THE_MENU_HOLDS_ITS_DECIDE_OFF_FOR);
+        let stopped = game.state().stage_frames;
+        game.press(keys::Z);
+        assert!(
+            game.state().paused,
+            "the menu went down on the update its decide was made on",
+        );
+        assert_eq!(
+            game.state().stage_frames,
+            stopped,
+            "the run went on while the menu was going down",
+        );
+        game.frames(THE_MENU_GOES_DOWN_IN);
+        assert!(
+            !game.state().paused,
+            "the menu was still up twenty updates after its decide",
+        );
+    });
+}
+
 /// A run that was paused part way through a stage is put back at its chapter all the same.
 #[test]
 fn a_run_of_th07_that_was_paused_is_put_back_at_its_chapter() {
@@ -67,8 +117,9 @@ fn a_run_of_th07_that_was_paused_is_put_back_at_its_chapter() {
             "the stage went on with the game's own menu up",
         );
 
-        // And 続ける, its own first item: the flag down and the run running again.
+        // And 続ける, its own first item: the flag down, once the menu has gone, and the run running again.
         game.press(keys::Z);
+        game.frames(THE_MENU_GOES_DOWN_IN);
         assert!(!game.state().paused, "the menu did not go down on a decide");
         game.frames(APART);
         assert!(

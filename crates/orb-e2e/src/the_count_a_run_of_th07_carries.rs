@@ -7,7 +7,7 @@
 //! awards are a first stage's.
 //!
 //! **The game's own replay restore carries it**, 0x44327f writing it into a stage's record and 0x443841 putting
-//! it back, and the run's own build zeroes it at 0x42ea7c. So a run picked up out of a file starts from nothing
+//! it back, and the run's own build zeroes it at 0x42eaa0. So a run picked up out of a file starts from nothing
 //! unless the resume puts it back — which is what a session measured: a run picked up in stage 2 reproduced 830
 //! frames of itself word for word and then drew four numbers nobody had drawn and took 2000 points nobody had
 //! scored, and went on taking them.

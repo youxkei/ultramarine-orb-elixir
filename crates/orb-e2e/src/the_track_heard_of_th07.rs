@@ -129,6 +129,49 @@ fn the_refill_of_th07_says_what_it_is_feeding_the_buffer() {
     });
 }
 
+/// The slot of the fight's song in the stage's music table, which is what the ECL asks for a boss with.
+const FIGHT_SLOT: u32 = 1;
+/// The runs of the player's own sound a play is walked over on the wav backend: 0x44c9c0's kind 2 takes one
+/// phase a run — the stop, the stream made again, the record put on its source, the buffer filled, and the play
+/// at phase 4 — and the run that finds phase 7 takes the command out of the queue.
+const A_PLAY_IS_HEARD_ON_RUN: u32 = 5;
+const A_PLAY_LEAVES_THE_QUEUE_ON_RUN: u32 = 8;
+
+/// **A play th07 is asked for is heard several runs of its sound after the ask, and stays in the queue after
+/// it is heard**: what orb waits on as the play being carried out is the queue, and the queue empties three runs
+/// after the song has started.
+#[test]
+fn a_play_th07_is_asked_for_is_heard_on_its_fifth_run_and_leaves_the_queue_on_its_eighth() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-runs-a-play-takes",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Normal,
+        );
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+        game.frames(APART);
+
+        let image = game.image();
+        let heard_before = image.music_started().len();
+        image.the_script_asks_for_a_song(FIGHT_SLOT);
+        for run in 1..=A_PLAY_LEAVES_THE_QUEUE_ON_RUN {
+            image.runs_the_sound_commands();
+            assert_eq!(
+                image.music_started().len() > heard_before,
+                run >= A_PLAY_IS_HEARD_ON_RUN,
+                "on run {run} of the sound, the play was heard or not where the player's phases say",
+            );
+            assert_eq!(
+                image.the_sound_queue_holds_a_command(),
+                run < A_PLAY_LEAVES_THE_QUEUE_ON_RUN,
+                "on run {run} of the sound, the queue held the play or not where the player's phases say",
+            );
+        }
+    });
+}
+
 #[test]
 fn the_log_of_th07_names_the_track_being_heard_once_per_change_of_it() {
     in_its_own_process(|| {

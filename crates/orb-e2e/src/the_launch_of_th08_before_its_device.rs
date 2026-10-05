@@ -3,8 +3,9 @@
 //! What `the_launch_of_th07_before_its_device.rs` asks of that game, asked of this one. `DllMain` runs on the
 //! thread the launcher's remote `LoadLibraryW` runs on, long before the game's own startup has made a device —
 //! so orb attaches to a game whose device pointer is still null, and finds the device through its hook over
-//! `GameWindow::InitD3dDevice` at 0x435810, which is also where the device's `Present` is redirected into a
-//! letterbox.
+//! the device setup at 0x4424c0, which is also where the device's `Present` is redirected into a letterbox.
+//! That setup is what makes the device (`IDirect3D8::CreateDevice` into `[0x17ce760]`), so the device is
+//! there to be found only once the call it stands in front of has returned.
 //!
 //! **`th08.rs`'s letterbox tests attach before the device too, and find it before a single frame**: so the
 //! phase a real launch spends without one — frames orb hands straight back, and an overlay not yet built — is a

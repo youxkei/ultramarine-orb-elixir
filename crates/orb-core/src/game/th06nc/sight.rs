@@ -49,9 +49,10 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     // unread.** It is read now — see [`the_line_of_dialogue`] — and what stood on the reading is the
     // shot's own cadence: `orb_bot::steer` lets the shot go every
     // `SHOT_LET_GO_EVERY_IN_A_CONVERSATION` frames while a line is up and every `SHOT_LET_GO_EVERY`
-    // otherwise, and the game wants one edge of `0x301` a line. **Not the skip key, which this game
-    // gives orb none of**: its own skip is `0x8` of the word, built out of a binding filled per
-    // keyboard layout, so `Keys::skip` is nought here and the shot is the whole of it.
+    // otherwise, and the game wants one edge of `0x301` a line. **Not the skip key, which orb names
+    // none of for this game**: its own skip is `0x8` of the word — left `Ctrl` or `;` through the remap
+    // filled per keyboard layout, and X on a pad by default — and `Keys::skip` is nought here, so the
+    // shot is the whole of it.
     into.dialogue = unsafe { the_line_of_dialogue() } >= 0;
     into.boss = unsafe { the_boss_the_fights_own_slot() }
         .map(|body| unsafe { position(body + enemy::POSITION) });

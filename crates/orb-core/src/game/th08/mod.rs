@@ -185,7 +185,7 @@ const G_SOUND_PLAYER: usize = 0x018b8a68;
 
 /// **How much of the address space that manager is**, which is what a restore has to leave alone:
 /// `0x5224` bytes, off the `rep stos` of `0x1489` dwords its constructor at 0x45c190 opens with. The
-/// same constructor writes `-1` into the eighty slot handles at `+0x408` and the twelve at `+0x620`,
+/// same constructor writes `-1` into the `0x80` slot handles at `+0x408` and the twelve at `+0x620`,
 /// which is what says those are its own fields and not statics beside it.
 ///
 /// **And the address space agrees**: `0x18b8a68 + 0x5224` is `0x18bdc8c`, four bytes short of
@@ -303,7 +303,10 @@ const DRAW_QUEUE: usize = 0x00462e40;
 /// three fields of it — `+0x28` the loaded file, which being nothing is a slot with nothing in it;
 /// `+0x2c` a count; and `+0x38` an array of `0xc`-byte entries it walks that count of. The loader
 /// (0x4658ca onwards) writes the same three at `this + slot * 0x1c + 0x24` plus `+0x0`, `+0xc` and
-/// `+0x10`, so the slot is `+0x24` and the three offsets below are its own.
+/// `+0x10`, so the slot is `+0x24` and the three offsets below are its own; the seventh dword, `+0x18`,
+/// is which header the put-up after the load is at (set by 0x465a40, stepped by 0x465ba0). **The loader
+/// itself takes fewer**: 0x465860 declines a slot of `0x19` or more (0x46587b), so only the first 25 of
+/// the `0x100` are ever filled — the count here is the free's, which is the bound a walk of them needs.
 const ANM_SLOTS_AT: usize = 0x24;
 const ANM_SLOT_BYTES: usize = 0x1c;
 const ANM_SLOTS: usize = 0x100;
@@ -416,7 +419,8 @@ const PAD_RIGHT: u16 = 0x80;
 /// it stands for (0x43d17a through 0x43d2d8, 0x43d4ac through 0x43d622); a negative one names none.
 const G_PAD_MAPPING: usize = 0x017c_e870;
 /// **The pad DirectInput found**, `[0x17ce76c]`, which the read takes instead of winmm wherever it is there
-/// (0x43d131) — `GetDeviceState` of `0x110` (0x43d48b), its axes ranged ±1000 (`push 0xfffffc18` at 0x406c11)
+/// (0x43d131) — `GetDeviceState` of `0x110` (0x43d48b), its axes ranged ±1000 by the object callback 0x445e3d
+/// (a `DIPROPRANGE` of `-1000` at 0x445e74 to 1000, handed to `SetProperty`)
 /// and read against the thresholds at `0x17ce888` and `0x17ce88a`, 600 by default (0x447812, 0x43d627 through
 /// 0x43d6be).
 const G_PAD_DEVICE: usize = 0x017c_e76c;
@@ -446,8 +450,10 @@ const RUN_INPUT: u16 = !BUTTON_MENU;
 /// The supervisor, whose `+0x8` is [`G_D3D_DEVICE`] and whose update decides every scene change.
 ///
 /// WinMain writes `hInstance` into it at 0x4418d0, `Direct3DCreate8`'s answer into its `+0x4` at
-/// 0x44220d and the device into its `+0x8`; its constructor at 0x445b7a zeroes `0xd9` dwords and
-/// 0x441850 fills the same `0xd9` with `0xffffffff`, so the object is 0x364 bytes.
+/// 0x44220d and the device into its `+0x8`; its constructor at 0x445b7a zeroes `0xd9` dwords, so the
+/// object is 0x364 bytes. The one other write over all of them is a trap: 0x441850 is the game manager's
+/// add to the power, and where the seal check 0x40bb80 answers broken it `rep stos`es `-1` over the whole
+/// supervisor, device pointer and all (0x44185b through 0x441871).
 const G_SUPERVISOR: usize = 0x017ce758;
 
 /// The scene the game is in and the one it has been asked for, which is where every scene change is
@@ -457,21 +463,28 @@ const G_SUPERVISOR: usize = 0x017ce758;
 /// compares them at 0x44568a and, where they differ, keeps what it is leaving in `[this+0x160]` and
 /// prints `scene %d -> %d` (0x4b6614) with `+0x15c` pushed first and `+0x158` second. So the first is
 /// the scene now and the second the scene wanted — and the second is `0x17ce8b4` absolutely, which is
-/// what the rest of the game writes a scene into at nineteen sites.
+/// what the rest of the game writes a scene into at thirty-one sites.
 const SUPERVISOR_SCENE: usize = 0x158;
 const SUPERVISOR_WANTED: usize = 0x15c;
 /// **The loader the supervisor runs a scene's build on, and the two words that say it is running.**
 /// 0x4486ba is `CreateThread` over a function it is handed, with the handle kept at `[this+0x284]` and
-/// `[this+0x290]` set to 1 beside it; the supervisor's own update reads that word at 0x4455a4 and
-/// answers 1 at 0x4455bc while it is set — which the walk takes to the next job, so what the thread has
-/// put on the chain runs: see [`Th08::walks_a_frame_of_its_build`]. 0x44871b is the join:
-/// `WaitForSingleObject` on the handle, `CloseHandle`, and both words back to nothing.
+/// `[this+0x290]` set to 1 beside it, and the thread clears it as the last thing it does (0x43b8bd,
+/// 0x43b91a where the build fails). 0x44871b is the join: the cancel at `+0x28c` set, `WaitForSingleObject`
+/// on the handle, `CloseHandle`, and the handle and the cancel back to nothing — never this word.
+///
+/// **The supervisor's update answers 1 off this word only during the startup load**: it reads it at
+/// 0x4455a4 only where `[this+0x294]` is not nothing (0x445584), and `+0x294` is the startup's load alone
+/// (0x44617f, 0x4469e3) — a stage's build leaves it clear, so through a build the supervisor's update runs
+/// whole. What holds the stage still while it is built is the run manager, answering 3 at 0x439fe2 while
+/// `[gm+0x38]` is set: see [`Th08::walks_a_frame_of_its_build`].
 ///
 /// **Which is what a run's build is here** — see [`Th08::a_stage_has_just_been_built`]: the added
-/// callback the chain runs is three calls and a `CreateThread`, and every number of a stage is put in
-/// place by the thread. The frame the main thread first reads this word clear is therefore where the
-/// numbers are in place, and — with orb walking the supervisor alone while it is set — where the stage has
-/// not been updated, which is what [`Th08::a_stage_has_just_been_built`] answers off it.
+/// callback the chain runs sets the hold, the loading screen and bits 5 and 6 of the run kind and hands the
+/// build to 0x4486ba, and every number of a stage is put in place by the thread. The frame the main thread
+/// first reads this word clear is therefore where the numbers are in place, and — with the run manager
+/// holding the stage's jobs until six instructions before the thread clears it — where the stage has not
+/// been updated, which is what
+/// [`Th08::a_stage_has_just_been_built`] answers off it.
 const SUPERVISOR_LOADING: usize = 0x290;
 /// **Whether a run's stage was still being built as orb read [`SUPERVISOR_LOADING`] this frame** — see
 /// [`Th08::walks_a_frame_of_its_build`], which asks it, and [`Th08::a_stage_has_just_been_built`], which
@@ -481,8 +494,8 @@ static A_BUILD_WAS_GOING_ON: AtomicBool = AtomicBool::new(false);
 /// 0x445ed2 — which is what a frame of a build is walked as: see [`Th08::walks_a_frame_of_its_build`].
 const SUPERVISOR_UPDATE: usize = 0x00445453;
 /// **The frames a run's build has stood**, `[gm+0x3c]`: nought at the build's start (0x43abec) and a frame
-/// more on every walk that reaches the run manager's update (0x439fdf) — which is what the build's last act
-/// waits out: 0x43b86e through 0x43b87f sleeps `0x11` milliseconds at a time while it is under
+/// more on every walk that reaches the run manager's update (0x439fdf) — which is the first of the build's
+/// three last waits: 0x43b86e through 0x43b87f sleeps `0x11` milliseconds at a time while it is under
 /// [`A_BUILD_STANDS_FOR`]. A write breakpoint on it through a pick-up of stage 2 caught 0x439fe2 under the
 /// walk's own call (0x43caa1) every time but the zeroing.
 const BUILD_FRAMES: usize = 0x3c;
@@ -508,7 +521,7 @@ handed_over!(
 const SCENE_FRONT_END: i32 = 1;
 const SCENE_RUN: i32 = 2;
 const SCENE_RUN_AGAIN: i32 = 3;
-/// **And 6 is the screen a run ends at**, registered by `0x4582a0` with `ecx` 1 out of scenes 1, 2 and 9
+/// **And 6 is the screen a run ends at**, registered by `0x4582a0` with `ecx` 1 out of scenes 2 and 9
 /// — and a scene whose transition takes only two answers: 0x445a28 leaves for `-1`, which is the launch
 /// going down, and 0x445a2e for **1**, which tears the screen down through `0x4531f0` and then falls into
 /// 0x44571c, the body every path back to a menu comes through. So nothing but the front end is reachable
@@ -563,6 +576,10 @@ const RESULT_LEAVING: i32 = 2;
 /// stops: a menu press with the menu up puts it in its phase 4 (0x4037ff), and 0x14 updates later 0x4041e4
 /// writes the byte back to nothing. A stage's build clears it too (0x43b1cf), and the front end (0x4714d0).
 const G_PAUSED: usize = 0x0164d0ba;
+/// **And the byte beside it, the game over**, `0x164d0bb`: 0x44cbf0 writes 1 there where a hit runs out with no
+/// life to take (its `0x42f2b0() < 1`), and the run manager holds the run on it as on the pause (0x439bc7
+/// tests the two together) while the continue menu, 0x404890, is up.
+const G_THE_GAME_IS_OVER: usize = 0x0164d0bb;
 
 /// **The stage words whose own boss fights in two halves**, 3 and 4 — the uncanny and the powerful fourth
 /// stage — with a stretch of the stage's waves between them. Session 13's no-bomb clear read it off 4B: the
@@ -642,7 +659,8 @@ const GRAZE: usize = 0xc;
 
 /// **The point items collected toward the next step of their value, and how many that step wants**:
 /// `+0x30` and `+0x38`, which the panel draws at (488, 168) as one and then the other with a `/`
-/// between them — the `0/100` of a fresh run, the 100 being what the build puts in `+0x38` at 0x405121.
+/// between them — the `0/100` of a fresh run, the 100 being what 0x440470 puts in `+0x38` for a step of
+/// nothing, which the build calls at 0x43af96; 0x405121 is the continue menu writing the 100 itself.
 const POINT_ITEMS: usize = 0x30;
 const POINT_ITEMS_WANTED: usize = 0x38;
 
@@ -793,28 +811,36 @@ const PLAYER_POSITION: usize = 0x2b4;
 
 /// **The active team member's own numbers**, as a pointer into a `.sht` loaded out of `th08.dat`.
 ///
-/// The player's teardown clears it at 0x44dcd0 and the one beside it at 0x44dcf4 — a team being two —
-/// and the player's own code reads `+0x4`, `+0x8`, `+0xc` and `+0x10` of it. `0x4c7ce0` is the table of
-/// file names it comes from, indexed by [`G_CHARACTER`]: `ply00a.sht` through `ply03as.sht`, the `s`
-/// ones being the solo characters.
+/// The player's teardown clears it at 0x44dcd0 and the one beside it, `0x18b8970`, at 0x44dcf4 — a team
+/// being two, kept in the player as `+0xe2a74` and `+0xe2a78` (0x44c27d, 0x44c289) — and the player's own
+/// code reads `+0x4`, `+0x8`, `+0xc` and `+0x10` of this one and the unfocused speeds out of it, and the
+/// focused speeds out of the other. `0x4c7ce0` is the table of file names it comes from, indexed by
+/// [`G_CHARACTER`]: `ply00a.sht` through `ply03as.sht`, the `s` ones being the solo characters.
 ///
-/// **So this game's speeds are in a data file and not in the exe**, and what named their offsets is a
+/// **So this game's speeds are in data files and not in the exe**, and what named their offsets is a
 /// launch: a recipe held each direction for twenty frames while orb printed the player's position every
 /// frame, and differencing the frames gave 4.00 straight and 2.83 diagonal unfocused, 2.00 and 1.41
 /// focused. The same launch printed the first sixteen floats of this object and four of them are exactly
 /// those four numbers — see [`SPEED_STRAIGHT`] and its three neighbours.
 const G_TEAM_SPEC: usize = 0x018b896c;
+/// **The other team member's numbers**, `[player+0xe2a78]` — which is where 0x44aec0 takes the focused pair
+/// the player moves by, [`SPEED_FOCUSED_STRAIGHT`] and [`SPEED_FOCUSED_DIAGONAL`] of this one.
+const G_OTHER_SPEC: usize = 0x018b_8970;
 /// How much of it orb says, which is enough to hold everything named below: 16 floats.
 const TEAM_SPEC_SAID: usize = 16;
 
-/// **The four speeds the player moves at**, in the team member's own `.sht`.
+/// **The four speeds the player moves at**, in the team members' own `.sht`s.
 ///
 /// Named by holding a launch's measurement against a launch's dump of this object, which read
 /// `[0.00, 3.00, 0.00, 1.65, 2.80, 10.00, 24.00, 128.00, 0.00, 4.00, 2.00, 2.83, 1.41, 0.90, 0.00,
 /// 0.00]` for the Barrier Team — so `+0x24` is the 4.00 a held direction moved the player by, `+0x28`
 /// the 2.00 it moved by focused, `+0x2c` the 2.83 each axis moved by on a diagonal and `+0x30` the 1.41
-/// of a focused diagonal. A diagonal is the straight speed over √2 and focused is half, so the four
-/// are one number and its derivations — and the game keeps all four anyway.
+/// of a focused diagonal. **But the focused pair the game moves by is the other member's**: 0x44aec0
+/// takes the unfocused speeds out of `[[player+0xe2a74]+0x24]` and `+0x2c` and the focused ones out of
+/// `[[player+0xe2a78]+0x28]` and `+0x30` (0x44b4ab through 0x44b62f) — `0x18b896c` and `0x18b8970` — so
+/// this object's `+0x28` and `+0x30` are the focused speeds only where the two files agree, as they did
+/// on the team measured. A diagonal is the straight speed over √2 and focused was half there, so the four
+/// read as one number and its derivations — and the game keeps all four anyway.
 const SPEED_STRAIGHT: usize = 0x24;
 const SPEED_FOCUSED_STRAIGHT: usize = 0x28;
 const SPEED_DIAGONAL: usize = 0x2c;
@@ -851,11 +877,13 @@ const PLAYER_BOX_FAR: usize = 0x398;
 /// and 0x44d180.
 ///
 /// **All four values are read now.** The hit handler at 0x44ab84 writes **2** and resets the count at
-/// `player+0xe2af4`; at thirty 0x44cbf0 takes the life and writes **1** with the player back at the start
-/// (0x44d012 through 0x44d100), which is also what every stage's build leaves (0x44d886, with 120 under it);
-/// and 0x44d180, at thirty of state 1, writes **3** with `0xf0` under it (0x44d24a, 0x44d252, 0x44d29f), which
-/// counts down to 0 again (0x44d35c, 0x44d39f). The three hit tests decline while the byte is not nothing —
-/// 0x44a333, 0x44a445 and 0x44a8f2 each answer 1 without a death — and 0x44a51f declines for 2 and 1 by name.
+/// `player+0xe2af4`; 0x44cbf0 first runs the hit's own count at `[player+0xe2a68]` down to the miss, and only
+/// with that at nothing does the countdown count, at thirty taking the life and writing **1** with the player
+/// back at the start (0x44d012 through 0x44d100), which is also what every stage's build leaves (0x44d886,
+/// with 120 under it); and 0x44d180, at thirty of state 1, writes **3** with `0xf0` under it (0x44d24a,
+/// 0x44d252, 0x44d29f), which counts down to 0 again (0x44d35c, 0x44d39f). The three box tests take no life
+/// while the byte is not nothing — 0x44a333 and 0x44a445 answer 1 and 0x44a900 answers 0 — and 0x44a51f
+/// declines for 2 and 1 by name.
 /// So **0** is a player that can be hit, **2** a player that has been and has thirty frames before the life
 /// goes, **1** a player coming in at the start, which moves nothing (0x44c4b5 through 0x44c4cb), and **3** a
 /// player untouchable and blinking (0x44d3cf) — see `asm.md`'s *The player* for the whole timeline.
@@ -879,6 +907,15 @@ const PLAYER_HIT: u8 = 2;
 /// `+0x8` takes the count (which 0x40d3b0 answers and 0x44d245 compares), `+0x4` takes nothing, and
 /// `+0x0` takes `-0x3e7`.
 const PLAYER_HIT_COUNTDOWN: usize = 0xe2af4;
+/// **The hit's own count, the game's `preDeadCount`** (it logs ` preDeadCount %d`, 0x44ad1d), which 0x44cbf0
+/// runs down before the countdown above counts at all — see `asm.md`'s *The player* — and the field of the
+/// active member's spec states 0 and 3 hold it at.
+const PLAYER_PRE_DEAD_COUNT: usize = 0xe2a68;
+#[allow(
+    dead_code,
+    reason = "read by `image`, which is behind `feature = \"sim\"`"
+)]
+const SPEC_PRE_DEAD_HELD_AT: usize = 0x8;
 const A_COUNTDOWN_PHASE: usize = 0x0;
 const A_COUNTDOWN_PART: usize = 0x4;
 const A_COUNTDOWN_COUNT: usize = 0x8;
@@ -888,9 +925,11 @@ const A_COUNTDOWN_RESTARTS_AT: i32 = -0x3e7;
 ///
 /// 0x418010 is the chain job a card is registered with and the call to 0x416b90 is the whole of what it
 /// does, whose first act is two gates: bit 10 of the word at 0x164d0b4, and this byte. Where either
-/// holds, the update answers **1** and the card does not advance at all. 0x425070 writes it, and **the
-/// only thing that clears it is the hit handler** — 0x44ab57, two instructions into the 0x44ab40 that
-/// takes the life.
+/// holds, the update answers **1** and the card does not advance at all. 0x425070 writes it, and **two
+/// places clear it**: the hit handler — 0x44ab57, two instructions into the 0x44ab40 that takes the life —
+/// and a stage's build, `and BYTE PTR [eax+0x2c],0` at 0x43b7fe. **And it holds far more than the card**:
+/// the player's update answers 1 at its top while it is set (0x44c397), and the enemies (0x42ddac), a
+/// kind-1 bullet's step (0x431490) and the run screen (0x4338d1) test it too.
 ///
 /// **Which is why [`Th08::make_invulnerable`] clears it too.** A launch under `--clear` never lets that
 /// handler run, so a card that began while this was set stayed there: the last stage's Last Spell held
@@ -935,6 +974,14 @@ const ENEMY_ALIVE: usize = 0x3324;
 /// **The size is a whole width and height and not a half**: the test at 0x44a274 through 0x44a2bb builds
 /// its box as `position ± size / 2`, dividing by the 2 at `0x4b42ec` four times.
 const ENEMY_POSITION: usize = 0x2d88;
+/// **And the two that position is made from**: the place `+0x2d34` and the offset `+0x2d40` added to it
+/// (`asm.md`'s update table, 0x42c8b6) — the place being what 0x424820's beam is laid from.
+const ENEMY_PLACE: usize = 0x2d34;
+#[allow(
+    dead_code,
+    reason = "read by `image`, which is behind `feature = \"sim\"`"
+)]
+const ENEMY_OFFSET: usize = 0x2d40;
 const ENEMY_SIZE: usize = 0x2d70;
 
 /// **What that size is divided by before the body becomes a hit**, which is what makes an enemy's own
@@ -1029,7 +1076,9 @@ const ENEMY_FRAMES: usize = 0x2e1c;
 /// the laser walk hands its lasers to (0x431ea1, 0x431f3b, 0x43208a) — and which three functions that
 /// are no laser's hand an **enemy** to, six times between them: 0x4247ec and 0x42480b in 0x424730, the
 /// same pair in 0x424820 and 0x424910. Each is `__fastcall` on the enemy, and each tests a box `590`
-/// long (`0x44138000`) laid from `enemy position - [context+0x38..0x3c]` along `[enemy+0x14]`, every
+/// long (`0x44138000`) laid from `enemy position - [context+0x38..0x3c]` along `[enemy+0x14]` — 0x424820
+/// from `[enemy+0x2d34..0x2d38]` instead of the position (0x42483a, 0x424853), which differs from it by the
+/// offset at `+0x2d40` the update adds (0x42c8c3 through 0x42c8f5) — every
 /// frame at one width — `160`, `240`, `288` (`0x43200000`, `0x43700000`, `0x43900000`) — and every
 /// twelfth (0x40ebc0 on the timer at `+0x2e14` with `0xc`) at a narrower one, `128`, `192`, `224`.
 ///
@@ -1042,18 +1091,21 @@ const ENEMY_FRAMES: usize = 0x2e1c;
 /// **Which is what killed a run at stage 4's boss, twenty-eight times at one place.** `103.3,368.9` on a
 /// move judged `236.7 of room` — nothing near: `22/22` bullets agreeing and all of them 280 units off, no
 /// laser, and the nearest enemy a bodiless one at `130.8,371.5`, 27.7 away, sitting directly under the
-/// boss at `130.8,76.5`. A beam 590 long from the boss downward, 160 wide, is what the player 27 units
-/// from that column is inside.
+/// boss at `130.8,76.5`. **And the beam is not laid from the boss**: the one that killed the run at
+/// `113.3,369.0` ran from `235.2,109.1` at 2.011 rad while the boss stood at about `210.8`, so a rule that
+/// keeps a run a distance from her x is no dodge for it.
 const ENEMY_SCRIPT: usize = 0x2ca0;
 const SCRIPT_BEHAVIOUR: usize = 0x10;
 const SCRIPT_BEAM_ANCHOR: usize = 0x38;
 /// `[enemy+0x14]`, the angle the beam is laid along — the one `[ecx+0x14]` 0x4247d7 hands the test.
 const ENEMY_ANGLE: usize = 0x14;
-/// The three behaviours that are a beam, each with the width it tests every frame.
-const BEAM_BEHAVIOURS: [(usize, f32); 3] = [
-    (0x0042_4730, 160.0),
-    (0x0042_4820, 240.0),
-    (0x0042_4910, 288.0),
+/// The three behaviours that are a beam, each with the width it tests every frame and the field of the
+/// enemy its box is laid from: 0x424730 and 0x424910 from the position, 0x424820 from the place (its
+/// `flds 0x2d38(%edx)` at 0x42483a and the `+0x2d34` after it).
+const BEAM_BEHAVIOURS: [(usize, f32, usize); 3] = [
+    (0x0042_4730, 160.0, ENEMY_POSITION),
+    (0x0042_4820, 240.0, ENEMY_PLACE),
+    (0x0042_4910, 288.0, ENEMY_POSITION),
 ];
 const BEAM_LENGTH: f32 = 590.0;
 
@@ -1099,8 +1151,8 @@ const BEAM_NARROWEST: f32 = 160.0;
 /// entry of it a box.
 ///
 /// **And the size each box is tested with is the enemy's own, tapered where bit 1 of
-/// [`ENEMY_BOX_FLAGS`] is set**: 0x42cfe0 through 0x42d03a divides `[enemy+0x2d70]` by the count and
-/// multiplies by the index, so the far end of a long enemy is narrower than its head. Where that bit is
+/// [`ENEMY_BOX_FLAGS`] is set**: 0x42cfe0 through 0x42d03a works out `[enemy+0x2d70] - [enemy+0x2d70] *
+/// index / count`, so the far end of a long enemy is narrower than its head. Where that bit is
 /// clear every box is the enemy's whole size.
 ///
 /// **Both gates are the same ones the body's own box is behind, and one more.** 0x42cf5e skips the whole
@@ -1203,10 +1255,13 @@ const BULLET_KIND: usize = 0xdb8;
 /// at `player+0xbb834` that *erase* a bullet, which is read in *The bullets* of `asm.md`. So those branches
 /// ask whether the bullet is inside one of those circles and nothing else, and a 2 marks the bullet —
 /// 0x4317dc writes 1 into `[bullet+0xdbe]`, and on the frame its spawn ends 0x431812 writes **5** over the
-/// kind in place of 1. Kind 5's branch asks nothing at all.
+/// kind and drops the cancel's item, and the branch still jumps to 0x431306, which writes 1 over the 5 the
+/// same frame: the mark costs the bullet an item and not its life. Kind 5's branch asks nothing at all;
+/// a bullet becomes 5 in kind 1's own path, where 0x44a470 answers 2 (0x43162b) or 0x44a230 answers 1 or
+/// 2 (0x4316df).
 ///
-/// So a bullet coming out cannot take a life whatever it is over, one erased while it comes out is harmless
-/// for the rest of its life, and kind 1's box is the only one that reaches the life-taker. Which is what a
+/// So a bullet coming out cannot take a life whatever it is over, and kind 1's box is the only one that
+/// reaches the life-taker. Which is what a
 /// run standing in a mesh of them as it comes out lives through, and what the strategy wikis for
 /// 狂符「幻視調律」 — stage 5's second card — tell a person to do.
 const BULLET_HITS: u16 = 1;
@@ -1257,8 +1312,8 @@ const BULLET_SIZE: usize = 0xd34;
 /// step in its own branch and the whole step again at 0x4314ae, and every frame after is kind 1's.
 /// Which is the "half again" a launch measured: `1.10,-2.07` moved against `0.73,-1.38` claimed, and
 /// fifty deaths at one hit each naming three bullets that had moved `2.99` saying `2.00` — the boss's
-/// fresh bullets, on the frame their spawn ended. (`+0xdbe` set on that frame sends the bullet to kind 5
-/// instead, 0x431812.)
+/// fresh bullets, on the frame their spawn ended. (`+0xdbe` set on that frame writes 5 first, 0x431812,
+/// and the jump to 0x431306 writes the 1 over it all the same.)
 /// Kind 5's branch at 0x431aa2 is the one that does not: after its half it tests the bullet against the
 /// field through 0x45ea00 and goes to 0x432170 or to the walk's tail at 0x431aeb, so a kind-5 bullet
 /// moves half a step a frame and stays 5.
@@ -1280,7 +1335,9 @@ const BULLET_STEP: usize = 0xd50;
 /// moved, which turned out to be the kind's own frame (see [`BULLET_STEP`]); what this is, is the one
 /// behaviour of the nine that writes the step, the others re-aiming it or wrapping the position.
 /// **The sprite a bullet draws itself with, whose animation says when its spawn ends** —
-/// `bullet + 0x2a4`, which 0x4317e6 pushes into the sprite manager's own 0x45ea00.
+/// `bullet + 0x2a4` for kind 2, which 0x4317e6 pushes into the sprite manager's own 0x45ea00. A bullet
+/// holds one sprite `0x2a4` apart for each kind: kinds 3 and 4 ask about `+0x548` (0x4318f8) and `+0x7ec`
+/// (0x431a09), and kind 5's is at `+0xa90` (0x431acb).
 ///
 /// The frames a spawning bullet moves its divided share and the one frame it moves that share and the
 /// whole step both are told apart by that animation and by nothing of the bullet: see
@@ -1295,6 +1352,10 @@ const BULLET_STEP: usize = 0xd50;
 /// is the frames the divided share is all a bullet takes; the rest are frames it may, and orb hands over
 /// the whole multiple there.
 const BULLET_SPRITE: usize = 0x2a4;
+/// **And the sprites the other two spawning kinds wait on**, each its own: kind 3's `+0x548` (0x4318f8) and
+/// kind 4's `+0x7ec` (0x431a09), asked of 0x45ea00 as kind 2's is.
+const BULLET_SPRITE_OF_THE_THIRD_KIND: usize = 0x548;
+const BULLET_SPRITE_OF_THE_FOURTH_KIND: usize = 0x7ec;
 
 /// **How many frames the bullet has been alive**, `[bullet+0xd94]`, which is the count inside the timer at
 /// `+0xd8c` — the same shape [`ENEMY_FRAMES`] is read off.
@@ -1357,8 +1418,11 @@ const LASER_ANGLE: usize = 0x554;
 /// **How far along it the laser reaches**, from `+0x558` to `+0x55c`.
 ///
 /// The box handed to the test is centred at `origin.x + near + (far - near) / 2` (0x431ca1 through
-/// 0x431ccb) and `origin.y` (0x431cd1), and its own width is `far - near` (0x431c81) — which is what
-/// makes these two the ends. `+0x560` is what the length is capped at: 0x431bfc compares `far - near`
+/// 0x431ccb) and `origin.y` (0x431cd1), and its length along is `far - near` while the near end is at
+/// `0.0` and `(far - near) * 0.7` once it is past it (0x431c62, the 0.7 at `0x4b4c84`, 0x431c98) — the
+/// first and the third phases replacing it with the drawn width over 2 where bit 0 of `+0x594` is clear
+/// (0x431e5f, 0x432048) — which is
+/// what makes these two the ends. `+0x560` is what the length is capped at: 0x431bfc compares `far - near`
 /// against it and 0x431c1b pulls `near` up to `far - [+0x560]`.
 const LASER_NEAR: usize = 0x558;
 const LASER_FAR: usize = 0x55c;
@@ -1389,8 +1453,9 @@ const LASER_TIMER: usize = 0x590;
 
 /// **Which frame of the first phase the laser starts hitting on**, `+0x574`.
 ///
-/// The only phase whose hit test is gated: 0x431e75 asks the timer whether it has reached this, and the
-/// call at 0x431ea1 is skipped where it has not. The other two phases test the player every frame.
+/// The first phase's hit test is gated on it: 0x431e75 asks the timer whether it has reached this, and the
+/// call at 0x431ea1 is skipped where it has not. The second phase tests the player every frame, and the
+/// third only while the count is under `+0x580` (0x43204e, 0x43205e).
 const LASER_LIVE_AT: usize = 0x574;
 
 /// **Which of its three phases the laser is in**, the byte at `+0x598`, which 0x431d48 switches on: 0
@@ -1398,6 +1463,13 @@ const LASER_LIVE_AT: usize = 0x574;
 const LASER_PHASE: usize = 0x598;
 /// And the phase from which it is on its way out.
 const LASER_FADING: u8 = 2;
+/// **The count of that phase it stops hitting at**, `+0x580`: 0x43205e tests the player only while the count
+/// is under it.
+const LASER_STOPS_HITTING_AT: usize = 0x580;
+/// **What a laser past its near end is tested over**: the box is centred on the reach between the two ends
+/// and `(far - near) * 0.7` long once the near end is past nought (0x431c62, the 0.7 at `0x4b4c84`), so it
+/// falls short of each end by fifteen hundredths of that reach.
+const A_LASER_PAST_ITS_NEAR_END_TESTS: f32 = 0.7;
 
 /// **The items**, whose manager is `0x1653648` and is not the one the chain runs at priority 0xd.
 ///
@@ -1408,7 +1480,7 @@ const LASER_FADING: u8 = 2;
 /// (0x440a17) and switches on a class to add to the run's numbers.
 ///
 /// 0x4b3878 builds it and 0x440010 lays its pool out: `0x831` slots of `0x2e4` bytes from the object's
-/// own start, `0x2e4 * 0x831` being exactly `0x17adac`, which is where the pool's bookkeeping begins.
+/// own start, `0x2e4 * 0x831` being exactly `0x17ada4`, which is where the pool's bookkeeping begins.
 const G_ITEM_MANAGER: usize = 0x01653648;
 
 /// **The live items, as a list and not an array**: `[items+0x17b088]` is the first and `[item+0x2dc]`
@@ -1416,8 +1488,9 @@ const G_ITEM_MANAGER: usize = 0x01653648;
 ///
 /// Read off the walk in the update: 0x440516 takes the head into the cursor, 0x440584 stops on nothing
 /// and 0x44099c follows `+0x2dc`. The array is there to be walked too — `items + i * 0x2e4` for `0x831`
-/// of them, which is what 0x4400a0 spawns into by a round-robin index at `+0x17ada4` — but a free slot
-/// of a pool is not marked, so the list is the only honest walk.
+/// of them, which is what 0x4400a0 spawns into by a round-robin index at `+0x17ada4` — and a slot is
+/// marked as well, `[item+0x2d5]` 1 from the spawn and nothing from the unlink 0x441770, but the list is
+/// what the game's own update walks, and the last slot, `0x830`, is one 0x4400a0 hands back unlinked.
 const ITEM_LIST: usize = 0x17b088;
 const ITEM_NEXT: usize = 0x2dc;
 /// And how many are live, `[items+0x17ada8]`, counted fresh by the walk (0x440543, 0x44059d).
@@ -1444,7 +1517,7 @@ const ITEM_POSITION: usize = 0x2a4;
 /// | 4 | 0x440aeb | power to the 128 it stops at |
 /// | 5 | 0x440adc → 0x439b29 | a life, one more under a cap of eight |
 /// | 6 | 0x440b96 | score off the graze, `graze / 0x28 * 0xa + 0x12c` |
-/// | 7 | 0x440bf9 → 0x4412b0 | what a cancelled bullet leaves, three at a time (0x43164b) |
+/// | 7 | 0x440bf9 → 0x4412b0 | what a cancelled bullet leaves: two of them where `[0x18b8988]` is 9, and otherwise one of class `[0x18b8988]` where that is not negative (0x431634 through 0x43168f) |
 /// | 8 | 0x441020 | a point item, which is what 0 and 2 become at full power (0x44010e) |
 const ITEM_CLASS: usize = 0x2d4;
 
@@ -1821,8 +1894,9 @@ const G_RUN_KIND: usize = 0x0164d0b4;
 /// manager's own ending section at 0x439bc7 reads first — 0x439be4 shifts them down and 0x439bec jumps
 /// past the whole of the section while they are nothing.
 ///
-/// A **2** there starts the ending, whose body works out the scene to hand over and which of two paths
-/// returns 3 from the update — and 3 is what stops the chain's walk. A **1** or a **3** goes straight to
+/// A **2** there starts the ending, whose body works out the scene to hand over, four of its paths
+/// returning 3 from the update (0x439d45, 0x439e13, 0x439f02, 0x439f21) — and 3 is what stops the chain's
+/// walk. A **1** or a **3** goes straight to
 /// the hand-over at 0x439f3c instead, which takes the scene out of [`SCENE_THE_RUN_WANTS`] and writes it
 /// into the supervisor's own wanted scene (0x439fb6) once a decide press has come, clearing these two
 /// bits as it goes (0x439f9c). So the one orb writes is the hand-over's.
@@ -1833,8 +1907,10 @@ const RUN_HANDS_ITSELF_OVER: u32 = 0x20;
 /// **The scene the run wants next**, `[gm+0x3db9c]` — `0x164d0a4` absolutely — which is `-1` while a run
 /// goes on (0x439c29 ors `-1` in) and is what 0x439fb6 gives the supervisor.
 ///
-/// The four its own endings put there are read in `asm.md`: 6 and 9 for the two results, 7 where a
-/// replay has no stage left, and 3 — `SCENE_RUN_AGAIN` — where there is a next stage.
+/// What its own endings put there is read in `asm.md`: 6 and 9 for the two results and 7 for a replay's
+/// last stage (0x439e43). The other two scenes go straight into the supervisor's wanted scene with this
+/// left at `-1`: 7 where a replay has no stage left (0x439dc8), and 3 — `SCENE_RUN_AGAIN` — where there is
+/// a next stage (0x439ddc, 0x439e25).
 const SCENE_THE_RUN_WANTS: usize = 0x3db9c;
 /// The bit the build reads a run's numbers out of a record for, which a replay and the demo both set, and
 /// the one the demo sets beside it — see [`G_RUN_KIND`], where what is settled about each is written out.
@@ -2621,8 +2697,9 @@ impl Game for Th08 {
             stage_begun: None,
             // The job the build calls three instructions past the seed's copy — see [`STAGE_SEEDED`],
             // which has why the seed's seam is inside the build and not in front of it. On the loader's
-            // thread, which is where the seed has to go in and where nothing else of orb's runs.
-            stage_building: Some(Building::Cdecl(Patch {
+            // thread, which is where the seed has to go in and where nothing else of orb's runs. Entered with
+            // the stage in `ecx` (0x43b3dc), which `Building` has more of.
+            stage_building: Some(Building::InEcx(Patch {
                 target: STAGE_SEEDED,
                 prologue: STAGE_SEEDED_PROLOGUE,
             })),
@@ -2637,10 +2714,11 @@ impl Game for Th08 {
             // The ranking's own read and the card records' seam are not read, so neither is bracketed.
             ranking_read: None,
             card_records_read: None,
-            create_window: Some(Patch {
+            // Handed the instance in `ecx` (0x441996).
+            create_window: Some(Entered::InEcx(Patch {
                 target: CREATE_GAME_WINDOW,
                 prologue: CREATE_GAME_WINDOW_PROLOGUE,
-            }),
+            })),
             init_device: Some(Patch {
                 target: INIT_D3D_DEVICE,
                 prologue: INIT_D3D_DEVICE_PROLOGUE,
@@ -2778,8 +2856,10 @@ impl Game for Th08 {
             // (0x46af8e), where Start and Extra Start clear both (0x467d28, 0x467ea6) — see
             // [`TITLE_ITEM_START`], whose doc has the jump table the items dispatch through.
             practice: kind & RUN_STARTS_WITH_EIGHT != 0 && kind & RUN_IS_A_SPELL_PRACTICE == 0,
-            // The game's own pause menu up — see [`G_PAUSED`].
-            paused: unsafe { mem::read::<u8>(G_PAUSED) } != 0,
+            // The game's own pause menu up, or its continue menu over a game over — see [`G_PAUSED`] and
+            // [`G_THE_GAME_IS_OVER`].
+            paused: unsafe { mem::read::<u8>(G_PAUSED) } != 0
+                || unsafe { mem::read::<u8>(G_THE_GAME_IS_OVER) } != 0,
             // The player being in any of its own three hit states — see [`PLAYER_STATE`].
             unsettled: unsafe { mem::read::<u8>(G_PLAYER + PLAYER_STATE) } != 0,
             bombing: false,
@@ -3156,15 +3236,22 @@ impl Game for Th08 {
     ///
     /// **Which is why the countdown goes in with it.** That state ends in a death and not in the game
     /// taking it back: 0x44cbf0 takes the life and puts the player back at the start the frame
-    /// [`PLAYER_HIT_COUNTDOWN`] reaches `0x1e`. So what makes the player unhittable for the update about to
-    /// run is the state *and* the count put back to nothing, the way the hit handler itself does it
-    /// (0x44ab84 through 0x44ab92), and an update that does both never reaches the frame the life would go
-    /// on. **And a player held in it moves nothing**, the state skipping the player's input (0x44c4b5
+    /// [`PLAYER_HIT_COUNTDOWN`] reaches `0x1e`, once the hit's own count at `[player+0xe2a68]` is at
+    /// nothing. So what makes the player unhittable for the update about to run is the state *and* the
+    /// count put back to nothing, the way the hit handler itself does it (0x44ab84 through 0x44ab92), and
+    /// an update that does both never reaches the frame the life would go on. **And the hit's own count at
+    /// nothing with them**, [`PLAYER_PRE_DEAD_COUNT`]: 0x44cbf0 runs it down first from the `[spec+0x8]`
+    /// states 0 and 3 hold it at, taking 15 time orbs an update while it does (0x44cc10) and the miss's own
+    /// losses on the update its decrement reaches nothing on (0x44cd29 onward) — a count written to nothing
+    /// is one that update skips, so neither lands. What it costs is the bomb, which 0x44c893 refuses while
+    /// that count stands at nothing — a run under `--clear` bombs nothing anyway.
+    /// **And a player held in it moves nothing**, the state skipping the player's input (0x44c4b5
     /// through 0x44c4cb): a run under `--clear` is played standing where the build put it.
     ///
     /// **And [`CARD_UPDATE_HELD`] with them, which is the same handler's own first act** (0x44ab57):
-    /// a card's update does nothing at all while that byte stands, and the handler is the only thing
-    /// that clears it — so a player made unhittable without it is a fight that can stop for good. It did:
+    /// a card's update does nothing at all while that byte stands, and inside a stage the handler is the
+    /// only thing that clears it, the build's 0x43b7fe being the other — so a player made unhittable
+    /// without it is a fight that can stop for good. It did:
     /// a `--clear` launch held the last stage's Last Spell for eleven minutes of game time with the
     /// stage's clock frozen and not a bullet on the screen.
     unsafe fn make_invulnerable(&self) {
@@ -3174,6 +3261,7 @@ impl Game for Th08 {
             mem::write::<i32>(countdown + A_COUNTDOWN_COUNT, 0);
             mem::write::<i32>(countdown + A_COUNTDOWN_PART, 0);
             mem::write::<i32>(countdown + A_COUNTDOWN_PHASE, A_COUNTDOWN_RESTARTS_AT);
+            mem::write::<i32>(G_PLAYER + PLAYER_PRE_DEAD_COUNT, 0);
             mem::write::<u8>(G_GAME_MANAGER + CARD_UPDATE_HELD, 0);
         }
     }
@@ -3476,8 +3564,9 @@ impl Game for Th08 {
     /// nothing at all happens while they are 0, a 2 starts the ending and a 1 or a 3 goes straight to
     /// the hand-over. The scene that hand-over gives the supervisor comes out of `[gm+0x3db9c]`, which
     /// is `-1` while a run goes on, and 0x439fb6 is the one place that copies it across. `asm.md`'s
-    /// *How a run of th08 ends* has the four scenes the game's own endings put there and which press the
-    /// hand-over waits for.
+    /// *How a run of th08 ends* has the scenes the game's own endings put there, the two — 7 and 3 — they
+    /// write into the supervisor's wanted scene directly instead (0x439dc8, 0x439ddc, 0x439e25), and which
+    /// press the hand-over waits for.
     ///
     /// **So what orb writes is the hand-over and not the ending**: [`SCENE_THE_RUN_WANTS`] takes the
     /// front end's own scene, and the two bits take [`RUN_HANDS_ITSELF_OVER`]. Nothing of the teardown is
@@ -3485,7 +3574,7 @@ impl Game for Th08 {
     /// walk finish, which is the whole of what the first attempt did wrong.
     ///
     /// **And the press it waits for is the one the retry menu's own answer is.** 0x439f3c wants
-    /// `[0x164d528] & 0x1001` to have changed since `[0x164d530]` — the two bits
+    /// `[0x164d528] & 0x1001` to be set and to have changed since `[0x164d530]` — the two bits
     /// [`Th08::menu_decide`] is — so the frames after this are frames a press has to arrive on, which is
     /// what the answer to the retry menu already is.
     ///
@@ -3509,6 +3598,17 @@ impl Game for Th08 {
     /// a watched attempt's own end gave the run up two hundred frames running.
     fn a_run_given_up_waits_for_a_press(&self) -> bool {
         true
+    }
+
+    /// **True while a stage's end stands with no scene asked**, bits 5 and 6 of [`G_RUN_KIND`] up — the tally
+    /// the build's thread waits on (0x43b88b) — where nothing but a press takes it down: not a recording
+    /// played, not stage 6, 7 or 8, which 0x439f3c takes down unpressed. See [`takes_a_stages_end_down`].
+    unsafe fn a_stages_end_waits_for_a_press(&self) -> bool {
+        let kind = unsafe { mem::read::<u32>(G_RUN_KIND) };
+        kind & RUN_IS_ENDING != 0
+            && kind & RUN_READS_ITS_OWN_INPUT == 0
+            && unsafe { mem::read::<i32>(G_GAME_MANAGER + SCENE_THE_RUN_WANTS) } < 0
+            && !(6..=8).contains(&unsafe { mem::read::<i32>(G_STAGE) })
     }
 
     /// Every button held, in the one word this game's screens compare against last frame's — and last
@@ -3988,19 +4088,24 @@ impl Game for Th08 {
     /// 0x43aa5c is the registration — it writes 0x439bc7 as the element's update, `0x43aaf4` as its added
     /// callback and 0x43be2c as its deleted one into `0x164d344`, hangs the game manager off it and adds
     /// it to the chain at priority 2 — and the added callback, run by the chain on the spot, is forty
-    /// instructions: it branches on the wanted scene at 0x43aafd — 3, 0xb and 0xc being a stage that
-    /// carries a run on and anything else a run starting — sets the loading screen up through 0x44886f,
-    /// and hands **`0x43abd7`** to 0x4486ba, which is `CreateThread`. It returns at 0x43abd6 with nothing
-    /// of the stage in place.
+    /// instructions: it branches on the wanted scene at 0x43aafd only to write `0x17ce8bc`, writes the hold
+    /// `[gm+0x38]` = 1 (0x43ab2b), sets
+    /// the loading screen up through 0x44886f, rewrites bits 5 and 6 of the run kind to `01` where they read
+    /// 2 or 3 (0x43ab96 through 0x43abbc), and hands **`0x43abd7`** to 0x4486ba, which is `CreateThread`. It
+    /// returns at 0x43abd6 with nothing of the stage in place.
     ///
-    /// **`0x43abd7`–0x43b935 is the build**, on that thread: it frees the last run's two blocks and
+    /// **`0x43abd7`–0x43b935 is the build**, on that thread, whose own branch is 0x43ac89 through 0x43acb8 —
+    /// `0x17ce8bc` nothing, bits 14 and 0 of the run kind clear and the difficulty under 4 being a stage
+    /// carried on, and anything else a run starting: it frees the last run's two blocks and
     /// allocates this one's (0x43ad33, 0x43ad40, 0x43ad57), copies the configuration in, puts the
     /// starting lives in at 0x43ae42 on the run-start branch, builds the player through 0x44c230, copies
     /// the seed at 0x43b3cb and calls [`STAGE_SEEDED`] three instructions later. So `Hooks::stage_begun`
     /// has no function to stand over here — the thread's return is not the main thread's, and the added
-    /// callback's return is before any of it — and the moment is read off [`SUPERVISOR_LOADING`]: orb walks
-    /// the supervisor alone on a frame the word is set — see [`Th08::walks_a_frame_of_its_build`] — so the
-    /// first frame it reads clear is one no job of the run has run on.
+    /// callback's return is before any of it — and the moment is read off [`SUPERVISOR_LOADING`]: while the
+    /// word is set the run manager holds the stage's jobs, answering 3 while `[gm+0x38]` is set, which the
+    /// thread clears six instructions before the word, and orb walks the supervisor alone once the build has
+    /// stood out its frames — see [`Th08::walks_a_frame_of_its_build`] — so the first frame it reads clear
+    /// is one no job of the stage has run on.
     ///
     /// **A launch is what read this apart from the callback.** A patch stood over 0x43aaf4 and the record
     /// taken at its return held `score: 107981937, lives: -128, deaths: -2147483648`, the same bytes on two
@@ -4044,15 +4149,16 @@ impl Game for Th08 {
     /// and only the thread clears it, so the two together hold every update from the one after the build was
     /// asked for to the frame orb reads it over on.
     ///
-    /// **Because those are frames the stage runs on, and before anything of orb's is back in.** The
-    /// supervisor's answer while [`SUPERVISOR_LOADING`] is set is 1 at 0x4455bc, and the walk (0x43ca50) takes
-    /// 1 to the next job (0x43cb0e); the thread has the stage's jobs on the chain from straight after the seed —
-    /// the bullets' update 0x431240 at priority 0xe through 0x4311a0 (0x43b414), the enemies' 0x42c660 at 0xb
-    /// through 0x42c590 (0x43b441) — and its last act is to wait out [`BUILD_FRAMES`] seventeen milliseconds a
-    /// sleep. So the frames between that count coming up and the thread waking to clear its word are frames of
-    /// the stage, as many as the main thread fits into a sleep: three pick-ups of one file at `--speed=4` began
-    /// their stage at `frames=5` with `script=5`, `7` and `8`, and the two ahead read `the generator is 0xeede
-    /// where the run had 0xe08d` on the playback's first frame.
+    /// **Because those are frames before anything of orb's is back in.** The thread has the stage's jobs on
+    /// the chain from straight after the seed — the bullets' update 0x431240 at priority 0xe through 0x4311a0
+    /// (0x43b414), the enemies' 0x42c660 at 0xb through 0x42c590 (0x43b441) — and what keeps them from running
+    /// is the run manager at priority 2, answering 3 (0x439fe2) while `[gm+0x38]` is set, which ends the walk
+    /// (0x43caf7); the supervisor's own 1 at 0x4455bc belongs to the startup load alone (see
+    /// [`SUPERVISOR_LOADING`]). The thread's last acts are to wait out [`BUILD_FRAMES`] seventeen milliseconds
+    /// a sleep, then 0x448972, then bits 5 and 6 of the run kind reading nothing (0x43b88b through 0x43b8a6),
+    /// and to clear `[gm+0x38]` at 0x43b8a8, six instructions before its own word. Three pick-ups of one file
+    /// at `--speed=4` began their stage at `frames=5` with `script=5`, `7` and `8`, and the two ahead read `the
+    /// generator is 0xeede where the run had 0xe08d` on the playback's first frame.
     ///
     /// **And the walk as ever before the count is up, and the supervisor rather than nothing after it, because
     /// the build waits on both.** Walking nothing stood the build still for good — `resume: given up — the
@@ -4061,8 +4167,13 @@ impl Game for Th08 {
     /// sleeps a millisecond at a time (0x465a82) until the entry's `+0x18` goes back to nought, and what puts it
     /// back is 0x466000 — every pending entry of `0x100` handed to 0x465ba0, which clears it at 0x465c3a —
     /// called at 0x445570 of the supervisor's update, before the loader's word is read. And walking the
-    /// supervisor alone from the start stood it still at its last wait, the run manager's step of
-    /// [`BUILD_FRAMES`] being a job behind it. What the supervisor answers is handed on the way the walk would:
+    /// supervisor alone from the start stood it still at its wait on [`BUILD_FRAMES`], the run manager's
+    /// step of them being a job behind it. The run manager's tail is a job behind it too: what clears
+    /// bits 5 and 6 of the run kind, which the build waits on after the count, is 0x439f3c through 0x439fb6,
+    /// reached ahead of the hold on every frame of the build and clearing them only on a press —
+    /// `[0x164d528] & 0x1001` set and changed since `[0x164d530]` — unless the run reads its own input or the
+    /// stage is 6, 7 or 8; a stage carried on comes to its build with them at `01`. What the supervisor
+    /// answers is handed on the way the walk would:
     /// 4 is a walk stopped answering nought, 5 answering -1, and every other is the frame carried on.
     ///
     /// # Safety
@@ -4083,11 +4194,19 @@ impl Game for Th08 {
         }
         let update: unsafe extern "thiscall" fn(usize) -> i32 =
             unsafe { std::mem::transmute(supervisor_update()) };
-        Some(match unsafe { update(G_SUPERVISOR) } {
+        let answered = match unsafe { update(G_SUPERVISOR) } {
             4 => crate::runtime::CHAIN_EXIT_SUCCESS,
             5 => crate::runtime::CHAIN_EXIT_ERROR,
             _ => crate::runtime::CHAIN_BREAK,
-        })
+        };
+        // **And the run manager's tail, which this walk leaves out, done on its behalf**: a stage carried on
+        // comes to its build with bits 5 and 6 of the run kind at `01`, the thread waits on them after the
+        // count, and only 0x439f3c takes them down — on a press the supervisor just read, or with nothing
+        // pressed for a recording played or stage 6, 7 or 8. Left to the walk alone, a build whose press came
+        // after the count stood still for good: a th08 clear's stage 1 to stage 2 came 34 frames after the
+        // rules' own shot was pressed again, which is why no case had met it.
+        unsafe { takes_a_stages_end_down() };
+        Some(answered)
     }
 
     /// Where the title menu's cursor is, for a recipe that waits on an item before pressing at it.
@@ -4191,6 +4310,30 @@ impl Game for Th08 {
     /// last are each two stages of their own rather than two games' worth of extra.
     fn stages_past_the_numbered(&self) -> &'static [&'static str] {
         &["extra"]
+    }
+}
+
+/// **0x439f3c's take-down of a stage's end**, bits 5 and 6 of [`G_RUN_KIND`]: where they stand with no scene
+/// asked, down on a press of [`MENU_DECIDE`] read this frame and not last — or with nothing pressed where the
+/// run plays a recording or its stage word is 6, 7 or 8. Where a scene is asked the manager's own hand-over
+/// takes them, and that is not this.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn takes_a_stages_end_down() {
+    let kind = unsafe { mem::read::<u32>(G_RUN_KIND) };
+    if kind & RUN_IS_ENDING == 0
+        || unsafe { mem::read::<i32>(G_GAME_MANAGER + SCENE_THE_RUN_WANTS) } >= 0
+    {
+        return;
+    }
+    let word = unsafe { mem::read::<u16>(G_INPUT_READ) };
+    let last = unsafe { mem::read::<u16>(G_INPUT_LAST) };
+    let pressed = word & MENU_DECIDE != 0 && word & MENU_DECIDE != last & MENU_DECIDE;
+    let a_recording = kind & RUN_READS_ITS_OWN_INPUT != 0;
+    let the_last_stages = (6..=8).contains(&unsafe { mem::read::<i32>(G_STAGE) });
+    if pressed || a_recording || the_last_stages {
+        unsafe { mem::write::<u32>(G_RUN_KIND, kind & !RUN_IS_ENDING) };
     }
 }
 

@@ -37,9 +37,9 @@ const SHOT: u16 = 0x0001;
 const LET_GO_EVERY: u32 = 60;
 const LET_GO_EVERY_IN_A_CONVERSATION: u32 = 10;
 
-/// The frames a stage begins with, in which the player is walking back in: the respawn and the
+/// The frames a stage begins with, in which the player is coming back: the walk-in's one update and the
 /// invulnerability behind it, as `the_frame_a_run_of_th06nc_acts_on` counts them.
-const A_STAGES_FIRST_FRAMES: u32 = 30 + 0xf0;
+const A_STAGES_FIRST_FRAMES: u32 = 1 + 0xf0;
 
 /// The line a conversation is said to be at. Nought rather than the `-1` a stage with no conversation
 /// carries — see `Image::no_line_of_dialogue_is_up`.

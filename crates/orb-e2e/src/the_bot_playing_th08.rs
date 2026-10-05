@@ -208,8 +208,8 @@ fn the_bot_reads_a_bullet_of_th08_by_the_step_it_is_about_to_take() {
 }
 
 /// **A bullet coming out is nothing to move for, standing on the run or not**, and the same bullet in the
-/// kind it spends its life in is moved for: only that kind's box test takes a life, and one erased as it
-/// comes out is harmless for the rest of its life — see `Th08::BULLET_HITS`.
+/// kind it spends its life in is moved for: only that kind's box test takes a life — see
+/// `Th08::BULLET_HITS`.
 ///
 /// **Which is what makes stage 5's second card playable at all.** Read as solid, a mesh of 747 of them
 /// coming out left the rules `nowhere open to it` in every box, and the run backed into the bottom-left
@@ -440,6 +440,95 @@ fn the_bot_of_th08_fears_a_moving_body_over_the_change_in_its_motion() {
         );
     });
 }
+
+/// **And the middle of the three is laid from the enemy's place and not its position**: 0x424820 starts its box
+/// at `[enemy+0x2d34]` where the other two start theirs at `[enemy+0x2d88]`, the position that place and the
+/// enemy's offset make. Here the enemy stands 150 off to the side of its place in the player's column, so the
+/// beam is over the player and the enemy is not.
+#[test]
+fn the_bot_steps_out_of_th08s_middle_beam_laid_from_its_enemys_place() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th08-the-bot-steps-out-of-a-beam-from-the-place");
+        game.image().enemies_alive(1);
+        game.image().an_enemy_has_no_body(0);
+        game.image()
+            .an_enemy_fires_a_beam(0, (MIDDLE, LOW), std::f32::consts::FRAC_PI_2, 1);
+        game.image()
+            .an_enemy_stands_off_its_place_by(0, (OFF_ITS_PLACE_BY, 0.0));
+        game.image().the_player_is_at((MIDDLE, LOW));
+        game.frames(1);
+        let pressed = game.image().the_word_the_keys_read() & PAD;
+        assert_ne!(
+            pressed & (LEFT | RIGHT),
+            0,
+            "the bot stood inside the beam laid from its enemy's place, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A laser going out stops hitting once its count reaches `+0x580`** (0x43205e), so a player standing in one
+/// past it has nothing to step out of.
+#[test]
+fn the_bot_stands_in_a_laser_of_th08_gone_out_past_its_last_hitting_frame() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th08-the-bot-in-a-laser-gone-out");
+        game.image().lasers_alive(0);
+        game.image().a_laser_is_at(
+            0,
+            (MIDDLE, A_LASERS_ORIGIN),
+            std::f32::consts::FRAC_PI_2,
+            (0.0, A_LASERS_FAR),
+            A_LASERS_WIDTH,
+        );
+        game.image().the_laser_goes_out(0, 10, 5);
+        game.image().the_player_is_at((MIDDLE, LOW));
+        game.frames(1);
+        let pressed = game.image().the_word_the_keys_read() & PAD;
+        assert_eq!(
+            pressed & (LEFT | RIGHT),
+            0,
+            "the bot stepped out of a laser that had stopped hitting, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a laser past its near end is tested over seven tenths of its reach**, centred between its ends
+/// (0x431c62): a player inside the reach but within its first fifteen hundredths is outside the box.
+#[test]
+fn the_bot_stands_by_the_near_end_of_a_th08_laser_its_test_falls_short_of() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th08-the-bot-by-a-lasers-near-end");
+        game.image().lasers_alive(0);
+        game.image().a_laser_is_at(
+            0,
+            (MIDDLE, A_LASERS_ORIGIN),
+            std::f32::consts::FRAC_PI_2,
+            (A_LASERS_NEAR, A_LASERS_FAR),
+            A_LASERS_WIDTH,
+        );
+        game.image().the_player_is_at((MIDDLE, LOW));
+        game.frames(1);
+        let pressed = game.image().the_word_the_keys_read() & PAD;
+        assert_eq!(
+            pressed & (LEFT | RIGHT),
+            0,
+            "the bot stepped out of a laser's reach its test falls short of, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// That laser's origin, 220 above the player, and its near and far ends: the player 20 into a reach of 400,
+/// which the test's box starts 60 into.
+const A_LASERS_ORIGIN: f32 = LOW - 220.0;
+const A_LASERS_NEAR: f32 = 200.0;
+const A_LASERS_FAR: f32 = 600.0;
+const A_LASERS_WIDTH: f32 = 32.0;
+
+/// How far that enemy stands off its place: more than the middle beam's half of 120.
+const OFF_ITS_PLACE_BY: f32 = 150.0;
 
 /// **A beam an enemy's own script is firing is stepped out of, body or no body.** Three behaviours an
 /// enemy's context can hold test a box 590 long along the enemy's angle every frame, the widest of them
@@ -1897,7 +1986,7 @@ fn the_rules_of_th08_keep_the_distance_from_the_boss_a_recipe_tells_them() {
 }
 
 /// **Under a boss and over a field with something in it, an item worth nothing is picked up only where it
-/// costs nothing.** Class 7 is what an erased bullet leaves, three at a time, and a spell card is where they
+/// costs nothing.** Class 7 is what an erased bullet leaves, one or two a bullet, and a spell card is where they
 /// fall thickest: across such a field it is no errand, and a step away it is taken on the way.
 ///
 /// **A 1up below the low line is followed down**, where any other item there is waited above: one a boss drops

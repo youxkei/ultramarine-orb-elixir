@@ -14,11 +14,13 @@
 //! differently and says nothing about why — so they are carried by address and nothing is claimed about
 //! them.
 //!
-//! **And two more that the record carries and the restore does not**: the score and the deaths. A replay
-//! plays the buttons in from the stage's first frame and arrives at the score by playing, where orb
-//! builds the stage and writes the numbers, so a resume that left the score out would come back with the
-//! score of a run that had not been played. The record holds the score at `+0x0` — written as the stage
-//! *ends*, which is what the replay's own menu shows — and the deaths nowhere at all.
+//! **And two more that a stage's own record does not put back**: the score and the deaths. The record
+//! holds the score at `+0x0` — the score the stage *ended* on, written into it as the next stage's record
+//! is made, which is what the replay's own menu shows — and the restore takes a stage's starting score out
+//! of the stage before's record, `[run+0x8]` and `[run+0x0]` both (0x453057, 0x453069). A resume of one
+//! stage has no record before it to read, so orb carries the score as the stage began itself, and a
+//! resume that left it out would come back with the score of a run that had not been played. The deaths
+//! are in no record at all.
 //!
 //! **The generator of every frame is not optional here**, for th07's reason: a file without them is a run
 //! nothing can be held to. Version 1 means they are there.
@@ -33,12 +35,12 @@ use crate::resume::{Again, Kept, MAX_STAGE_FRAMES};
 
 /// **The numbers a stage of th08 starts with, which is what a stage of it needs to be played again.**
 ///
-/// The fourteen the game's own per-stage replay record puts back, plus the two the record leaves behind —
+/// The fourteen the game's own per-stage replay record puts back, plus the two it does not —
 /// see the module's own doc for which are which, and `asm.md` for the address each was read at.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Numbers {
     /// **orb's own and not the record's**: the score as the stage began, where the record keeps the score
-    /// the stage *ended* on and the restore puts none back.
+    /// the stage *ended* on and the restore takes a stage's start out of the stage before's record.
     pub score: u32,
     /// What the generator was seeded with as the stage began, which the record keeps at `+0x1a` and
     /// 0x452f94 writes back through 0x453be0. The whole of why the buttons alone are not enough: the game

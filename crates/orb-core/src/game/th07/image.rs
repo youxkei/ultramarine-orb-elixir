@@ -47,6 +47,9 @@ use orb_api::Device;
 /// the globals the loader zeroes, and every address below is in it.
 const DATA: Range<usize> = 0x0049_c000..0x0136_5258;
 
+/// `[0x1347b00 + 0x4c8]`, where the stage's build at 0x4074c0 keeps the stage it is handed in `ecx`.
+const THE_STAGE_THE_BUILD_KEPT: usize = 0x0134_7fc8;
+
 /// The object the drawing queues its quads in, which in the real game is 0x17e560 bytes off the
 /// allocator and so is in none of [`DATA`]: a base of this file's choosing, the length the game's own.
 ///
@@ -254,6 +257,14 @@ const SETTLED_FRAMES: i32 = 0xa;
 /// its leaving runs in. Its own numbers, as above.
 const RESULT_FROM_A_RUN: i32 = 0xa;
 const RESULT_LEAVING: i32 = 2;
+/// And the ones the other ways in leave: a practice run's end, 0x12, which the screen's own read makes the
+/// replay offer, 0xb (0x449b05); and the ranking's build, 0, and its menu, 1, which the build hands over to once
+/// its timer has reached 0x14 (0x445db3). Its own numbers, as above.
+const RESULT_FROM_A_PRACTICE_RUN: i32 = 0x12;
+const RESULT_A_PRACTICE_RUN_IS_OFFERED: i32 = 0xb;
+const RESULT_BUILDING: i32 = 0;
+const RANKING_UP: i32 = 1;
+const RANKING_BUILD_UPDATES: i32 = 0x14;
 
 /// Where the game's own counting of a card stops: 0x4100eb and 0x41011c compare against 0x270f and skip the
 /// increment, so a card attempted ten thousand times stays at 9999. Its own number, as above.
@@ -527,13 +538,19 @@ impl Image {
     /// the one a run is played in and the rebuild's goes in the field beside it, which is what the game manager's
     /// added callback reads to tell a transition from a run's first stage.
     ///
-    /// **And no frame is spent that way.** The supervisor does the whole transition inside one update — 0x4380b4
-    /// writes the rebuild scene into `wanted`, 0x42f45d tears the stage down, 0x42f3c5 registers the manager for
-    /// the next one, and 0x4380df puts `wanted` back to the run's own scene before the update returns — so the
-    /// pair orb reads is never the rebuild's. That the two are read at all is [`Th07::stage_frame`]'s doing and
+    /// **And no frame is spent that way.** The stage's end at 0x427ea5 writes the rebuild scene into `wanted`, and
+    /// the supervisor does the whole transition inside one update — 0x42f45d tears the stage down at 0x438123,
+    /// 0x42f3c5 registers the manager for the next one at 0x438128, and 0x43813c puts `wanted` back to the run's
+    /// own scene before the update returns — so the pair orb reads is never the rebuild's. That the two are read at all is [`Th07::stage_frame`]'s doing and
     /// deliberate: a field of a run in progress belongs to the run either way.
     pub fn the_next_stage_is_being_asked_for(&self) {
         self.is_in_scene(SCENE_RUN, SCENE_RUN_AGAIN);
+    }
+
+    /// And whether that is what the supervisor has been asked for, which is what 0x42e894 reads to jump over
+    /// the block a run's first stage runs.
+    pub fn the_next_stage_is_asked_for(&self) -> bool {
+        self.the_scene_wanted() == SCENE_RUN_AGAIN
     }
 
     /// And the scene a stage is rebuilt in, as a scene the game has arrived in: what nothing but a reader of
@@ -590,6 +607,18 @@ impl Image {
         self.space().write::<i32>(super::G_STAGE, word);
     }
 
+    /// **What the stage's build at 0x4074c0 keeps of the stage it was handed in `ecx`** — the supervisor's
+    /// `mov ecx,[eax+0x95ec]` at 0x42f0ae: 0x4074c7 stores the register and 0x4074fd writes it at
+    /// `[0x1347b00 + 0x4c8]`, the stage object the build has just zeroed.
+    pub fn the_build_keeps_the_stage(&self, stage: i32) {
+        self.space().write::<i32>(THE_STAGE_THE_BUILD_KEPT, stage);
+    }
+
+    /// And what it kept, for an e2e test to hold against the stage the build was of.
+    pub fn the_stage_the_build_kept(&self) -> i32 {
+        self.space().read::<i32>(THE_STAGE_THE_BUILD_KEPT)
+    }
+
     /// The run's own numbers laid out, which is what a run being built leaves behind: a block of the size
     /// the game allocates, with the pointer to it where the game keeps it.
     ///
@@ -607,25 +636,32 @@ impl Image {
         space.write::<usize>(super::G_RUN_NUMBERS, RUN_NUMBERS.start);
     }
 
-    /// And the power that run's shot is at, which the game keeps as a float.
+    /// And the power that run's shot is at, which the game keeps as a float — resealed after, as 0x4325eb's
+    /// write is at 0x43261b.
     pub fn shot_is_at_power(&self, power: f32) {
         self.space()
             .write::<f32>(RUN_NUMBERS.start + super::POWER, power);
+        seals_the_pair();
     }
 
     /// The lives and the bombs in hand, floats as well: what the game's own two guarded adds would have left
     /// behind after a bomb or an extend.
+    ///
+    /// Resealed after, as each of the game's guarded writes is — 0x42d5d8 checks, writes and calls 0x4012b0 at
+    /// 0x42d608, and the bombs', the power's and the deaths' sites do the same.
     pub fn has_lives_and_bombs(&self, lives: f32, bombs: f32) {
         let space = self.space();
         space.write::<f32>(RUN_NUMBERS.start + super::LIVES, lives);
         space.write::<f32>(RUN_NUMBERS.start + super::BOMBS, bombs);
+        seals_the_pair();
     }
 
     /// And how many times the player has died in the run, which the game counts up as a float of its own
-    /// rather than down from the lives.
+    /// rather than down from the lives — resealed after, as 0x43b75b's write is at 0x43b78b.
     pub fn has_died(&self, deaths: f32) {
         self.space()
             .write::<f32>(RUN_NUMBERS.start + super::DEATHS, deaths);
+        seals_the_pair();
     }
 
     /// The score and the point items collected, which the game keeps as whole numbers where the rest of a
@@ -639,8 +675,8 @@ impl Image {
         );
     }
 
-    /// And the number the panel draws, `[run+0x0]`, which the game's own teardown and every way out of its
-    /// pause menu catch up with the score above — see `Th07`'s own `SCORE_SHOWN`.
+    /// And the number the panel draws, `[run+0x0]`, which the game's own teardown and the continue menu's ways
+    /// out of a run catch up with the score above — see `Th07`'s own `SCORE_SHOWN`.
     pub fn the_panel_shows(&self, score: u32) {
         self.space()
             .write::<u32>(RUN_NUMBERS.start + super::SCORE_SHOWN, score);
@@ -651,20 +687,24 @@ impl Image {
             .read::<u32>(RUN_NUMBERS.start + super::SCORE_SHOWN)
     }
 
-    /// How far the point value has climbed and how many items the next step of it wants, which is th07's own
-    /// point system: 0x4333bd compares the count against the second of these and, where it has reached it, raises
-    /// the first and works the second out again — see `Th07`'s own `SCORE`, where the arithmetic is written down.
-    pub fn the_point_value_has_climbed(&self, step: u32, next: u32) {
+    /// How many extends the point items have given and how many items the next one wants, which is th07's own
+    /// extend: 0x4333bd compares the count against the second of these and, where it has reached it, gives the
+    /// extend, raises the first and works the second out again — see `Th07`'s own `SCORE`, where the arithmetic
+    /// is written down.
+    pub fn the_point_items_have_given(&self, extends: u32, items_for_the_next: u32) {
         let space = self.space();
-        space.write::<u32>(RUN_NUMBERS.start + super::POINT_VALUE_STEP, step);
-        space.write::<u32>(RUN_NUMBERS.start + super::POINT_VALUE_NEXT, next);
+        space.write::<u32>(RUN_NUMBERS.start + super::EXTENDS_GIVEN, extends);
+        space.write::<u32>(
+            RUN_NUMBERS.start + super::ITEMS_FOR_THE_NEXT_EXTEND,
+            items_for_the_next,
+        );
     }
 
-    pub fn the_point_value_it_has_climbed(&self) -> (u32, u32) {
+    pub fn the_extends_the_point_items_have_given(&self) -> (u32, u32) {
         let space = self.space();
         (
-            space.read::<u32>(RUN_NUMBERS.start + super::POINT_VALUE_STEP),
-            space.read::<u32>(RUN_NUMBERS.start + super::POINT_VALUE_NEXT),
+            space.read::<u32>(RUN_NUMBERS.start + super::EXTENDS_GIVEN),
+            space.read::<u32>(RUN_NUMBERS.start + super::ITEMS_FOR_THE_NEXT_EXTEND),
         )
     }
 
@@ -694,6 +734,11 @@ impl Image {
     }
 
     /// And how many bullets, which their own manager counts the same way.
+    pub fn the_bullets_alive(&self) -> i32 {
+        self.space()
+            .read::<i32>(super::G_BULLET_MANAGER + super::BULLET_COUNT)
+    }
+
     pub fn bullets_alive(&self, bullets: i32) {
         self.space()
             .write::<i32>(super::G_BULLET_MANAGER + super::BULLET_COUNT, bullets);
@@ -1317,7 +1362,7 @@ impl Image {
             space.write::<i32>(RUN_NUMBERS.start + super::RUN_RANDOMS_AT + at * 4, word);
         }
         // **And the two counts a run keeps of itself put back to nothing**, which the same callback does at
-        // 0x42ea7c: a run picked up out of a file is a new run, so what it carries of the recorded run's is
+        // 0x42eaa0 and 0x42eb2c: a run picked up out of a file is a new run, so what it carries of the recorded run's is
         // whatever the resume writes and nothing else.
         space.write::<i32>(RUN_NUMBERS.start + super::COUNTED_ALL_RUN, 0);
         space.write::<i32>(RUN_NUMBERS.start + super::CARDS_CAPTURED, 0);
@@ -1328,7 +1373,7 @@ impl Image {
     }
 
     /// **The count a run's items have their cherry worked out from**, `[run+0x18]` — see
-    /// [`super::COUNTED_ALL_RUN`], and the draw above for the build putting it back to nothing the way 0x42ea7c
+    /// [`super::COUNTED_ALL_RUN`], and the draw above for the build putting it back to nothing the way 0x42eaa0
     /// does.
     pub fn the_run_has_counted(&self, counted: i32) {
         self.space()
@@ -1350,15 +1395,15 @@ impl Image {
         self.space().read::<u8>(super::AWARD_STEP)
     }
 
-    /// **The number the shot's own scaling is done by**, `[0x62f8a4]` — see [`super::SHOTS_OWN_NUMBER`]. A
-    /// static rather than one of the run's numbers, so it is outside the seal, and a run's build fills it out
-    /// of the per-shot table while a transition carries whatever the stage before left.
-    pub fn the_shots_own_number_is(&self, number: u32) {
-        self.space().write::<u32>(super::SHOTS_OWN_NUMBER, number);
+    /// **The rank**, `[0x62f8a4]` — see [`super::RANK`]. A static rather than one of the run's
+    /// numbers, so it is outside the seal, and a run's build fills it out of the table by difficulty while a
+    /// transition carries whatever the stage before left.
+    pub fn the_rank_is(&self, rank: u32) {
+        self.space().write::<u32>(super::RANK, rank);
     }
 
-    pub fn the_shots_own_number(&self) -> u32 {
-        self.space().read::<u32>(super::SHOTS_OWN_NUMBER)
+    pub fn the_rank(&self) -> u32 {
+        self.space().read::<u32>(super::RANK)
     }
 
     /// And the cards the run has captured, `[run+0x1c]` — see [`super::CARDS_CAPTURED`].
@@ -1372,14 +1417,26 @@ impl Image {
             .read::<i32>(RUN_NUMBERS.start + super::CARDS_CAPTURED)
     }
 
-    /// **Whether the seal the game checks still holds**, which is `[run+0xac]` against `[run+0x3c]` — see
-    /// [`super::RESEAL`] for the two comparisons 0x404fe0 makes and why this is the one that catches a write of
-    /// orb's. A run whose pair has come apart is a run the game ends on its next update, so this is what a test
+    /// **Whether the seal the game checks still holds**, as 0x404fe0 answers it on the manager's next update:
+    /// `[run+0xac]` against `[run+0x3c] + 0xfc * [run+0xbc]`, and `[run+0xb0]` against the sum of what memory
+    /// holds now, which is what the update's inline reseal (0x42dc8b–0x42dcb8) leaves `[gm+0x9614]` standing for
+    /// — see [`super::RESEAL`]. A run either fails is a run the game ends on that update, so this is what a test
     /// asks of a resume instead of laying out the tearing-down itself.
     pub fn the_seal_holds(&self) -> bool {
         let space = self.space();
+        let word = space.read::<i32>(RUN_NUMBERS.start + super::SEALED_WORD);
+        let key = space.read::<i32>(RUN_NUMBERS.start + SEALED_KEY);
         space.read::<i32>(RUN_NUMBERS.start + super::SEALED_COPY)
-            == space.read::<i32>(RUN_NUMBERS.start + super::SEALED_WORD)
+            == word.wrapping_add(key.wrapping_mul(SUMMED_BYTES))
+            && space.read::<u32>(RUN_NUMBERS.start + SEALED_SUM) == the_sum_the_seal_takes()
+    }
+
+    /// **The lives written over by something that is not the game**, with no reseal after it — which is what a
+    /// resume that left [`super::RESEAL`] out would do, and what the second comparison of 0x404fe0 is there to
+    /// catch.
+    pub fn the_lives_are_written_over(&self, lives: f32) {
+        self.space()
+            .write::<f32>(RUN_NUMBERS.start + super::LIVES, lives);
     }
 
     /// The shot select up, with a difficulty and a character already chosen and a shot under the cursor —
@@ -1752,6 +1809,11 @@ impl Image {
         self.space().read::<u16>(super::G_INPUT_THE_RUN_ACTED_ON)
     }
 
+    pub fn the_run_acted_on_the_word(&self, word: u16) {
+        self.space()
+            .write::<u16>(super::G_INPUT_THE_RUN_ACTED_ON, word);
+    }
+
     /// A card's own record touched, as the game's own counting would leave it: the record tagged the way every
     /// one of them is, with an attempt count in it.
     ///
@@ -2040,6 +2102,17 @@ impl Image {
         }
     }
 
+    /// **The play records tagged the way the supervisor's own start tags them**, 'PLST' at their head (0x438986),
+    /// which is what the way out of the game's loop saves the score file under (0x434277).
+    pub fn its_play_records_are_tagged_at_its_start(&self) {
+        self.space()
+            .write::<u32>(super::G_PLAY_RECORDS, PLAY_RECORDS_TAG);
+    }
+
+    pub fn its_play_records_are_tagged(&self) -> bool {
+        self.space().read::<u32>(super::G_PLAY_RECORDS) != 0
+    }
+
     /// And the save the game makes for itself, which its own run build makes before it empties the records
     /// (0x42e646): the same call orb asks for, made where the game makes it.
     pub fn saves_its_score_file(&self, from: &str, into: Option<&str>) {
@@ -2193,8 +2266,41 @@ impl Image {
     /// The same screen brought up the way a *whole run's* own end brings it, said by what it is rather than by
     /// the number of the phase: past the state its build runs in, which is what orb waits for while it asks
     /// the game to write a ranking.
+    ///
+    /// **0x12 where the run was a practice run**, which is what `0x44a302(1)` writes under bit 0 of 0x62f648 — and
+    /// which the screen's own read turns into the replay offer, see [`gathers_and_writes`].
     pub fn the_screen_a_run_ends_at_is_up(&self) {
-        self.the_run_ended_screen_is_up(RESULT_FROM_A_RUN);
+        let kind = self.space().read::<u32>(super::G_RUN_KIND);
+        self.the_run_ended_screen_is_up(if kind & super::RUN_IS_A_PRACTICE != 0 {
+            RESULT_FROM_A_PRACTICE_RUN
+        } else {
+            RESULT_FROM_A_RUN
+        });
+    }
+
+    /// **The same screen as the Score item's scene builds it**, `0x44a302(0)` at 0x437f3a: the phase its
+    /// allocation leaves, 0, which is its build, with the timer that build waits on at nothing.
+    pub fn the_ranking_is_up(&self) {
+        self.the_run_ended_screen_is_up(RESULT_BUILDING);
+        self.space()
+            .write::<i32>(RESULT.start + super::RESULT_TIMER, 0);
+    }
+
+    /// **And one update of that build**, 0x445db3's state 0: the menu once the timer has reached 0x14, and the
+    /// timer up by one at the update's end (0x446a11). Only the build is walked here — what the menu after it
+    /// does is a press's business, and orb's own way off it is [`super::RESULT_LEAVING`].
+    pub fn walks_the_rankings_build(&self) {
+        let space = self.space();
+        if space.read::<i32>(RESULT.start + super::RESULT_PHASE) != RESULT_BUILDING {
+            return;
+        }
+        let timer = space.read::<i32>(RESULT.start + super::RESULT_TIMER);
+        if timer >= RANKING_BUILD_UPDATES {
+            space.write::<i32>(RESULT.start + super::RESULT_PHASE, RANKING_UP);
+            space.write::<i32>(RESULT.start + super::RESULT_TIMER, 1);
+        } else {
+            space.write::<i32>(RESULT.start + super::RESULT_TIMER, timer + 1);
+        }
     }
 
     /// And that screen moved on to the question about saving a replay, which is the first of the phases it asks
@@ -2540,6 +2646,13 @@ impl Image {
         runs_the_sound_commands(super::G_SOUND_PLAYER);
     }
 
+    /// Whether the player's own queue still holds a command, its first slot's kind read back.
+    pub fn the_sound_queue_holds_a_command(&self) -> bool {
+        self.space()
+            .read::<u32>(super::G_SOUND_PLAYER + super::SOUND_COMMANDS)
+            != 0
+    }
+
     /// **The music paused as that menu goes up**, which is the manager's own doing: 0x42d9b1 sends the pause on
     /// the frame it sees the button's edge — see `Th07`'s `PAUSE_THE_MUSIC` — so every way out of the menu owes
     /// the run an un-pause, and 「最初からやり直す」 is the way out that sends none.
@@ -2741,18 +2854,20 @@ extern "thiscall" fn seals_the_numbers(_game_manager: usize) {
     SEED_WHEN_SEALED.store(u32::from(drawing_from), Ordering::Relaxed);
     // **And the generator moved, because the real one draws from it twice.** What the two draws come to is not
     // known and not pretended at — a step of this file's own stands for them — but that they *happen* is the
-    // whole of why the game saves the generator around its own call to this (0x42f07e, 0x42f094) and why orb
-    // does the same. A laid-out seal that left the generator alone is one no test could ask that of.
+    // whole of why the game saves the generator around its own call to this where a replay is playing
+    // (0x42f07e, 0x42f094) and why orb does the same. A laid-out seal that left the generator alone is one no
+    // test could ask that of.
     unsafe {
         mem::write::<u16>(super::G_RANDOM, drawing_from.rotate_left(7) ^ 0x51ed | 1);
     }
     seals_the_pair();
 }
 
-/// **The word and its copy the check holds against each other**, which is the part of [`super::RESEAL`] a test
-/// can be written over: 0x4012b0 draws `[run+0x3c]` afresh and writes it into `[run+0xac]`, and 0x404fe0
-/// compares the two. The word is drawn out of the generator rather than left as it was, since a copy of an
-/// unchanged word would pass the check whatever a resume wrote into it in between.
+/// **The three fields of [`super::RESEAL`] the check reads**: `[run+0x3c]` drawn afresh, `[run+0xac]` that word
+/// moved on by `[run+0xbc]` for every byte summed, and `[run+0xb0]` the sum. The word is drawn out of the
+/// generator rather than left as it was, since a copy of an unchanged word would pass the first comparison
+/// whatever a resume wrote into it in between. `[run+0x98]` and `[gm+0x9614]` are not laid out: the second
+/// comparison is their sum against each other, which holds over any `[run+0x98]` where the sums agree.
 ///
 /// The generator's own step is the caller's: [`seals_the_numbers`] has already taken one for the real call's two
 /// draws, and a build's draws stand for its reseal's.
@@ -2761,8 +2876,49 @@ fn seals_the_pair() {
     let sealed = i32::from(word) % 0x186a0 + 0x198f;
     unsafe {
         mem::write::<i32>(RUN_NUMBERS.start + super::SEALED_WORD, sealed);
-        mem::write::<i32>(RUN_NUMBERS.start + super::SEALED_COPY, sealed);
+        let key = mem::read::<i32>(RUN_NUMBERS.start + SEALED_KEY);
+        mem::write::<i32>(
+            RUN_NUMBERS.start + super::SEALED_COPY,
+            sealed.wrapping_add(key.wrapping_mul(SUMMED_BYTES)),
+        );
+        mem::write::<u32>(RUN_NUMBERS.start + SEALED_SUM, the_sum_the_seal_takes());
     }
+}
+
+/// `[run+0xbc]`, the noise word 0x42d75a adds into `[run+0xac]` once for every byte it sums.
+const SEALED_KEY: usize = 0xbc;
+/// `[run+0xb0]`, the sum the last [`super::RESEAL`] took.
+const SEALED_SUM: usize = 0xb0;
+/// The bytes of the four ranges 0x42d7be sums, the `0xfc` 0x405003 works out.
+const SUMMED_BYTES: i32 = 0xfc;
+/// The two of those ranges outside the run's own object, which 0x42d7be reads through the header's pointer and
+/// at the config block it was copied from.
+const SUMMED_OUTSIDE_THE_RUN: usize = 0x38;
+
+/// **The sum 0x42d7be takes**, the bytes of `run+0x34` up to `run+0xac`, the 0x14 from `run+0xb4`, the run's
+/// header and the config block 0x575a68, each byte zero-extended (`movzbl` at 0x42d789). A header or a block a
+/// laid-out game has not mapped adds nothing, the same as one holding nothing.
+fn the_sum_the_seal_takes() -> u32 {
+    let bytes = |address: usize, len: usize| {
+        mem::read_committed_bytes(address, len)
+            .unwrap_or_default()
+            .into_iter()
+            .map(u32::from)
+            .fold(0u32, u32::wrapping_add)
+    };
+    let header = mem::read_committed::<usize>(super::G_RUN_HEADER).unwrap_or(0);
+    let header = if header == 0 {
+        0
+    } else {
+        bytes(header, SUMMED_OUTSIDE_THE_RUN)
+    };
+    bytes(
+        RUN_NUMBERS.start + super::RUN_RANDOMS_AT,
+        super::SEALED_COPY - super::RUN_RANDOMS_AT,
+    )
+    .wrapping_add(bytes(RUN_NUMBERS.start + 0xb4, 0x14))
+    .wrapping_add(header)
+    .wrapping_add(bytes(super::PAD_MAPPING, SUMMED_OUTSIDE_THE_RUN))
 }
 
 /// And how many times orb has asked for the border the cherry+ earns, counted for the same reason.
@@ -2936,15 +3092,19 @@ fn asks_for_a_song(slot: u32) {
 /// run of the sound tells an empty slot from a full one, which is all this stands for.
 const A_PLAY: u32 = 2;
 
-/// How many runs of the game's own sound a play takes before anything is audible: **two**, which is a laid-out
-/// game walking the phases the real player walks rather than finishing a command in the run it was queued in.
+/// How many runs of the game's own sound a play takes to leave the queue: **eight**, which is a laid-out game
+/// walking the phases the real player walks rather than finishing a command in the run it was queued in.
 ///
 /// Without it every e2e test over a restore's sound passes on a game that cannot be wrong about the timing, and
 /// two launches of th07 were what said so: one read `restore: the song could not be put` for a seek made the
 /// frame after the ask, and one heard the stage's own song start after orb had stopped it in that same frame.
-/// What the real player does is advance the command's phase at `+0x8` and return (0x44ca96), so the run the ask
-/// was made in is not the run that carries it out.
-const RUNS_A_PLAY_TAKES: u32 = 2;
+/// What the real player does is advance the command's phase at `+0x8` and return (0x44ca96), one phase a run:
+/// on the wav backend kind 2 stops the stream on its first (0x44cc23), makes it again, puts the record on its
+/// source, fills the buffer, plays it on its fifth (0x44cd96), and is taken out of the queue by the run that
+/// finds phase 7.
+const RUNS_A_PLAY_TAKES: u32 = 8;
+const RUN_A_PLAY_STOPS_ON: u32 = 1;
+const RUN_A_PLAY_IS_HEARD_ON: u32 = 5;
 
 /// `SoundPlayer::PlaySounds` as far as the music goes: every queued play carried out the way command 2 carries
 /// one out — the name the slot holds, the record of the track that name is, and the stream's own source put on
@@ -3022,30 +3182,33 @@ extern "thiscall" fn runs_the_sound_commands(_player: usize) {
     SOUND_COMMANDS_RUN.fetch_add(1, Ordering::Relaxed);
     carries_the_music_commands_out();
     // A phase advanced and the command left where it is, which is what a run that is not a command's last does
-    // — see [`RUNS_A_PLAY_TAKES`]. The queue is what orb reads, so it is emptied on the run that carries the
-    // play out and not before.
+    // — see [`RUNS_A_PLAY_TAKES`]. The queue is what orb reads, so it is emptied on the run that finds the last
+    // phase, three after the one the play is heard on, and not before.
     let walked = PLAYS_WALKED.fetch_add(1, Ordering::Relaxed) + 1;
     if QUEUED_PLAYS.lock().unwrap().is_empty() {
         PLAYS_WALKED.store(0, Ordering::Relaxed);
         return;
     }
-    if walked < RUNS_A_PLAY_TAKES {
-        return;
-    }
-    PLAYS_WALKED.store(0, Ordering::Relaxed);
-    let queued: Vec<u32> = QUEUED_PLAYS.lock().unwrap().drain(..).collect();
-    unsafe { mem::write::<u32>(super::G_SOUND_PLAYER + super::SOUND_COMMANDS, 0) };
     // **A play makes no stream, and that is the whole of why this walks the phases the game's does.** The
     // command reuses the one the player's own field names: 0x44cc23 stops the buffers it owns, 0x44cce1 puts
-    // the record the slot names on its source, and 0x44cd1d fills its buffer from that source. What *makes* a
+    // the record the slot names on its source, and 0x44cd63 fills its buffer from that source. What *makes* a
     // stream is `PlayBGM` and nothing else — see [`plays_the_bgm`] — so a play asked for while that field
-    // names nothing is dropped where the game drops it, at 0x44cbf3.
+    // names nothing is dropped where the game drops it, at 0x44cbf3, on the run it is found.
     let stream =
         mem::read_committed::<usize>(super::G_SOUND_PLAYER + super::STREAM).filter(|it| *it != 0);
     let Some(stream) = stream else {
-        return;
+        return leaves_the_queue();
     };
-    takes_the_stream_down(stream);
+    if walked == RUN_A_PLAY_STOPS_ON {
+        takes_the_stream_down(stream);
+    }
+    if walked == RUNS_A_PLAY_TAKES {
+        return leaves_the_queue();
+    }
+    if walked != RUN_A_PLAY_IS_HEARD_ON {
+        return;
+    }
+    let queued: Vec<u32> = QUEUED_PLAYS.lock().unwrap().clone();
     for slot in queued {
         let record = slot_holds(slot)
             .and_then(|name| record_of(&name))
@@ -3064,6 +3227,14 @@ extern "thiscall" fn runs_the_sound_commands(_player: usize) {
             .unwrap()
             .push(String::from_utf8_lossy(&track).into_owned());
     }
+}
+
+/// The plays walked over taken out of the player's queue, which is what the run that finds a command's last
+/// phase does.
+fn leaves_the_queue() {
+    PLAYS_WALKED.store(0, Ordering::Relaxed);
+    QUEUED_PLAYS.lock().unwrap().clear();
+    unsafe { mem::write::<u32>(super::G_SOUND_PLAYER + super::SOUND_COMMANDS, 0) };
 }
 
 /// `0x44a302(kind)`, as far as the kind that writes goes: the file read into an image, its own records laid over
@@ -3131,7 +3302,19 @@ extern "C" fn gathers_and_writes(_screen: *mut std::ffi::c_void) -> i32 {
         } else {
             crate::runtime::card_records_read
         };
-    unsafe { parse(SCORE_FILE_IMAGE, super::G_CARD_RECORDS) };
+    // **Not on a run's end**, which 0x449b05 skips the parse for (0x44a040, 0x44a049): a run's own records are
+    // in memory already, and the screen it ends at shows them as they stand.
+    let phase = mem::read_committed::<i32>(on + super::RESULT_PHASE);
+    if phase != Some(RESULT_FROM_A_RUN) && phase != Some(RESULT_FROM_A_PRACTICE_RUN) {
+        unsafe { parse(SCORE_FILE_IMAGE, super::G_CARD_RECORDS) };
+    }
+    // And a practice run's end taken straight to the replay offer, its score kept against the stage's record
+    // by the same callback — there is no name entry for one.
+    if phase == Some(RESULT_FROM_A_PRACTICE_RUN) {
+        unsafe {
+            mem::write::<i32>(on + super::RESULT_PHASE, RESULT_A_PRACTICE_RUN_IS_OFFERED);
+        }
+    }
     // **And written only where the phase says so**, which the game gates the write on at 0x44a1e0: the two the
     // ranking screen is built with reach this read and leave the file exactly as it was. A laid-out gather that
     // wrote at every read would be one that cannot tell what a look at the ranking screen costs.

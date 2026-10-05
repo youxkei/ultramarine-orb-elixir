@@ -1,8 +1,9 @@
 //! **What a stage transition of th08 carries, and what only the start of a run puts in place.**
 //!
-//! The run manager's added callback is `0x43aaf4`, one build reached two ways, and the difference is its
-//! first condition: 0x43aafd reads the scene wanted, and **3, 0xb and 0xc are a stage carrying a run on**
-//! (0x43ab24 leaves `0x17ce8bc` at nought) where anything else is a run starting (0x43ab18 writes 1).
+//! The run manager's added callback is `0x43aaf4`, which starts one build reached two ways: 0x43aafd reads
+//! the scene wanted, and **3, 0xb and 0xc are a stage carrying a run on** (0x43ab24 leaves `0x17ce8bc` at
+//! nought) where anything else is a run starting (0x43ab18 writes 1). The build on the thread branches on
+//! that flag at 0x43ac89 through 0x43acb8, together with bits 14 and 0 of the run kind and the difficulty.
 //!
 //! **What only the start takes is the run's numbers put in place** — the run's clock back to nothing
 //! (0x43ae88) and the lives, the bombs, the power and the score the front end chose. **What the transition
@@ -28,8 +29,9 @@ const WORK_US: i64 = 700;
 /// The stage the run walks into, orb's own 0-based number.
 const THE_NEXT_STAGE: i32 = FIRST_STAGE + 1;
 
-/// The frames a stage's build and the walk into it are given: the build waits out thirty frames of its
-/// own on the supervisor's thread — see `Th08`'s `A_BUILD_STANDS_FOR` — and a chapter's settle more.
+/// The frames a stage's build and the walk into it are given: the build waits out thirty frames of the
+/// run manager's count on the supervisor's thread — see `Th08`'s `A_BUILD_STANDS_FOR` — and a chapter's
+/// settle more.
 const A_TRANSITION: u32 = 600;
 
 /// **The numbers this run is carrying when it crosses the boundary**, none of them a stage's own: lives and
@@ -66,12 +68,7 @@ fn in_its_first_stage(name: &str) -> Box<Fake> {
 /// manager writes the next stage's number before it asks for the build, so a wait on the number alone ends
 /// on the frame the build was asked for and nothing of it had run.
 fn walks_into_the_next_stage(game: &Fake) {
-    game.moves_on_to_the_stage(THE_NEXT_STAGE);
-    game.frames_until(
-        "the build of the stage after the first",
-        A_TRANSITION,
-        || game.image().the_loader_is_running(),
-    );
+    game.moves_on_to_the_stage_pressing_past_its_end(THE_NEXT_STAGE);
     game.frames_until("the stage after the first, built", A_TRANSITION, || {
         !game.image().the_loader_is_running()
     });
@@ -125,6 +122,71 @@ fn a_stage_transition_of_th08_hands_the_runs_score_to_the_panel() {
     });
 }
 
+/// **And a stage carried on to waits for a press before it is built** — the tally the stage's end shows: the
+/// stage's end puts bits 5 and 6 of the run's kind up (0x439bc7), the build's thread waits past its own frames
+/// for them to read nothing (0x43b88b), and only the run manager's tail takes them down, on a press of the
+/// shot or the enter (`0x1001`, 0x439f3c) — which the supervisor reads on every frame of the build. Measured
+/// on the real game: a clear's move from stage 1 to stage 2 came on the bot's own shot pressed again 34
+/// frames before the stage word moved.
+#[test]
+fn a_stage_of_th08_carried_on_to_waits_for_a_press_before_it_is_built() {
+    in_its_own_process(|| {
+        let game = in_its_first_stage("th08-a-transition-waits-for-a-press");
+        game.moves_on_to_the_stage(THE_NEXT_STAGE);
+        game.frames_until(
+            "the build of the stage after the first",
+            A_TRANSITION,
+            || game.image().the_loader_is_running(),
+        );
+        game.frames(A_TRANSITION);
+        assert!(
+            game.image().the_loader_is_running(),
+            "the stage after the first was built with nothing pressed",
+        );
+        game.press(orb_sim::keys::Z);
+        game.frames_until("the stage after the first, built", A_TRANSITION, || {
+            !game.image().the_loader_is_running()
+        });
+    });
+}
+
+/// **And a run orb plays itself is pressed past that tally**: the rules press what a stage wants and hold the
+/// shot, which is no press, so orb taps the decide while a stage's end stands — see
+/// `Game::a_stages_end_waits_for_a_press`.
+///
+/// **This does not fail without the tap**: the laid-out stage leaves the rules cycling the shot through the
+/// build, where the real game's clear held it from the frame after its first stage's clock stopped — the tap
+/// is for a stage's end landing mid-hold, which the laid-out game does not produce.
+#[test]
+fn a_run_of_th08_orb_plays_is_pressed_past_its_stages_end() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th08-a-transition-pressed-past-by-orb",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- play_until: { stage: 2, chapter: 1 }\n  give_up_after: 6000\n".to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.fires_at_the_player(false);
+        game.stages_last(A_SHORT_STAGE);
+        game.its_title_menu_is_up();
+        game.is_in_a_run();
+        game.plays_its_own_stage();
+        game.frames_until(
+            "the stage after the first, built",
+            A_SHORT_STAGE + A_TRANSITION,
+            || game.state().stage == THE_NEXT_STAGE && !game.image().the_loader_is_running(),
+        );
+    });
+}
+
+/// A stage short enough to be over in a test.
+const A_SHORT_STAGE: u32 = 300;
+
 /// A transition is not the run ending: every frame of it reads as a run in progress.
 #[test]
 fn a_stage_transition_of_th08_is_not_the_run_ending() {
@@ -132,7 +194,11 @@ fn a_stage_transition_of_th08_is_not_the_run_ending() {
         let game = in_its_first_stage("th08-a-transition-not-an-ending");
         game.moves_on_to_the_stage(THE_NEXT_STAGE);
         let mut built = false;
+        // The shot tapped through it, the tally waiting on a press.
+        let mut down = false;
         for _ in 0..A_TRANSITION {
+            down = !down;
+            game.keyboard().set(orb_sim::keys::Z, down);
             game.frame();
             let state = game.state();
             assert!(

@@ -39,6 +39,9 @@ const SLOT: &str = "normal-reimu-a";
 /// How many frames a launch is given to run its recipe out and quit in.
 const FRAMES: u32 = 60_000;
 
+/// And how many the write after a rewind is given to land in.
+const A_WRITE_TAKES: u32 = 600;
+
 /// **A run whose first attempt at a chapter is hit on purpose and whose second is played clean**, which is
 /// the recipe `a_death_answered_by_the_chapter_again` plays on the real game: the window of frames is where
 /// the one death falls, the chapter it falls in being a thing of how well the rules play.
@@ -114,6 +117,20 @@ fn a_run_of_th06nc_writes_down_the_attempt_it_was_rewound_from_as_well_as_the_on
 {
     in_its_own_process(|| {
         let game = a_run_rewound_once("th06nc-the-replay-two-attempts");
+        // **Waited on rather than read at once**: the rewind's own line comes before the write that holds the
+        // attempt it left, and a read on that frame took the write before it — `0 attempt(s)` once in a whole
+        // run of this crate.
+        game.frames_until(
+            "the attempt rewound from written down",
+            A_WRITE_TAKES,
+            || {
+                game.log()
+                    .lines()
+                    .iter()
+                    .any(|line| line.contains(" attempt(s) written to "))
+                    && attempts_in_the_file(&game) >= 2
+            },
+        );
         let rewound = attempts_in_the_file(&game);
         assert!(
             rewound >= 2,

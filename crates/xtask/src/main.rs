@@ -322,7 +322,7 @@ fn test(args: Vec<String>) -> bool {
 /// tests are Windows binaries and cargo is a Linux one, so every test binary is started through WSL's
 /// interop — and interop passes a Linux process's environment to a Win32 one only for the variables named in
 /// `WSLENV`. `WSLENV` is empty here, so a `RUST_TEST_THREADS` set on this side reaches nothing: measured with
-/// `RUST_TEST_THREADS=4 cmd.exe /c 'echo [%RUST_TEST_THREADS%]'`, which prints the name back unexpanded. The
+/// `RUST_TEST_THREADS=4 pwsh.exe -NoProfile -Command '"[$env:RUST_TEST_THREADS]"'`, which prints `[]`. The
 /// setting was an environment variable first and did nothing at all — sixteen threads and thirty-two
 /// processes every run — which is the whole reason this note is here.
 ///

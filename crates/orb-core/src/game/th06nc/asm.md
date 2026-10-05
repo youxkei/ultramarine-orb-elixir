@@ -21,6 +21,8 @@ objdump -d -M intel th06nc.exe > th06nc.asm     # the whole of .text, once
 objdump -p th06nc.exe                          # the DLLs it imports, and where each one's IAT starts
 objdump -h th06nc.exe                          # the sections and where they are loaded
 strings -a -t x th06nc.exe                     # the names it resolves at runtime, and its own file names
+analyzeHeadless <project dir> <name> -import th06nc.exe -scriptPath <dir> -postScript DumpAll.java <out.c>
+                                               # every function decompiled, headed `// FUNCTION <entry> <name> <size>`
 ```
 
 Its image base is `0x140000000` and every address below is a virtual address at that base. **And that is
@@ -114,19 +116,33 @@ what `key::FOCUS_IN_THE_GAMES_TABLE` is for. `Enter` has two entries, `0x0d -> 0
 `(byte >> 7)` into the buffer it was handed — `0x140c6e190`, one byte a key holding 1 or 0. So the 256
 bytes orb writes a press into are the 256 the word is built from, one `shr` apart.
 
-**The word itself is assembled out of a block of key bindings**, `0x140c6e07c`–`0x140c6e158`, each byte
-a scan code into that copy: `0x140013499` onwards reads the binding, reads
-`[0x140c6e190 + that]`, and turns a byte that is set into the bits it carries —
-`neg al; sbb ecx,ecx; and ecx,<bits>; or r8d,ecx`, twenty-six of those in a row. The bits are the word's
-own: `0x10`, `0x20`, `0x40` and `0x80` for the four directions and the diagonals as pairs of them
-(`0x90`, `0x50`, `0xa0`, `0x60`), `0x4` for the focus, `0x100` for the decide, `0x8` for the menu. Which
-bindings a launch holds is `th06.cfg`'s, so a laid-out game has to fill that block before the word it
-builds means anything.
+**The word itself is assembled through a 256-byte remap of scan codes**, `0x140c6e080`–`0x140c6e17f`,
+one byte per DirectInput scan code holding the scan code to read in its place: `0x140013499` onwards
+reads `[0x140c6e080 + a fixed scan code]`, reads `[0x140c6e190 + that]`, and turns a byte that is set
+into the bits that key carries — `neg al; sbb ecx,ecx; and ecx,<bits>; or r8d,ecx`, twenty-nine of those
+in a row, each mask standing one load behind the byte it is about. **Which key carries which bits is fixed
+in the code and not read from `th06.cfg`**:
 
-**And four of those twenty-six carry more than one bit each**, which is what makes the shot and the
-decide one key: `0x8101` at `0x14001370f` — the shot's `0x1`, the decide's `0x100` and the
-fast-forward's `0x8000` together — `0x202` at `0x1400136ae` and `0x1400136c7`, the bomb's `0x2` with the
-cancel's `0x200`, and `0x600` and `0x1020` beside them.
+| the keys | the bits |
+| --- | --- |
+| the arrows, the numpad's 8, 2, 4 and 6, and `W`, `A` and `D` | `0x10`, `0x20`, `0x40` and `0x80` — up, down, left, right |
+| the numpad's 7, 9, 1 and 3 | the diagonals as pairs of them, `0x50`, `0x90`, `0x60` and `0xa0` |
+| `S` | `0x1020`, down with `0x1000` |
+| `Z` and `J` | **`0x8101`** — the shot's `0x1`, the decide's `0x100` and the fast-forward's `0x8000` together, `0x14001370f` and `0x140013736` |
+| `X` and `K` | **`0x202`**, the bomb's `0x2` with the cancel's `0x200`, `0x1400136ae` and `0x1400136c7` |
+| `Enter` | `0x100`, the decide alone |
+| `Escape` | `0x600`, the pause's `0x400` with the cancel |
+| left `Shift`, `Space` and `L` | `0x4`, the focus |
+| left `Ctrl` and `;` | `0x8`, the skip a conversation reads — `[0x140c6e09d]`, scan `0x1d`, at `0x1400136d7` and `[0x140c6e0a7]`, scan `0x27` |
+| `Q` | `0x800` |
+| `R` | `0x4000` — `[0x140c6e093]`, scan `0x13`, at `0x140013499` |
+
+**The remap is filled by the same function, once a launch and again where the layout changes**:
+`0x14001336d`–`0x14001343c` writes every byte its own index, and `0x140013450`'s loop then takes the 37
+scan codes at `0x14034ddc0`, asks `MapVirtualKeyExW(scan, 3, layout)` through `0x1402f5370` for the key
+the layout puts there, and writes back the scan code `0x1400ac5f0` answers for that key at
+`0x14001347a`. So under a layout that moves no letter the remap is the identity, and a laid-out game
+that fills it so holds every key where its name says.
 
 **And the whole of that compose is one function that takes nothing and answers in `eax`.** `0x140013310`
 opens `lea r14,[0x140c6e190]` and `call 0x1400abc90` with that buffer in `rcx`, so it makes the read
@@ -137,10 +153,28 @@ state, `0x140012fd3` onwards for the bits — and returns the word in `eax` at `
 can be composed from wherever the keys stand, by a call.
 
 **Two things it does besides composing**, which is what a second call in one frame costs:
-`0x14001336d`–`0x140013488` fills the scan codes at `0x140c6e080` through `0x1402f5368` and `0x1402f5370`
+`0x14001336d`–`0x140013488` fills the remap at `0x140c6e080` through `0x1402f5368` and `0x1402f5370`
 where the keyboard layout at `[0x140c6e180]` is not the one `[0x140abae8c]` was set for, which is once a
-launch and then never; and the pad's half steps `[0x140abad70]` at `0x140013014` and `0x140013034`, the
-frames a pad's own focus has been held, between nought and `0x10`, firing `0x4` from eight up.
+launch and then never; and the pad's half steps `[0x140abad70]` at `0x140013014` and `0x140013034` —
+only where the focus and the shot are bound to the same button, `0x140012fe5` comparing the two — the
+frames that button has been held, between nought and `0x10`, firing `0x4` from eight up.
+
+**The pad's half reads `th06.cfg`'s five buttons**, `+0x434` to `+0x43c` of the game's object, each a
+bit index into XInput's `wButtons` — `0x1400af090` splits that word into sixteen bytes, one per bit — and
+the default `0x140429210` lays down is `12, 13, 9, 14, 4`:
+
+| | the field | the default | the bits it gives |
+| --- | --- | --- | --- |
+| the shot | `+0x434`, `0x140012fbc` | 12, **A** | `0x1` and `0x8000`, and `0x100` where it is not the cancel's button |
+| the bomb | `+0x436`, `0x140013045` | 13, **B** | `0x2`, and `0x200` where it is not the decide's button |
+| the focus | `+0x438`, `0x140012fdd` | 9, **RB** | `0x4` |
+| the skip | `+0x43a`, `0x140013062` | 14, **X** | `0x8` |
+| the pause | `+0x43c`, `0x140013115` | 4, **Start** | `0x400` |
+
+**And the decide and the cancel are buttons 12 and 13 whatever those five say**, swapped by `+0x44a`:
+`0x140013094` reads it, `0x1400130a1` builds `12 + it` and `0x1400130af` `13 - it`, and the first
+contributes `0x100` (`0x1400130d1`) and the second `0x200` (`0x1400130c7`) — so nought makes A the decide
+and B the cancel. The d-pad gives the four directions and the left stick the same four past a dead zone.
 
 **So the front end's own screens test the cancel first and the pair `0x3` after it**, which is how a
 decide is read there. Screen 14 is the case this was read off — `0x14004d52a` takes `0x200` of
@@ -191,7 +225,7 @@ one:
 | --- | --- |
 | `0x14007b8b7` | the supervisor's own job, the keyboard's answer — above |
 | `0x140049197` | **nought**, in the front end's own update, where the byte at `[front end + 0x168d0]` is set: `0x14004918c` compares it with nought and jumps past this where it is |
-| `0x1400491cc` | `0x100`, the decide, where the screen is one of `0x6a00`'s bits — 9, 11, 13 and 14 — and `[front end + 0x9638]` is exactly `0xf`: a select going by on its own |
+| `0x1400491cc` | `0x100`, the decide, on that same branch — only where `[front end + 0x168d0]` is set — where the screen is one of `0x6a00`'s bits, 9, 11, 13 and 14, and `[front end + 0x9638]` is exactly `0xf`: a select going by on its own while the front end is skipping |
 | `0x140049234` | **nought into all four** — this word, the frame before's, `0x140abae68` and (at `0x140049649`'s case) `0x140abae7c` — at a case the front end's own jump table at `0x140049232` reaches |
 | `0x140049649` | **and nought into all four again**, at another case of that table, `0x14004963c` having asked the supervisor for state 4 just above it |
 | `0x14006d17f` | a playback's own feed: `eax = [0x140abae80] & 0xfffffc00 \| [entry + 4]`, the low ten bits replaced out of the record while the rest stay |
@@ -245,11 +279,12 @@ called with its `+0x38` in `rcx` and `+0x28` followed. What the callback answers
 compares at `0x14003d73a`: **2** calls it again, **0** takes it out through `0x140012e10` with the element
 in `rdx`, **3**, **4** and **5** end the walk and **6** starts it over from the head — and **1**, like
 every other answer the walk has no case for, moves on to the next element and counts in `edi` as an
-element that ran. Each of the four that ends the walk writes `0x140c6db90`'s first byte to nought and
+element that ran. Each of the answers that ends the walk writes `0x140c6db90`'s first byte to nought and
 calls `0x1400781d0`, which flushes the frame's queued sound effects out of `0x1405542c0`, before it
 answers. The walk returns `al` non-zero to leave the frame, and writes 1 or 2 through `rcx` for what it
-leaves with — **and a chain no element of ran at all leaves the frame**: `0x14003d76d` tests `edi` and
-`0x14003d771` writes 1 with `al` set where it is nought.
+leaves with: **3** answers `al` nought (`0x14003d7c3`), the walk ended and the frame going on, **4**
+leaves with 1 (`0x14003d7af`) and **5** with 2 (`0x14003d799`) — **and a chain no element of ran at all
+leaves the frame**: `0x14003d76d` tests `edi` and `0x14003d771` writes 1 with `al` set where it is nought.
 
 **And the draw chain's is inline in the frame** at `0x14003da73`, `lea rdi,[0x14053c050]` — the same
 walk, 0 taking the element out at `0x14003db0f`, and the renderer's batch of sprites flushed after every
@@ -339,26 +374,33 @@ that object**:
 beside it. And while the two agree the job does nothing, `0x14007b909` leaving straight for that exit.
 So what it is is a machine of transitions between a pair of states rather than of one state's own cases.
 
-The four states a run needs, read off the cases:
+The states a run needs, and the two that end the game and start a run again, read off the cases:
 
 | | |
 | --- | --- |
 | **1, the front end** | the outer table's entry for nought is `0x14007b9b3`, which writes 1 into `+0x42c` and calls **`0x140057190`, which builds the front end** — `0x1400573bd`'s registration is inside it |
-| **2, a run** | the front end's own inner table starts at `0x14007b94c`, and it is indexed by `+0x42c` less two — so wanting two from the front end calls `0x14003c0a0`, the stage's own chain. `0x14007bac7` and `0x14007bcaf` are that function's other two callers, and `0x14007bc7e`–`0x14007bd0b` writes the numbers a stage starts with just before the last |
+| **2, a run** | the front end's own inner table starts at `0x14007b94c`, and it is indexed by `+0x42c` less two — so wanting two from the front end calls `0x14003c0a0`, the stage's own chain. `0x14007bac7` and `0x14007bcaf` are that function's other two callers, the second inside state 12's case, whose `0x14007bc68`–`0x14007bd0b` writes the numbers a stage starts with just before it |
 | **7, the screen a run ends at** | a run's own inner table's seventh entry is `0x14007b9e3`: it waits for `[0x140c6e378]`'s `+0x34` to read 2, takes the stage's two elements out, takes `0xbb48` bytes off `malloc`, builds the screen with `0x14006f5d0` and falls into the tail at `0x14007bdc3` — 1 into the screen's `+0x9e99` and, by `[0x14053d404]`, nine or seventeen into its `+0x9e94`. `0x14007bd81`'s third branch, the case for leaving state 10 with 7 wanted, is the other way in and shares that tail |
-| **8, a run over** | a run's own inner table is indexed by `+0x42c` less one, and its eighth entry is `0x14007bb13`: the stage's two elements `0x14053ca70` and `0x14053ca30` taken out through `0x140012e10`, the score file handed to `0x14006db10` where `[0x140abae58]` holds one — **which writes nothing**, the null record reaching the teardown, see *The score file* — `0x14053d3dc` and `0x14053d405` cleared, and 1 asked for itself. **It builds no screen**, which is what makes it the state a run is *given up* into where 7 is the state one finishes into |
+| **8, a run over** | a run's own inner table is indexed by `+0x42c` less one, and its eighth entry is `0x14007bb13`: the stage's two elements `0x14053ca70` and `0x14053ca30` taken out through `0x140012e10`, the replay being recorded handed to `0x14006db10` with no path where `[0x140abae58]` holds one — **which writes nothing**, the null path reaching the teardown, see *The replay's own write* — `0x14053d3dc` and `0x14053d405` cleared, 1 asked for itself and the front end built at `0x14007bb5f`. **It builds no screen and writes no `score.dat`**, which is what makes it the state a *replay* is given up into, where 7 is the state a run finishes into and 1 the state a run of somebody's own is given up into |
+| **4, the game quitting** | wanted from the front end or from a run, its case is `0x14007be15`, `mov eax,4; ret` — the walk ended with 1 and the frame left. The front end's state 5, which the main menu's item 9 opens, asks for it at `0x14004d91f` once fifty frames have gone and the fade is done, and the front end's state 0 asks for it at each load of its pictures that fails |
+| **12, the run started again** | `0x14007bc27`: `score.dat` written through `0x140076370` at `0x14007bc2f` unless a replay is playing, the stage's two elements taken out, the replay being recorded dropped through `0x14006db10` at `0x14007bc63`, and then the stage the run starts at, its lives and its bombs written over again and `0x14003c0a0` called at `0x14007bcaf`, 2 asked for. The pause menu's machine asks for it at `0x14000b4b5` and the menu a scene's end puts up at `0x14000cfb9` |
 
-**So giving a run up is 8 asked for and not 1 written**: wanting 1 out of 2 is `0x14007bae1`, which
-calls `0x14007b770` and falls to the exit — the stage's elements left in the chain.
+**And wanting 1 out of 2 is `0x14007bae1`**, which calls `0x14007b770`: `score.dat` written through
+`0x140076370` at `0x14007b782` unless `[0x14053d3dc]` says a replay is playing, the stage's two elements
+taken out, the replay being recorded dropped at `0x14007b7bb`, `0x14053d3dc` and `0x14053d405` cleared,
+1 written into `+0x42c` and the front end built by the tail jump to `0x140057190` at `0x14007b7df`. So
+giving a run up through 8 writes nothing and leaving it through 1 writes the score file.
 
 **And the run's own start is `0x14004f320`**, called once in the exe — at `0x14004dc06`, from the shot
 select's decide, with the front end in `rcx`. What it does, in order:
 
 - reads `[front end + 0x168d1]` into `0x14053d404`, the byte that has a run asked for no name;
 - takes the starting stock out of `th06.cfg` — `[0x140c6dfd4]` into the lives and `[0x140c6dfd5]` into
-  the bombs — and `[0x140c6dfdb]` into `0x14053d414`, the mode byte, through a `setne`;
-- writes `0x302` over the lives and bombs where the difficulty is 4 or that mode byte is set, and `2`
-  over the lives alone otherwise;
+  the bombs — and `[0x140c6dfdb]` into `0x14053d414`, the mode byte, through a `setne`, and clears
+  `0x14053d405`;
+- writes `0x302` — two lives and three bombs — over both where the difficulty is 4 or the run is a
+  practice (`0x14004f355`–`0x14004f37c`), and otherwise `2` over the lives alone where the mode is
+  Challenge (`0x14004f373`), the configuration's own stock standing for a Standard run;
 - **asks the supervisor for 2** at `0x14004f38b`, and clears `0x14053d3dc`;
 - **stops the track**: `0x1400ceb30` and `0x140081740` on `[0x1405542bc]`, then `-1` into it and nought
   into `0x1405542cc` and `0x1405542b8`;
@@ -390,8 +432,8 @@ for name, table, first, n in (("left", 0x14007be28, 0, 12), ("from the front end
 | --- | --- | --- | --- |
 | 0 | `0x14007b9b3` — writes 1 into `+0x42c` and builds the front end | 2 | `0x14007b94c` — `call 0x14003c0a0`, the stage registered |
 | 1 | `0x14007b931` — **the inner dispatch**, `+0x42c` less two through the second table | 3 | the exit |
-| 2 | `0x14007b9c9` | 4 | `0x14007be15` |
-| 3, 4, 5, 8 | the exit at `0x14007baf1`, so those four have no tear-down of their own | 5 | `0x14007b956` — `mov eax,5; ret`, which is **the walk ended and the frame left**: 5 is the game going |
+| 2 | `0x14007b9c9` | 4 | `0x14007be15` — `mov eax,4; ret`, **the game quitting**: the walk ends and the frame leaves with 1 |
+| 3, 4, 5, 8 | the exit at `0x14007baf1`, so those four have no tear-down of their own | 5 | `0x14007b956` — `mov eax,5; ret`, the walk ended and the frame left with 2 |
 | 6 | `0x14007b9aa` | 6 | `0x14007b966` — the screen a run ends at built, `0xbb48` off `malloc`, which is where `0x14007bdf2` registers it at priority 13 |
 | 7 | `0x14007bd0d` | 7, 8 | the exit |
 | 9, 11 | `0x14007bd6a` | 9 | `0x14007b996` |
@@ -402,13 +444,13 @@ And the run's own inner table, `0x14007be80`, indexed by `+0x42c` less one:
 
 | the state wanted out of a run | |
 | --- | --- |
-| 1 | `0x14007bae1` — **the front end written outright**, `0x14007b770` and then the exit, the stage's two elements left in the chain |
+| 1 | `0x14007bae1` — **the front end**, `0x14007b770` and then the exit: `score.dat` written, the stage's two elements taken out and the front end built |
 | 3 | `0x14007baaf` — **the next stage**: `0x14053ca70` and `0x14053ca30` taken out through `0x140012e10` and `0x14003c0a0` called again |
 | 4 | `0x14007be15` |
 | 7 | `0x14007b9e3` |
-| 8 | `0x14007bb13` — **the run over**, the state a run is given up into |
+| 8 | `0x14007bb13` — **the run over**, the state a replay is given up into |
 | 10 | `0x14007bb66` — **the ending**, which is what asks for 10: `0x14004148d` writes `0xa` where a run has finished, the difficulty is not four and `[0x14053d3dc]` says no replay is playing, and this branch takes the stage's two elements out and calls `0x14002c1d0` at `0x14007bb91` — the ending's own registration — where `[r8+0x34]` reads 2. **The Extra asks for 7 instead** at `0x14004147e`, and a replay for 8 |
-| 12 | `0x14007bc27` |
+| 12 | `0x14007bc27` — **the run started again**, `score.dat` written and the stage built over |
 | 2, 5, 6, 9, 11 | the exit at `0x14007baf1` |
 
 **And the job's first job is the music's fade**, before any of that: `0x14007b804` leaves where
@@ -426,9 +468,10 @@ asked for, and every write to it is an ask:
 | | |
 | --- | --- |
 | `0x14007c081` | `-1` at the boot, with `+0x428` written nought beside it — which is what makes the job run its case for nought and build the front end |
-| `0x14000b482` | **8 from the pause menu's own job**, which is a run given up; `0x14003bd5a` writes 8 too |
+| `0x14000b482` | **8 from the pause menu's own job**, its give-up where `[0x14053d3dc]` says a replay is playing and `[+0xb48]` is clear; otherwise the same give-up writes **1** at `0x14000b48e`, the front end and its write of `score.dat`. `0x14003bd5a` writes 8 too |
 | `0x14000bcae`, `0x14000bdf7`, `0x14000c3f4`, `0x14002d8c6` | 7 |
-| `0x14000cfb9` | `0xc` |
+| `0x14000cfb9`, `0x14000b4b5` | `0xc`, the run started again |
+| `0x14004d91f` | 4, the game quitting, from the front end's state 5 |
 | `0x140013e9c`, `0x14003ceea` | 1, the front end |
 
 **And 3 is the next stage of a run**: `0x14003c27c` takes the stage's build down its stage-following
@@ -503,12 +546,13 @@ from for the whole of it. `the-front-end-after-a-run.yaml` wrote `front end: scr
 at all until `16` after the `leave`, a whole run later, and `the_front_end_of_th06nc_walked` asserts the
 same field still reading 25 with a stage running.
 
-**And the two ways back from a run are two different screens**, which two launches say between them: a run
-**given up** leaves the front end on **16** and the attract cycle, and a run that **finished** — one taken
-through the screen a run ends at — comes back on **2, the title**. `the-offer-written-away.yaml` read
-`result: the screen a run ends at is down` and then `front end: screen 2` a quarter of a second later with
-no 16 between them, where `the-front-end-after-a-run.yaml`'s `leave: true` read 16 sixteen milliseconds
-after the give-up. So what the front end comes up on says which kind of end it was.
+**And the ways back from a run are different screens**, which two launches say between them: a run
+**given up through 8** leaves the front end on **16** and the attract cycle, and a run that **finished** —
+one taken through the screen a run ends at — comes back on **2, the title**. `the-offer-written-away.yaml`
+read `result: the screen a run ends at is down` and then `front end: screen 2` a quarter of a second later
+with no 16 between them, where `the-front-end-after-a-run.yaml`'s `leave: true` — which asked for 8 then —
+read 16 sixteen milliseconds after the give-up. The front end asked for through 1, which is how the pause
+menu gives a run up and how `leave` does now, builds the title through `0x14007b770`.
 
 ### The main menu's ten items
 
@@ -535,7 +579,7 @@ for i in range(10):
 | 5 | `0x140049dc3` — the table filled, then `0x140049de2` writes **`0xc`** into the state; state 12's case `0x14004d92c` asks the supervisor for **6**. **And it is 夢の記録**, which a picture settled — `menu-item5-screen12.png` beside the copy: `夢の記録` over `Result of Score and Spell Card` with `SCORE & SPELLCARD` across the bottom, a row apiece for `EASY`, `NORMAL`, `HARD`, `LUNATIC` and `EXTRA`, one more row and `QUIT`. A decide on a row opens that difficulty's own ranking, ten rows of a name and a score |
 | 6, 7 | `0x140049df1`, `0x140049e35` — the front end left in state `0x15` and `0x17`. **A launch pressed both**: item 6 came up as `front end: screen 21` with the job `0x140059bf0` in the chain and item 7 as `screen 23` with `0x140013e70`, and the bomb button — this game's own cancel, the `0x200` its screens test — came back from each. Neither job is the screen a run ends at, so neither item is the ranking. **And item 7 is the credits**, `menu-item7-screen23.png`: `CREDIT` across the bottom and a page counter reading `1 - 2 / 14` |
 | 8 | `0x140049e75` — state 4, **the options**, which a picture names rather than elimination — `menu-item8-options.png`: `OPTION` across the bottom over nine rows, `Player` 1 to 5, `Bomb` 0 to 3, `BGM Vol` and `SE Vol` 0 to 9, **楽曲モード** with `NewClassic` and `Classic`, 画面設定, コントローラ設定, 設定をリセット and `Quit`. **A launch pressed it**: `front end: screen 4`, and the chain gained nothing — only the front end's own job — so that screen is one the front end draws itself and builds nothing of its own. Its own cursor walks those nine, and **the bomb does not leave it**: one press moved the cursor instead, `front end: screen 4, cursor on item 6`, so the way back is the `Quit` row |
-| 9 | `0x140049ec7` — state 5, and **the game going**: a launch pressed it, read `state: cur=5` for a few frames and then `cur=-1` with the front end out of the chain, and the process ended there — the recipe's own two steps after the press never ran |
+| 9 | `0x140049ec7` — state 5, and **the game going**: state 5's case `0x14004d8f8` waits for `[front end + 0x9638]` to reach `0x32` and the fade to finish, and `0x14004d91f` asks the supervisor for **4**. A launch pressed it, read `state: cur=5` for a few frames and then `cur=-1` with the front end out of the chain, and the process ended there — the recipe's own two steps after the press never ran |
 
 **And items 2 and 3 are two kinds of run that are neither a plain one nor the Extra**, which the screen
 after them says by the picture it loads. `0x14004c278`, inside state 8's case, picks one of four names by
@@ -625,8 +669,8 @@ being skipped while it is locked.
 items 2 and 3 start one too — they are the pair that writes `[front end + 0x168d1]` — items 4 and 5 write
 no state at all, item 6 opens screen 21 with the job `0x140059bf0`, item 7 screen 23 with `0x140013e70`,
 item 8 screen 4 with no job of its own, and item 9 quits the game. **Not one of them builds the screen a
-run ends at**, which is what a ranking of this game is — see below, where that screen's own build is
-driven from the byte the *stage's* build sets and not from any item here.
+run ends at** except through item 5's supervisor 6 — see below, where that screen's other build is
+driven from the byte a *scene's* end sets and not from any item here.
 
 **But one more build of the screen a run ends at is read, and it is not the front end's.** `0x14006f5d0`
 is that build and the exe calls it from five places: `0x14007b966`, `0x14007ba37`, `0x14007bdbd` and
@@ -652,14 +696,45 @@ for i in range(6):
 | | |
 | --- | --- |
 | 0 | `0x14000c9ab` — the init, which picks 12 or 9 by `[+0xd98]` at `0x14000ca47` |
-| 1 | `0x14000ca74` — **a menu of three items**, which is what a run over puts up: gated on `[+0xb4c]` being four or more, the word at `0x140abae80` held against `0x140abae84`'s, `0x10` and `0x20` moving `[+0xb44]` modulo three, `0x4000` — the cancel — going to state 5 at `0x14000cb99`, and `0x100` — the decide — branching on the cursor at `0x14000cbe1`. **Item 1 is the ranking**: `0x14000cc1f` requires `[0x14053d3dc]` clear, `[0x140abae58]` non-nought and that object's `+0x70` non-nought, and `0x14000ccd8` then writes **state 2** |
-| 2 | `0x14000cd6f` — **the screen built**: `0x14000cd97` off `malloc`, `0x14000cdbc` the build, and then `0x14000cdc2` writes 1 into its `+0x9e9a` and `0x14000cdc9` **12 into its `+0x9e94`** — `result_screen::STATE`, and twelve is the ranking — with the screen kept at `[0x140c6e370]` |
+| 1 | `0x14000ca74` — **a menu of three items**, which is what a scene's end puts up: gated on `[+0xb4c]` being four or more, the word at `0x140abae80` held against `0x140abae84`'s, `0x10` and `0x20` moving `[+0xb44]` modulo three, `0x4000` — the cancel — going to state 5 at `0x14000cb99`, and `0x100` — the decide — branching on the cursor at `0x14000cbe1`. **Item 1 saves the replay**: `0x14000cc1f` requires `[0x14053d3dc]` clear, `[0x140abae58]` — the replay being recorded — non-nought and that recorder's header at `+0x70` non-nought, and `0x14000ccd8` then writes **state 2** |
+| 2 | `0x14000cd6f` — **the screen built**: `0x14000cd97` off `malloc`, `0x14000cdbc` the build, and then `0x14000cdc2` writes 1 into its `+0x9e9a` — the byte its state 13 hands the replay's write as the fourth argument — and `0x14000cdc9` **12 into its `+0x9e94`**, `result_screen::STATE`, twelve being that screen's list of replay slots — with the screen kept at `[0x140c6e370]` |
 | 3 | `0x14000ce2b` — waits for `[0x140c6e370]` to be nought, the screen having taken itself down, and goes back to state 1 |
 | 4 | `0x14000ce7e` — **the way back to the front end**: past `[+0xb4c]` of `0x14` it fades through `[0x140c6e378]` and then `0x14000cf0a` writes state nought, `0x14000cf10` clears `0x14053d406` and `0x14000cf19` writes **1 into `[0x140c6dfbc]`** — the supervisor's state wanted, the front end |
-| 5 | `0x14000cf25` — the same shape as 4, which is what the menu's own cancel goes to, **and the one site in the exe that asks the supervisor for 12**: past the fade, `0x14000cfa5` puts `[+0xd94]` back to nought, `0x14000cfab` clears `0x14053d406`, `0x14000cfb2` sets `[0x140aee0ac]` and `0x14000cfb9` writes **`0xc`** into `[0x140c6dfbc]` — where state 4 writes 1 in the same place. So the decide out of the ranking goes to the front end and the cancel out of the menu goes to state 12 |
+| 5 | `0x14000cf25` — the same shape as 4, which is what the menu's own cancel goes to, **and one of the two sites in the exe that ask the supervisor for 12**: past the fade, `0x14000cfa5` puts `[+0xd94]` back to nought, `0x14000cfab` clears `0x14053d406`, `0x14000cfb2` sets `[0x140aee0ac]` and `0x14000cfb9` writes **`0xc`** into `[0x140c6dfbc]` — where state 4 writes 1 in the same place. So state 4 goes back to the front end and the menu's cancel starts the scene again |
 
-**So this is the path the ranking is shown through**, and `0x14053d406` is the byte it runs behind: state
-2 is `result_screen::RANKING`'s own build and `0x140c6e370` is where that screen is kept while it is up.
+**So this is the menu a scene's end puts up**, and `0x14053d406` is the byte it runs behind: state 2
+builds the screen a run ends at straight into its list of replay slots, and `0x140c6e370` is where that
+screen is kept while it is up.
+
+**And `[+0xd98]`, `0x140430e18`, says which end the scene came to.** The machine's object is the static
+`0x140429270 + 0x6e10`, so every access to the byte is rip-relative: four reads — `0x14000c9ae`,
+`0x14000c9c9`, `0x14000ca51` and `0x14000d199` — and two writes, both behind the scene's byte:
+
+- `0x14003be3a`, in the stage's own job, writes **1** where the boss's life `[[0x140bfa198] + 0x234]`,
+  kept at `[0x140c6e2a8]`, is below one or `[0x140aee0ad]` — bit 4 of the boss's `+0xbe` — is set, and
+  **nought** where the boss is still alive: a card emptied against a card whose time ran out. It sits in
+  the machine on `[0x140c6e39c]` that `0x14003bd1c` dispatches — nought, one, two, three and four, with
+  four writing **8** into the supervisor's wanted at `0x14003bd5a` where a replay is playing — and this is
+  case two, which counts `[0x140c6e398]` down from `0x78` at `0x14003bd8f` and at nought writes
+  `[0x14053d406]`, the score into `[0x14053d3e0]`, `+0xd94`, the byte and `+0xb4c`, and moves the machine
+  to its state three at `0x14003be46`;
+- `0x14000bc6e` writes **nought**, inside `0x14000bc2b` — where the scene's player has run out of lives
+  and no replay is playing — with the same writes beside it.
+
+The byte then picks the menu's pictures: `0x14000ca51`'s `cmovne` hands `0x14000a6f0` 9 where it is set
+and 12 where it is not, the sprite `0x76b` plus that, and `0x14000c9c9` picks `0x776` or `0x775`. Neither
+writer touches the supervisor. `+0xb4c` beside it is the frames the machine's own state has been up —
+`0x14000b5c0`, `0x14000c3e9` and `0x14000d046` step it and `0x14000ca6e` puts it back to nought as a
+state is asked for.
+
+**And a scene's end is measured.** A `--clear` launch walked into a card of the Spell Practice and played
+it out — `run: the boss is gone with 878 life left`, a card whose timer ran out with an invulnerable
+player — and read `ranking: 1 frame(s) up, picking on 0x0` a second and a half later, counting to 405
+with the byte at nought the whole way and **the supervisor never leaving `2/2`**. **A card does not end
+by being died in**: a launch that stood still through one read `deaths=11 lives=0` with the supervisor
+at `2/2` throughout, the card restarting each time. **Nor by being given up**: a launch that left one
+read `retry: the run is given up`, `supervisor: state 2, wanting 8` and then `1/1` — the same 8 an
+ordinary run given up asks for, and the front end after it.
 
 **And the job runs three of these machines, on three sub-objects of one static.** `0x140009b30` builds the
 chain element at `0x140436e30` with `0x140009800` as its callback and `0x140429270` as the object, and that
@@ -679,52 +754,56 @@ for i in range(15):
 ```
 
 Its **state 7**, `0x14000b497`, is the exe's other write of `0xc` into the supervisor's wanted state:
-gated on its own `[+0xb4c]` reaching `0x14`, `0x14000b4b5` writes 12 there too. So the two writes of 12
-are the two machines' own ways out, and neither is a run's end.
+gated on its own `[+0xb4c]` reaching `0x14`, `0x14000b4b5` writes 12 there too — this first machine being
+the pause menu's, whose `0x14000b482` writes the 8 a replay is given up by and `0x14000b48e` the 1 a run is. So the two writes of 12 are the
+pause menu's and the scene-end menu's ways of starting again.
 
-**And it is a run's own path and not a menu item's.** The byte has two writers — `0x14000bc61`, inside a
-function the same job calls at `0x14000995c` behind `[0x14053d401]`, and `0x14003be26`, which is **the
-stage's own build** — and none of the main menu's ten items writes it, the launches above having pressed
-every one of the eight that does not start a run. So a ranking of th06nc is something a run reaches,
-where th06's and th06c's is an item somebody chooses; what states 1, 4 and 5 of the machine are for is
-what a launch that reaches one would say.
+**And it is a scene's own path and not a menu item's.** The byte has two writers — `0x14000bc61`, inside a
+function the same job calls at `0x14000995c` behind `[0x14053d401]`, and `0x14003be26`, inside the stage's
+own job `0x14003baa0` — and **both are behind `[0x14053d405]`, the scene's byte**: `0x14000bc61` on the
+first of `0x14000bc20`'s answers, and `0x14003be26` inside the machine on `[0x140c6e39c]` that
+`0x14003bcaf` enters only where the manager's `+0x955` is set. None of the main menu's ten items writes
+it, the launches above having pressed every one of the eight that does not start a run. So this menu is
+something a card of the Spell Practice reaches when it ends, and an ordinary run never puts it up.
 
-**So `Game::show_ranking` has nothing to ask of this game's *front end***, which is what the six methods
-orb's ranking is driven through are written against: the path orb takes on th06 and th06c — write what
-the menu's own item writes, wait for the screen, tell it to leave — has no item here. What it would have
-to drive instead is this machine, which is a run's own: `what_a_job_runs_on(0x140009800) + 0x6e10` is the
-object, `+0xd94` the state, and item 1's own gates are the three above.
+**So `Game::show_ranking` has nothing to ask of this machine**, which is what the six methods orb's
+ranking is driven through are written against: the path orb takes on th06 and th06c — write what the
+menu's own item writes, wait for the screen, tell it to leave — is the main menu's item 5 here, supervisor
+6 building the screen a run ends at in state 0, and this machine is a scene's menu whose item 1 is a
+replay's save.
 
-**And driving it would write nothing, which is what settles it.** The one write of this game's score file
-is the name entry's own confirm — see *The one write of this file, and the six calls that are not it* —
-so the screen this machine's state 2 builds is a screen that writes as it goes down on th06 and writes
-nothing here. `Th06nc::leave_run`'s own state 8 is the same story: `0x14007bb13` calls
-`0x14006db10(object, 0, 0, 0)` at `0x14007bb42` and the null record reaches the teardown. So orb declines
-the six methods a ranking is driven through and answers `writes_its_own_records` true instead, which is
-th07's answer for th07's reason: a screen built and taken down would spend `commit_records`'s whole frame
-allowance and leave the file as it was.
+**And the screen a run ends at is what writes the score file as it goes down**, which is th06's shape
+and not th07's: its taken-out callback `0x140075b40` serialises the file from memory where its `+0x9e99`
+says it is a run's own — see *The score file's two writes*. A screen the ranking browser builds leaves
+`+0x9e99` clear and writes nothing; `Th06nc::leave_run`'s own state 8 writes nothing either, `0x14007bb13`
+calling `0x14006db10(_, 0, 0, 0)` at `0x14007bb42` only to drop the replay being recorded.
 
-**What a Pointdevice run of this game counted therefore stands in memory and nowhere else**, and reaches
-the file only if the session goes on to finish a run and type a name into it. Making even that much hold
-wants the put-back `Hooks::card_records_read` is for, and **the seam it would go over cannot take the
-patch**: `0x14006e310` — where the file's `CATK` records are laid over the ones in memory, called from
-`0x14003c5e7`, `0x140057819` and `0x140075a0b` — has `sub rsp,8; mov r11,rdx; test rdx,rdx` and then a
-`jne` at `0x14006e31a`, which is twelve bytes where a 64-bit jump needs fourteen and a thirteenth byte
-inside a relative jump cannot be relocated.
+**What a Pointdevice run of this game counted reaches the file the next time it is written**, because
+every write serialises the card array the run counts in — at the screen a run ends at going down, at a
+run left for the front end and at a run started again. Keeping those counts across the stage build that
+lays the file back over the array wants the put-back `Hooks::card_records_read` is for, and **the seam it
+would go over cannot take the patch**: `0x14006e310` — where the file's `CATK` records are laid over the
+ones in memory, called from `0x14003c5e7`, `0x140057819` and `0x140075a0b` — has
+`sub rsp,8; mov r11,rdx; test rdx,rdx` and then a `jne` at `0x14006e31a`, which is twelve bytes where a
+64-bit jump needs fourteen and a thirteenth byte inside a relative jump cannot be relocated.
 
-**And four of its screens press themselves through.** `0x1400491af`, in the front end's own frame: where
-its state is under `0xf` and that state's bit is set in the mask `0x6a00` — states **9, 11, 13 and 14**,
-the difficulty, the character, the shot and the screen after them — and `[front end + 0x9638]` is
-exactly `0xf`, `0x1400491cc` writes `0x100` into the input word itself. So those four advance on their
-own fifteenth frame whatever anybody presses. State 3, the main menu, is not in that mask.
+**And four of its screens press themselves through, but only while the front end is skipping.**
+`0x14004918c` compares `[front end + 0x168d0]` with nought and jumps to `0x1400491d4`, the ordinary read
+of the word, where it is; only where it is set does the front end's own frame zero the word and the frame
+before's (`0x140049197`, `0x1400491a0`) and go on to `0x1400491af`: where its state is under `0xf` and
+that state's bit is set in the mask `0x6a00` — states **9, 11, 13 and 14**, the difficulty, the
+character, the shot and the screen after them — and `[front end + 0x9638]` is exactly `0xf`,
+`0x1400491cc` writes `0x100` into the input word itself. `[front end + 0x168d0]` is the byte
+`0x1400490a0` walks the front end up to `0x258` times a frame behind. So in an ordinary walk of the front
+end those four wait for a press like every other screen — which is what a launch that decided at 9 and
+then only waited saw, standing on **screen 11 for 1,200 frames**. State 3, the main menu, is not in that
+mask.
 
-**That is not why a recipe's steps at those screens used to give up, though**, which this note said for
-one change and was wrong about: the give-ups were the missing hold — the bot's word reached the game's
-keys through nothing that raised a question or wrote a frame down, see
-`walks_the_calc_chain`. With the word going through `runtime::the_frames_word`, a launch of
+**That is not why a recipe's steps at those screens used to give up**: the give-ups were the missing
+hold — the bot's word reached the game's keys through nothing that raised a question or wrote a frame
+down, see `walks_the_calc_chain`. With the word going through `runtime::the_frames_word`, a launch of
 `into-a-chapter.yaml` walked all thirty-three steps with none given up, where the launch before it had
-given up two and stopped at the seventh. What the self-advance means is that a step at one of those four
-has a screen under it that would leave anyway, not that the press does nothing.
+given up two and stopped at the seventh.
 
 **The main menu ignores its own decide for twenty frames.** Its case is `0x1400498d4`: the cursor is
 moved through ten items by `0x14004e950`, the Extra's item 1 is stepped over where none of the clear
@@ -748,13 +827,14 @@ each address below was first written down here as a static of its own.
 
 | offset | address | |
 | --- | --- | --- |
-| `+0x0` | `0x14053cab0` | a dword `0x14006a22a` steps up, three instructions before `0x14006a581` puts the run in the retry menu — **and it is not the deaths**: a launch of nineteen of them read it as nought on every one of its 335 frame lines, the frame each death was found on included. What it is, is not established, and orb counts the player's own hits instead — see `orb_core::game::th06nc`'s `DEATHS` |
+| `+0x0` | `0x14053cab0` | **the deaths**, a dword: `0x14006a22a` steps it up on the frame the player's hit state runs out of the eight frames a bomb could still take the hit back in — every death, whether lives are left or the retry menu follows at `0x14006a581`. **In a Challenge run it stands in for the lives**: the death takes no life there (`0x14006a594` skips the step down where `[0x14053d414]` is set) and the item walk's 1up case steps this count down instead at `0x140044cbf`. `0x140042825` reads it for the panel, the ending's build at `0x14002d3c9` and the stage's build at `0x14003c801` hold it against six, and a replay carries it per stage at `+0x12`. orb counts the player's own hits instead — see `orb_core::game::th06nc`'s `DEATHS` |
 | `+0x4` | `0x14053cab4` | **and how many bombs it has used**, `0x14006a182` |
 | `+0x8`, `+0xc` | `0x14053cab8` | **the cards the run has captured and the cards it has attempted**, stepped up at `0x140027c45` and `0x140027c5d` beside the per-card record's own count at `[records + 0x130]`. `+0x8` is where th06c counts its captures too |
 | `+0x10`..`+0x1c` | `0x14053cac0` | four floats the build writes `236, 16, 384, 448` at `0x14003c2bd`, and the pause menu writes the same sixteen bytes over at `0x14003bb7c` |
 | `+0x20`, `+0x21` | `0x14053cad0` | **the character and the shot**, one byte each: `0x14004ef15` and `0x14004ef29` split a replay header's `character * 2 + shot` back into them, and `0x14003c4a6` reads the pair to pick the ranking record a run is held against |
 | `+0x24` | `0x14053cad4` | **the stage, counted from one**: `0x14003e6ac` multiplies it by a thousand into `Stage * 1000 =  %5d`, `0x14003e669` compares it with 6, and a launch's first stage read `stage 1`. The Extra read `stage 7` — `0x14007bc9c` writes 6 as it starts and the stage's own start counts it on |
 | `+0x28` | `0x14053cad8` | **the power**, a word the item walk's two power cases write back at `0x1400446b1` and `0x140044a9b`, `0x80` being where the full-power item writes it at `0x140044e61`, and the build starting it at nought — or at eight where `[0x14053d414]` is set, `0x14003c334` |
+| `+0x2c`..`+0x92c` | `0x14053cadc` | **the practice scores**, `PSCR` records of `0x18` bytes — four shot combinations by six stages by four difficulties, the score at `+0xc` — which `0x14006e4f0(the block, manager + 0x2c)` lays the file's own over at `0x14003c6a4`, and from which `0x14003c6c9` takes the score to beat where the run is a practice |
 | `+0x930` | `0x14053d3e0` | **the score the panel draws**, a qword, which the extend check at `0x14003c9c0` holds against the thresholds in the table at `0x14034e0c8` |
 | `+0x938` | `0x14053d3e8` | **the score the run counts**, the qword every bonus is added to — `0x1f4` for a point item at `0x140011967`, `0x3e8` at `0x140044e46`, `0xa` at `0x14004471f`, and an enemy's own at `0x140039404`. th06c has the same pair, the drawn one rising to this |
 | `+0x948` | `0x14053d3f8` | **the score to beat**, which the build writes at `0x14003c5dd` as the larger of the file's own top score and a million |
@@ -766,7 +846,7 @@ each address below was first written down here as a static of its own.
 | `+0xd26c` | `0x140549d1c` | **the graze**, a dword capped at `0x1869f`: the bullet's own test steps it at `0x14006c55f` and the laser's at `0x1400118f2`, both behind `[0x140553eb8]` — **a byte no instruction in the exe writes and which the file has at nought**, so every gate on it passes and the graze is always counted; its five readers are those two steps, `0x14003698b`, `0x14003740b` and the item walk's `0x140044f52`. `0x14000beea` writes the count back to nought. **The HUD draws it and a stage's end scores it** — `0x14003e70a` reads it for `Graze *   10 = %6d` at `0x140350938`, ten times the count, and a picture of a run's own HUD reads `Graze 0` under the power |
 | `+0xd270` | `0x140549d20` | **and a second graze count nothing reads**, capped at `0xf423f`: those same two tests step it a line after the graze — `0x140011907` and `0x14006c574` — and those four instructions are the whole of what touches it in the exe. Nothing clears it either, where `0x14000beea` clears the one above, so it is a total the build keeps and never shows |
 | `+0xd280` | `0x140549d30` | **the rectangle the player is held to**, left, top, width and height — `0x14006aade`–`0x14006ab49` puts the position back inside it, and the build writes `8, 16, 368, 416` at `0x14003c2d9` |
-| `+0xd290` | `0x140549d40` | **lives**, one byte: the item walk's 1up case stops it at 8 and steps it up at `0x140044cc7`; `0x14007bca6` writes `0x302` over it and the byte after as an Extra run starts, and `0x14007bce0` writes `[0x140c6dfd4]` — a chosen starting stock — for the rest. A launch's Normal run started with `2 live and 3 bomb(s)` |
+| `+0xd290` | `0x140549d40` | **lives**, one byte: the item walk's 1up case stops it at 8 and steps it up at `0x140044cc7`; the run's own start `0x14004f320` writes it first, and where the supervisor's state 12 starts a run again `0x14007bce0` writes `[0x140c6dfd4]` — the chosen starting stock — with `0x14007bca6`'s `0x302` over it and the byte after for the Extra and a practice, and `0x14007bd04`'s 2 for a Challenge run. A launch's Normal run started with `2 live and 3 bomb(s)` |
 | `+0xd291` | `0x140549d41` | **bombs**, one byte, the same shape at `0x140044c87`, and `0x14007bced` from `[0x140c6dfd5]` |
 | `+0xd292` | `0x140549d42` | **how many extra lives the score has paid for**, the byte the extend check at `0x14003c9d2` climbs, which the build starts at nought or at 4 for the Extra, `0x14003c367` |
 | `+0xd294`..`+0xd2f4` | `0x140549d44` | **the clear records**, four of `0x18` — see below |
@@ -850,10 +930,11 @@ read as one.
 
 ### The clear records
 
-**Four of `0x18` bytes** at `+0xd294`, one per difficulty, laid out by `0x14003c603`: `CLRD` at `+0x0`,
-`0x18`/`0x18` at `+0x4`, `0x15` at `+0x8`, `0x01010101` at `+0xc` and `+0x11`, and `1` at `+0x14` and
-`+0x19`. `0x14003c676` lays the file's own over them, choosing by the record's `+0x16` where that is
-under four.
+**Four of `0x18` bytes** at `+0xd294`, one per shot combination, laid out by `0x14003c603`: `CLRD` at
+`+0x0`, `0x18`/`0x18` at `+0x4`, `0x15` at `+0x8`, `0x01010101` at `+0xc` and `+0x11`, `1` at `+0x10` and
+`+0x15` — ten bytes of 1 from `+0xc` to `+0x15` — and the record's own index, nought to three, at `+0x16`
+(`0x14003c614`). `0x14003c676` lays the file's own over them, choosing by the record's `+0x16` where that
+is under four.
 
 ## The generator
 
@@ -869,8 +950,8 @@ own build copies the seed into `+0xd408` and writes the count back to nought, `0
 ## The stage's two seams
 
 **`0x14003c0a0` registers the stage's two chain elements**, called three times in the exe —
-`0x14007b94c`, `0x14007bac7` and `0x14007bcaf`, all three from the job `0x14007b7f0`, whose own case at
-`0x14007bc7e`–`0x14007bd0b` writes the stage, the difficulty, the lives and the bombs first. It sets the
+`0x14007b94c`, `0x14007bac7` and `0x14007bcaf`, all three from the job `0x14007b7f0`, whose state 12
+case at `0x14007bc68`–`0x14007bd0b` writes the stage, the lives and the bombs before the last. It sets the
 calc element `0x14053ca70` up with `0x14003baa0` at its `+0x8`, `0x14003c250` at its `+0x10`,
 `0x14003cf20` at its `+0x18` and the game manager at its `+0x38`, links it into `0x14053c090`, calls the
 `+0x10`, and then does the same for the draw element `0x14053ca30` with `0x14003c080`. Answers nought
@@ -880,15 +961,18 @@ where it built one and `-1` where the `+0x10` refused.
 the supervisor's own case and not on the frame after it, which is what the next section's branch is read
 against.
 
-**What that case writes the stage as, which is where a run's own first stage comes from**: `0x14007bc68`
-asks whether a replay is playing and takes the replay's own stage out of `[0x140549eb4]` where one is;
-otherwise `0x14007bc84` reads the practice byte `[0x14053d404]` and `0x14007bc8f` the scene's
-`[0x14053d405]`, and either of those set takes `0x14007bcd3` — **the stage decremented**, so the build's
-own step up lands on the stage the front end chose. With neither set, `0x14007bc97` compares the
-difficulty with four: **the Extra's stage is written 6** at `0x14007bc9c`, with `0x302` — two lives and
-three bombs — beside it at `0x14007bca6`, and every other run's stage is written nought at `0x14007bccb`.
-Then `0x14007bcd9` takes the lives and the bombs out of `th06.cfg`'s `+0x444` and `+0x445`, with the
-Extra's `0x302` written over them again where the difficulty is four.
+**What that case writes the stage as, which is how a run started again comes up where it should**:
+`0x14007bc68` asks whether a replay is playing and takes the replay's own stage out of `[0x140549eb4]`
+where one is; otherwise `0x14007bc84` reads the practice byte `[0x14053d404]` and `0x14007bc8f` the
+scene's `[0x14053d405]`, and either of those set takes `0x14007bcd3` — **the stage decremented**, so the
+build's own step up lands on the stage being practised again. With neither set, `0x14007bc97` compares
+the difficulty with four: **the Extra's stage is written 6** at `0x14007bc9c`, with `0x302` — two lives
+and three bombs — beside it at `0x14007bca6`, and every other run's stage is written nought at
+`0x14007bccb`, the run starting over from its first. Then `0x14007bcd9` takes the lives and the bombs out
+of `th06.cfg`'s `+0x444` and `+0x445`, with `0x302` written over them again where the difficulty is four
+or the run is a practice, and `2` over the lives at `0x14007bd04` for a Challenge run. A run's own first
+stage is the one screen 14's decide writes at `0x14004d6a0` — 6 for the Extra, nought otherwise — before
+the run's own start.
 
 **`0x14003c250` is that `+0x10` — the stage's own build**, called once in the exe with the game manager
 in `rcx`, which is what makes it `Entered::InEcx`. What it puts in place is every number of a stage: the
@@ -904,7 +988,9 @@ rip-relative.
 `0x14003c78d`, which copies `+0x938` over `+0x930` and clears `+0x940`; the other side, `0x14003c29f`
 onwards, writes the four floats, the stock out of `[0x140549d40]` and `[0x140549d41]`, and the card
 records. Both then reach `0x14003c7a2` — `0x14003c78b` being `jmp 0x14003c7a2` — and the common tail
-copies the seed at `0x14003c9f1`.
+copies the seed at `0x14003c9f1`. **And the tail zeroes the counted score**, `+0x938` at `0x14003ced2`,
+so across a build the score stands in the drawn `+0x930` alone: the stage's own job puts it back at
+`0x14003beef`, where the drawn score is above the counted one, on its first frame.
 
 **And the stage is counted on in that shared tail and not in either side of the branch**:
 `0x14003c7a2` is `mov r8d,[rdi+0x24]`, `0x14003c7bc` is `lea edx,[r8+1]` and `0x14003c7c0` writes it
@@ -936,12 +1022,12 @@ by the length each carries:
 python3 -c '
 import struct
 d = open("score.dat","rb").read()
-key, out = d[1], bytearray(d[:2])
+key, prev, out = 0, d[1], bytearray(d[:2])
 for b in d[2:]:
-    p = b ^ key
-    out.append(p)
-    key = (key + p) & 0xff
+    key = (key + prev) & 0xff
     key = ((key // 32) + (key * 8)) & 0xff        # ror 8-bit by 5
+    prev = b ^ key
+    out.append(prev)
 print("length", struct.unpack_from("<I", out, 0x10)[0], "of", len(d))
 off = 0x14
 while off + 8 <= len(out):
@@ -964,6 +1050,10 @@ three of nought }`.**
 | `CATK` | `0x180` bytes, 134 of them — see *The card records*. A copy's own: **23 of the 134 carry an attempt** at `+0x3c`, most of those a capture at `+0x3e` beside it, and **not one has a scene attempt** among the sixteen dwords at `+0xe0` — so cards are offered by that copy's Spell Practice and none has ever been played there |
 | `MUSC` | `0x10` bytes, four of payload: a copy read `ff 1f 03 00`, a mask of the tracks the music room has |
 
+**A file holding a practice score has a sixth kind**, `PSCR` (`0x52435350`), `0x18` bytes, one per
+shot combination, stage and difficulty that has a score — the writes lay one down only where the score
+at `+0xc` is not nought — which is why that copy, never practised, holds none.
+
 **The version byte is `0x15` in the file, which is what the parse wants** — `0x14003c528` refuses
 anything else — so the `0x10` that `0x1400722c3` writes at `+0x8` of the record it builds at the screen's
 own `+0x9e58` is not this field's value on the way out. That record is the node `0x14006e290` hangs in
@@ -985,49 +1075,72 @@ passes `manager + 0x968` and the other two the static `0x14053d418`, and those a
 | `0x140057819` | behind `0x1400577a2` testing the array's first dword for `'CATK'` — where it is not, `0x1400577d0`'s loop lays out the 134 with `0x180` in both halves of `+0` and `0x15` at `+0x4` first, which is the array being built for the first time |
 | `0x140075a0b` | the screen a run ends at reading it, and only in the states that are not the two name entries, `0x1400759eb` and `0x1400759f4` sending nine and seventeen elsewhere |
 
-**Whether the write at `0x14006db10` serialises that array is not read**, and it is the question a put-back
-turns on: the seven `memcpy`s at `0x14006df26`–`0x14006dfef` take their sources from the score file
-object's own buffers, the `+0x40` to `+0x70` of `[object + 0x70]` that `0x14006e058` frees, and neither
-that array nor the manager is named anywhere in that function. So a put-back into the array orb counts in
-may be a put-back the write never reads.
-| `0x14006db10(file, record, name, keep)` | **the one write, and the six calls that are not it** — below |
+### The score file's two writes
 
-### The one write of this file, and the six calls that are not it
-
-**`0x14006db10` is entered seven times in the exe and writes on one of them.** `0x14006db4f` tests its
-second argument and sends a null one to `0x14006e058`, which is **not** the write: that block frees the
-seven buffers hanging off `[file + 0x70]` — `+0x40` through `+0x70` — and then `[file + 0x10]`, through
-the exe's own `free` at `0x1402c6540`, and returns. The write is `0x14006e038`, on the other side of the branch,
-and `0x14006e04f` tests the fourth argument to say whether the teardown runs after it.
+**`score.dat` is written in two places, and each serialises it whole from memory.** The name `score.dat`
+is at `0x140352070`, and the only calls of the file write `0x14003aea0` that are handed it are
+`0x1400761bd` and `0x140076bb8`:
 
 ```sh
-grep -n 'call.*14006c420' th06nc.asm | while IFS=: read -r line rest; do
-  sed -n "$((line-3)),${line}p" th06nc.asm | grep -E 'edx|call'; echo; done
+grep -nE '# 0x140352070|call +0x14003aea0' th06nc.asm
 ```
 
-— six of the seven read `xor edx,edx` three instructions before the call:
+| | |
+| --- | --- |
+| `0x140075b40` | **the screen a run ends at going down** — its taken-out callback, which `0x14006f3f0` puts at the element's `+0x18` at `0x14006f46b`. Where the screen's `+0x4440` holds the parsed file and its `+0x9e99` says it is a run's own, it writes; the ranking browser's screen leaves `+0x9e99` clear and writes nothing |
+| `0x140076370` | **a run left for the front end or started again** — called from `0x14007b770` at `0x14007b782` and from the supervisor's state 12 at `0x14007bc2f`, both behind `[0x14053d3dc]` being clear, so a replay played back writes nothing. It builds a screen of its own at `0x1400763a9` to hold the file's rankings, parses the file at `0x1400763b6`, writes, and frees the screen |
+
+**Both lay the file down the same way**: a `0x14`-byte header with its key and its checksum, `TH6K`, every
+`HSCR` of the screen's own lists — three modes by five difficulties by four shot combinations, kept from
+`+0x4468` of the screen ten to a list, each stamped with its lengths, the version `0x15` and the three
+indices it was found under — the four `CLRD`s out of `0x140549d44` onwards (`0x140075e74`,
+`0x140076855`), **the 134 `CATK`s out of `0x14053d418`, the very array a run counts its attempts in**
+(`0x140075e7e`, `0x140076940`), the `PSCR`s out of `0x14053cadc` (`0x140076001`, `0x1400769fb`) and
+`MUSC` out of `0x140549da4` (`0x1400760db`, `0x140076adb`); then the cipher, and before the write the
+copy at `[0x140c6e368]` that every parse reads is replaced by the new bytes (`0x14007619c`,
+`0x140076b97`).
+
+**So a run's counts reach the file at every end but one**: the screen a run ends at going down, a run
+left for the front end through the supervisor's 1, and a run started again through its 12 all write;
+a replay given up through 8 writes nothing. The pause menu gives a run of somebody's own up through 1
+(`0x14000b48e`), so a run's give-up is among the ends that write, and `Th06nc::leave_run` asks for the
+same. A new `HSCR` reaches the file only through the first, the screen
+being where state 9 hangs it in its list.
+
+### The replay's own write
+
+**`0x14006db10(_, path, name, keep)` writes the replay, and the score file has nothing to do with it.**
+It works on `[0x140abae58]`, **the replay being recorded** — which `0x14006c920(0, "replay/th6_00.rpy")`
+starts at `0x14003ce19` in the stage's own build where no replay is playing — and not on its first
+argument. `0x14006db4f` tests the path and sends a null one to `0x14006e058`, which frees the seven stage
+records hanging off `[recorder + 0x70]` — `+0x40` through `+0x70` — and then the recorder itself, through
+the exe's own `free` at `0x1402c6540`, and returns. With a path it builds the file and `0x14006e038`
+hands path, buffer and length to the file write `0x14003aea0`, and `0x14006e04f` tests the fourth
+argument to say whether the teardown runs after it.
 
 | | |
 | --- | --- |
-| `0x14007301f` | **the write**: the name entry's own confirm, which passes the record it has just built on the stack and `result screen + 0x9e88` — the eight bytes somebody typed — as the name, with `[screen + 0x9e9a]` as the fourth argument. `0x140073037` then writes 2 into `result_screen::STATE` |
-| `0x14007b7bb`, `0x14007bb42`, `0x14007bc63`, `0x14007bd30`, `0x14007bd60`, `0x14007c7c0` | **the run's own ends**, each behind `[0x140abae58]` being non-nought and each with `xor edx,edx` — so each frees the file object and writes nothing |
+| `0x14007301f` | **the write**: the screen a run ends at, state 13's confirm, which formats `replay/th6_%.2d.rpy` (`0x140351368`) at `0x140072ffb` with the slot `[screen + 0x4438]` plus one, and hands that path, `result screen + 0x9e88` — the name typed for the slot — and `[screen + 0x9e9a]` as the fourth argument. `0x140073032` copies the same name into `th06.cfg`'s through `0x14007d850`, and `0x140073037` then writes 2 into `result_screen::STATE` |
+| `0x14007b7bb`, `0x14007bb42`, `0x14007bc63`, `0x14007bd30`, `0x14007bd60`, `0x14007c7c0` | **the run's own ends**, each behind `[0x140abae58]` being non-nought and each with `xor edx,edx` — so each drops the recorder and writes nothing |
 
-With a record it builds a `0x78`-byte ranking entry out of `[file + 0x70]`: the score `[0x14053d3e0]`,
-the run's own `[0x14053d3e8]`, the stage `[0x14053cad4]`, the name copied in, and the date through
-`time`, `localtime` and `strftime` of `0x140351f18` into nine bytes.
+With a path it builds the replay's `0x78`-byte header out of `[recorder + 0x70]`: the drawn score
+`[0x14053d3e0]`, the name copied in, the date through `time`, `localtime` and `strftime` of `0x140351f18`
+into nine bytes, and the counted score `[0x14053d3e8]` into the stage record the stage `[0x14053cad4]`
+picks.
 
-**And the entry's own layout**, off the copy at `0x14006db66` onwards — which takes the record it is handed
-in `rcx` field by field into the `0x78` bytes at `rbp-0x59` and is where each offset below was read:
+**And the header's own layout**, off the copy at `0x14006db66` onwards — which takes the recorder's header
+at `[recorder + 0x70]` field by field into the `0x78` bytes at `rbp-0x59` and is where each offset below
+was read:
 
 | | |
 | --- | --- |
-| `+0x0`, `+0x4`, `+0x6`, `+0x7`, `+0x8` | a dword, a word and three bytes of the record, copied as they stand; `+0x9`, `+0xb` and `+0xc` are zeroed beside them |
-| `+0x10`..`+0x13` | four bytes the record carries — and **four the write draws again from the game's own generator**: `0x14006dd7c` steps `[0x140abae60]` by four and the inlined draws at `0x14006dd95`, `0x14006ddb4` and their fellows write `(rng & 0x7f) + 0x40` into `+0x12`, `+0x13`, `+0x10` and `+0x11`, which is a printable byte apiece |
+| `+0x0`, `+0x4`, `+0x6`, `+0x7`, `+0x8` | a dword, a word and three bytes of the recorder's header, copied as they stand — `+0x6`, `+0x7` and `+0x8` the mode, the character and shot and the difficulty, see *The replay*; `+0x9`, `+0xb` and `+0xc` are zeroed beside them |
+| `+0x10`..`+0x13` | four bytes the header carries — and **four the write draws again from the game's own generator**: `0x14006dd7c` steps `[0x140abae60]` by four and the inlined draws at `0x14006dd95`, `0x14006ddb4` and their fellows write `(rng & 0x7f) + 0x40` into `+0x12`, `+0x13`, `+0x10` and `+0x11`, which is a printable byte apiece |
 | `+0x14`..`+0x1c` | **the date**, nine bytes: `time` (`0x1402c05a8`), `localtime` (`0x1402c05a0`) and `strftime` (`0x1402c05b0`) of `0x140351f18` into `rbp-0x45` |
 | `+0x1d`..`+0x25` | **the name**, nine bytes: the loop at `0x14006dd40` copies it a byte at a time until the terminator, with `+0x26` zeroed after it |
-| `+0x28` | **the run's own**, `[0x14053d3e8]` — the same qword `0x14006dd36` writes into the span the stage picks, `[[file + 0x70] + 0x40 + 8*(stage - 1)]` off `[0x14053cad4]` at `0x14006dcea` |
+| `+0x28` | **the drawn score**, `[0x14053d3e0]` at `0x14006dcbf`, where `0x14006dd36` writes the counted one `[0x14053d3e8]` into the first qword of the stage record the stage picks, `[[recorder + 0x70] + 0x40 + 8*(stage - 1)]` off `[0x14053cad4]` at `0x14006dcea` |
 | `+0x30`, `+0x34`, `+0x38` | **the run's slowdown, three times over** — `0x14006dd08` writes it into `+0x34`, `0x14006dd20` writes it plus `1.12` into `+0x30` and `0x14006dd25` it plus `2.34` into `+0x38`, so the two offsets are a check on the one number and not three numbers. And the number is read: `0x14006dcac` divides `[0x140c6df2c]` by `[0x140c6df30]`, `0x14006dcd2` takes `0.5` off it and `0x14006dcda` doubles it, `0x14006dce6` holds that between nought and one, `0x14006dcf0` takes it off one and `0x14006dd00` multiplies by `100.0` — a percentage that is nought at full speed |
-| `+0x40`..`+0x70` | **the seven spans**, a pointer apiece — zeroed at `0x14006dc04` onwards and filled at `0x14006dc2e` through `0x14006dca8`, which is what the write concatenates |
+| `+0x40`..`+0x70` | **the seven stage records**, an offset apiece — zeroed at `0x14006dc04` onwards and filled at `0x14006dc2e` through `0x14006dca8` with where each record lands in the file, `0x78` past the header and each after the one before. A stage the run never reached keeps nought |
 
 **And the slowdown itself is a pair of floats the frame's timing keeps.** `0x14003ceb9` zeroes both as one
 qword where a run is built; `0x14003dea2` adds the frame's nominal rate into `0x140c6df30` and
@@ -1037,10 +1150,10 @@ thresholds being `0x140352b28`, `0x140352b18` and `0x140352b00`. So the ratio is
 came out on time, and `0x1400752ea` is where the game draws it: the same divide, the same `- 0.5` and
 doubling, and a bar out of what it leaves.
 
-**And what the seven spans are is read off a file written and the file before it.** A launch let an Extra
-run end, typed a name and pressed state 13's own decide — the one write, `0x14007301f` — and the copy's
-`score.dat` went from **51,636 bytes to 51,672**, exactly the `0x24` of one `HSCR`. Decrypted and walked,
-the two files' own regions are:
+**And a file written beside the file before it says what a write lays down.** A launch let an Extra run
+end, typed a name, pressed state 13's own decide and let the screen go down — `0x140075b40`'s write —
+and the copy's `score.dat` went from **51,636 bytes to 51,672**, exactly the `0x24` of one `HSCR`.
+Decrypted and walked, the two files' own regions are:
 
 | | before | after | |
 | --- | --- | --- | --- |
@@ -1050,12 +1163,9 @@ the two files' own regions are:
 | the `CATK`s | 51,456 | 51,456 | identical: no card was captured |
 | `MUSC` | 16 | 16 | **one byte differs**, a track unlocked |
 
-**So each span is a kind, and the `HSCR`s are two of them** — the records above the new one and the
-records below it, which is what an insert into a sorted run needs. With the file's own `0x14`-byte header
-that is seven: the header, `TH6K`, the `HSCR`s before, the `HSCR`s after, the `CLRD`s, the `CATK`s and
-`MUSC`. **And each is re-laid from memory rather than copied**, which the two changed bytes say: the run
-raised a clear record and unlocked a track, and both came out in the file without any record being
-inserted for them.
+**Each kind is re-laid from memory rather than copied**, which the two changed bytes say: the run raised
+a clear record and unlocked a track, and both came out in the file without any record being inserted for
+them — the `CLRD`s and `MUSC` being written out of the manager's own statics.
 
 **And the record that went in is the second of the two, which says the body is copied and the header is
 stamped.** The new one is at `0x44`, not `0x20`: `score 923700, +0x14 = 0, +0x15 = 4, +0x16 = 0,
@@ -1069,41 +1179,27 @@ the write lays the header down and copies the body.
 
 **And the list is sorted by score descending**, which the two records' order says: 923,700 went *after*
 93,780,380. `0x14006e290` walks while `[record + 0xc]` of the node it is at beats the one being
-inserted, so the spans that split the `HSCR`s are the records above the new one and the records below.
+inserted, and the write takes each list in that order.
 
-**And what it writes is seven spans of the file object's own, concatenated.** `0x14006df0c` onwards is
-the same seven instructions seven times over: the start of span *i* is `[[file + 0x70] + 0x40 + 8i]`, its
-end is `[file + 0x38 + 8i]`, the length is the difference, and `memcpy` puts it at `r14`, which is
-stepped on by that length each time — `0x14006df26`, `0x14006df48`, `0x14006df6a`, `0x14006df8c`,
-`0x14006dfae`, `0x14006dfd0` and `0x14006dfef`. Then `0x14006dff9` calls `0x14006c810` and
-`0x14006e038` writes the buffer out. The teardown at `0x14006e058` frees those same seven, `+0x40`
-through `+0x70`.
+**And what the replay's write lays down is the header and then the stage records, concatenated.**
+`0x14006df0c` onwards is the same seven instructions seven times over: the start of record *i* is
+`[[recorder + 0x70] + 0x40 + 8i]`, its end is `[recorder + 0x38 + 8i]`, the length is the difference,
+and `memcpy` puts it at `r14`, which is stepped on by that length each time — `0x14006df26`,
+`0x14006df48`, `0x14006df6a`, `0x14006df8c`, `0x14006dfae`, `0x14006dfd0` and `0x14006dfef`. Then
+`0x14006dff9` calls `0x14006c810` on the whole, `0x14006e00f` writes its answer into the header's `+0xc`
+and the loop at `0x14006e020` adds a key into every byte from `+0x13` on — the byte at `+0x12`, stepped
+by seven a byte — and `0x14006e038` writes the buffer out.
+The teardown at `0x14006e058` frees those same seven, `+0x40` through `+0x70`.
 
-**So the file is the object's spans and not the game's own arrays — and this build never writes a card
-count at all.** Three readings together say so:
+**So a run's attempts at a card are the array's, and the array is the file's**: the layout and the
+file's lay-over write it, the card's own start at `0x140027929` and the screen that shows the records
+read it, and both score file writes serialise it — `0x140075e7e` and `0x140076940` take its address
+rip-relative, which a grep for `+0x968` off a register does not find. What
+`Th06nc::put_back_the_cards_a_run_left` is for is keeping the counts across the run build that would
+otherwise lay the file back over them, so that the next write carries them.
 
-- the write names neither `game_manager::CARD_HISTORY` nor the manager, taking the seven spans as they
-  stand;
-- **`+0x968` of the manager is referenced twice in the whole exe and both are destinations** —
-  `0x14003c353`'s `lea rsi,[rcx+0x968]`, the layout loop's, and `0x14003c5d6`'s `lea rdx,[rdi+0x968]`,
-  the lay-over's. Nothing copies that array out:
-
-  ```sh
-  grep -nE '0x968\]' th06nc.asm
-  ```
-
-- and a span cannot *be* that array, because `0x14006e058` hands all seven to `free`, `0x1402c6540` — a
-  static of `.data` handed to `free` is a launch that dies, and launches do not.
-
-So a run's attempts at a card live in memory for the session and nowhere else: the array is written by
-the layout and by the file's lay-over, read by the card's own start at `0x140027929` and by the screen
-that shows the records, and never serialised. Which is what `Th06nc::put_back_the_cards_a_run_left` is
-for and the whole of what it can be for — keeping the counts across the run build that would otherwise
-lay the file back over them.
-
-**Which is what `Th06nc::writes_its_own_records` answers true off**: no ranking screen orb built and took
-down would write anything here, this game's write being behind somebody typing a name. th06's is the
-other way round — its screen going down is the write — and that is the difference the two answers are.
+**And `Th06nc::writes_its_own_records` is th06's question here and not th07's**: the screen a run ends
+at going down is a write, as th06's is, and so are a run left for the front end and a run started again.
 
 **The block holds records back to back**: `[block]` is the offset the first is at, `[block+0x10]` the
 end, and `[block+8]` a tree the `HSCR` records are hung in. A record's `+0x4` is its own length, which
@@ -1138,9 +1234,10 @@ is neither of those and has no reader in the exe.
 objdump -d th06nc.exe | grep -c 'cmp *BYTE PTR \[r[a-z0-9]*+0x8\],0x15'
 ```
 
-**And the cipher is th06c's byte for byte**, read off `0x14006e140`: the key is seeded from the byte at
-`+1`, every byte from `+2` on is `xor`ed with the key and the key is then the key plus the plain byte
-just decrypted, rotated right by five (`add r9b,cl; ror r9b,5` at `0x14006e1b0`); a sixteen-bit sum of
+**And the cipher is th06c's byte for byte**, read off `0x14006e140`: the key starts at nought and,
+before each byte from `+2` on, has the byte before it added — the byte at `+1` for the first, the plain
+byte just decrypted after that — and is rotated right by five (`add r9b,cl; ror r9b,5` at
+`0x14006e1b0`), and the byte is `xor`ed with it; a sixteen-bit sum of
 the plain bytes from `+4` on sits in the word at `+2`; `+8` is the offset the first record is at and
 `+0x10` the file's length; and the first record must be `TH6K`. What differs from th06c is the record
 version — `0x15` where th06c's is `0x10` — and the bodies. The file itself is `[0x140c6e368]` with its
@@ -1365,28 +1462,32 @@ and `0x140352d14`, loaded by the bullets' update at `0x140011b13` and the enemie
 | `+0x7860`, `+0x7864`, `+0x7868`, `+0x786c` | **the four speeds**: straight, straight focused, diagonal, diagonal focused — the walk at `0x14006a854` onwards picks one by the direction and the focus |
 | `+0x774c` | **the radius a hit is measured against** — see below |
 | `+0x7754` onwards | **sixteen boxes of `0x10` bytes**, which `0x14006bfd0` walks before the player's own: a hazard inside one is answered 1 rather than 2 |
-| `+0x7898` | **which state the player is in**, one byte: nought is the only one a hit lands in (`0x14006c1b5`), 1 is what the register and the walk-in write, 2 is what the hit writes (`0x14006c201`), 3 is what `0x14006a6b3` writes as the invulnerability begins |
+| `+0x7898` | **which state the player is in**, one byte: nought is the only one a hit lands in (`0x14006c1b5`), 1 is what the register writes for a run that is not a scene and what the death's animation writes as it ends (`0x14006a4ce`), 2 is what the hit writes (`0x14006c201`), 3 is what `0x14006a6b3` writes as the invulnerability begins |
 | `+0x773c` | **the frames a bomb still takes the hit back in**: the hit writes 8 at `0x14006c20e`, and the laser's own hit the same at `0x14006c45b`; taken one off a frame of the hit's state at `0x14006a21b`, and the frame it reaches nought is the frame the death is made final — `0x14006a22a` steps the count at `0x14053cab0`; `0x14006a0e2` is the bomb refusing to fire where it is nought |
 | `+0x9ec8` | **whether a bomb is going off**, one byte: `0x14006a1a4` writes 1 as the bomb's own start runs, `0x140069e9e` clears it as the stage's register leaves the player, and `0x14000d8fc`, `0x14000e2a7`, `0x14000e9ca` and `0x14000ef47` — one per shot — clear it as each bomb finishes. Read at `0x14006a0b8`, the press's own gate, and at `0x14006b2d2`, `0x14006b54d`, `0x14006b7e7`, `0x14006b856` and `0x14006ba40`, the hit test's |
-| `+0x7854`, `+0x7858` | a `Timer`: `+0x7858` is **the frames a state has left** and `+0x7854` the `-999` every state writes beside it |
+| `+0x7854`, `+0x7858` | a `Timer`: `+0x7858` is **the frames a state has run** — stepped up every update in states nought, 1 and 2 and counted down in state 3, where it is the frames left — and `+0x7854` the `-999` every state writes beside it |
 | `+0x7718` | **a ticker that thins an effect out**, one byte: `0x14006b6ea` steps it up for a bullet the player is inside the reach of and `0x14006b7c0` for an item it takes, and the only reads of it are the two `test`s beside those — `0x7` and `0x3` — which let the call of `0x14002af80` through one time in eight and one in four. **It is not the graze count**, which is the manager's own `+0xd26c` — see *The game manager* |
 | `+0x9ed0`, `+0x9ed8` | **the two functions the bomb of the shot in hand is run by**, a pointer each: the stage's own register picks them at `0x140069e65` and `0x140069e88` out of the table at `0x140426eb0`, two pointers apiece, indexed by the shot and the character it reads at `0x140069e51` from `0x14053cad0` and `0x14053cad1` as `shot + character*2`. `+0x9ed0` is the one called, both by the bomb's own start at `0x14006a1c5` and every frame the bomb is out at `0x14006a0c1`; `0x14006a121` refuses the press where it is null |
 | `+0x9f20` | **how many frames this bomb lasts**: the start writes `0x3e7` at `0x14006a1bb` and each shot's own function writes its own over it — `0x12c`, `0x8c`, `0xfa` and `0x12c` at `0x14000da4e`, `0x14000e3f7`, `0x14000eb4b` and `0x14000f0b7` — and `0x14000d8e4` and its three fellows compare the clock below against it, clearing `+0x9ec8` where it has run out |
 | `+0x7ac4`, `+0x7ac0` | **the bomb's own clock and the frame before's**: `0x14000e0d7` writes the clock a frame on and `0x14000e0cf` writes what it held into `+0x7ac0` beside it, which is the pair the four bombs' own steps are read against. The start writes `0` and `-999` at `0x14006a1ab` and `0x14006a1b1` |
 
-### The 270 frames of a stage nothing can reach its player in
+### The frames nothing can reach the player in
 
-**The same 270 th06c has**, read off this exe rather than carried over:
+**Read off this exe rather than carried over from th06c**, whose stage start is 270:
 
 | | |
 | --- | --- |
-| `0x140069b2c` | **the register**, gated on `[0x14053d405]`: where that byte is nought it leaves the state and the count at nought, and otherwise the state **1** and the count **0x78** — `mov eax,0x78; mov cl,1` at `0x140069b3b`, written at `0x140069b42` and `0x140069b4f` with `-999` into `+0x7854` |
-| `0x14006a4b7` | **the walk-in's own gate**, `cmp ecx,0x1e` — thirty frames — and past it `0x14006a4ce` writes the state **1** again with the player put at `0x43400000`, `0x43c00000` (192, 384) |
-| `0x14006a6a9` | **and the gate that hands it over**, `cmp r8d,0x1e`, past which `0x14006a6b3` writes the state **3** and `0x14006a6cf` the count **0xf0** |
+| `0x140069b2c` | **the register**, gated on `[0x14053d405]`: where that byte is set — a scene — it leaves the state and the count at nought, and otherwise writes the state **1** and the count **0x78** — `mov eax,0x78; mov cl,1` at `0x140069b3b`, written at `0x140069b42` and `0x140069b4f` with `-999` into `+0x7854` |
+| `0x14006a6a9` | **state 1's gate**, `cmp r8d,0x1e`: the count held against thirty, past which `0x14006a6b3` writes the state **3**, `0x14006a6cf` the count **0xf0** and `0x14006a6f7` 8 into `+0x773c`. Below thirty the count steps up one an update |
 | `0x14006a37e` | **and state 3 counts down to nothing**: the state held against 3, `0x14006a391` takes one off the count and `0x14006a3a1` writes nought over both where it runs out |
+| `0x14006a4b7` | **state 2's own gate, the death's animation**: once `+0x773c` has run out, `cmp ecx,0x1e` holds the count against thirty — the player's sprite scaled and faded by it — and past it `0x14006a4ce` writes the state **1** with the player put back at `0x43400000`, `0x43c00000` (192, 384), its count at nought, and a life taken off at `0x14006a59f` unless the run is Challenge |
 
-**So the hit test cannot reach the player for 30 + 240 = 270 frames of every stage**, `0x14006c1b5` gating
-a hit on that byte being nought.
+**So a stage starts with 241 updates the hit test cannot reach the player in**: the register's `0x78`
+is already past state 1's thirty, so the first update goes straight to state 3 and counts its 240 down
+— `0x14006c1b5` gating a hit on the state byte being nought. **And a death is 8 + 30 + 30 + 240**: the
+eight frames a bomb can still take the hit back in, state 2's thirty of animation, state 1's thirty of the
+player coming back from nought, and state 3's 240. A scene starts in state nought and is reachable from
+its first frame.
 
 **And the update branches on that byte twice, which is what a `--clear` run of this game never gets past
 the first stage's boss for.** `Th06nc::make_invulnerable` writes the state **3** and the count `0xf0`
@@ -1399,7 +1500,7 @@ out, and the update goes through `0x14006a703` — the invulnerability arm — r
 anything else falls through to `0x14006a784`. **`r12b` is 1** from `0x14006a769` and **`bl` is 2** from
 `0x14006a1e9`, which is on the straight path — `0x14006a1e2` reads the state byte into `eax` two
 instructions before it and `0x14006a205` compares the pair at once — so the two that skip are **the hit
-and the walk-in**, and **nought and three are steered**.
+and state 1, the player coming back**, and **nought and three are steered**.
 
 **And the fall-through is the player's own steering.** `0x14006a784` writes `[player + 0x7750]` and the
 tests that follow are of `r11b` against `0x10`, `0x20` and `0x40` — `Th06nc`'s own `button::UP`, `DOWN`
@@ -1549,7 +1650,7 @@ turns it into nought or eight, and `0x14007515d` takes the pointer at `0x14034ed
 ```sh
 python3 -c '
 import struct; d=open("th06nc.exe","rb").read()
-def at(va): return va-0x1402f5000+0x2bf000        # .rdata
+def at(va): return va-0x1402f5000+0x2f4000        # .rdata
 for a in (0x14034ed50, 0x14034ed58):
     p = struct.unpack_from("<Q", d, at(a))[0]
     o = at(p); print(f"{a:#x} -> {d[o:d.index(bytes(1), o)].decode()}")'
@@ -1588,25 +1689,25 @@ launch has exited is what would say it outright, and it is worth one launch rath
 `+0x44b` is byte **`0x17`** of a 44-byte file and `+0x454` is byte `0x20`, and a probe that seeks
 `0x44b` in it finds nothing at all.
 
-**The lives and the bombs a run starts with, read in full**, which is the reason to care and does not
-test this byte at all:
+**The lives and the bombs a run starts with, read in full** off `0x14004f320`, which is the reason to
+care and does not test `0x14053d414` at all:
 
 ```text
-14004dbf5: cmp  DWORD PTR [0x14053d410],0x4   ; the difficulty; 4 is the Extra
-14004dc09: je   0x14004f37c                   ; -> 0x302
-14004dc0b: test dl,dl                         ; dl = [front end + 0x168d1], the run asked for no name
-14004dc0d: jne  0x14004f37c                   ; -> 0x302
-14004dc0f: test ecx,ecx                       ; ecx = [0x140c6dfdb]
-14004dc11: je   0x14004f385                   ; -> neither written; the config's own lives and bombs stand
-14004dc13: mov  BYTE PTR [0x140549d40],0x2    ; two lives, the config's bombs
-14004dc1c: mov  WORD PTR [0x140549d40],0x302  ; two lives and three bombs
+14004f355: cmp  DWORD PTR [0x14053d410],0x4   ; the difficulty; 4 is the Extra
+14004f369: je   0x14004f37c                   ; -> 0x302
+14004f36b: test dl,dl                         ; dl = [front end + 0x168d1], a practice
+14004f36d: jne  0x14004f37c                   ; -> 0x302
+14004f36f: test ecx,ecx                       ; ecx = [0x140c6dfdb], the mode
+14004f371: je   0x14004f385                   ; -> Standard: the config's own lives and bombs stand
+14004f373: mov  BYTE PTR [0x140549d40],0x2    ; Challenge: two lives, the config's bombs
+14004f37c: mov  WORD PTR [0x140549d40],0x302  ; two lives and three bombs
 ```
 
 So what moves the numbers is `[0x140c6dfdb]` itself, the same byte `0x14053d414` is the `setne` of.
 
 `0x14053d414` is read from twenty places besides: the stage's build at `0x14003c328` and `0x14003c4ad`,
-the player's at `0x14006a2b8` and `0x14006a594`, the items', the bombs', the score file's at
-`0x14006cfcc` and `0x14006d97f`, and the run's end at `0x14007bcfc`.
+the player's at `0x14006a2b8` and `0x14006a594`, the items', the bombs', the replay's playback at
+`0x14006cfcc` and `0x14006d97f`, and the supervisor's state 12 at `0x14007bcfc`.
 
 ## The clock the enemies' own script runs on
 
@@ -1665,8 +1766,8 @@ younger than eight characters ignores the press, and where the edge is missing `
 count instead — one character a frame until it reaches `[record + 4]`, the line's own length.
 
 **And `0x8` held skips the conversation outright**, no edge wanted: `0x140040ced` and `0x140040813` test
-that bit — the one binding of `0x1400136f9`, and *which* key that is the exe does not say; see below —
-and jump straight to `0x140040bd0`,
+that bit — left `Ctrl` or `;` on the keyboard and, by default, X on a pad, see *The keyboard* — and jump straight to
+`0x140040bd0`,
 the same place an edge reaches. `[+0x3900]` gates both, so it is what says a conversation may be
 skipped at all.
 
@@ -1678,13 +1779,11 @@ took about twice the frames its own script did. **The line itself is read**, whi
 this one had not managed: `f6000 … stage=0 frames=5125 script=5093 … dialogue` and twenty more samples
 like it, over two stages.
 
-**And `0x8` is not orb's to hold**, which is why the shot is what was changed instead: the bit is built at
-`0x1400136f9` out of the binding byte `[0x140c6e09d]` — the chain reads a binding, then the keyboard
-state at it, then the *next* binding, so the mask stands one load behind the byte it is about — one of a
-block `0x140013375` fills whenever
-`GetKeyboardLayout` differs from `[0x140c6e180]` — a block past `.data`'s raw bytes, so the exe says
-nothing about which key it holds. `Th06nc::BUTTONS` therefore has no `"skip"`, `orb_bot::steer`'s
-`Keys::skip` is nought for this game, and the release is the whole of what carries a line.
+**The bit is built at `0x1400136f9` out of the remap byte `[0x140c6e09d]`**, scan `0x1d`, left `Ctrl` —
+the chain reads a remap byte, then the keyboard state at it, then the *next* remap byte, so the mask
+stands one load behind the byte it is about — and again at `0x140013728` out of `[0x140c6e0a7]`, `;`.
+`Th06nc::BUTTONS` has no `"skip"`, `orb_bot::steer`'s `Keys::skip` is nought for this game, and the
+release is the whole of what carries a line.
 
 **So the rules let the shot go every ten frames while a line is up** —
 `orb_bot::steer::SHOT_LET_GO_EVERY_IN_A_CONVERSATION`, ten because `0x140040d17` wants eight characters
@@ -1765,7 +1864,7 @@ frame with it up being a frame nothing of the run moved in.
 | --- | --- |
 | `[0x14053d405]` set and `[0x14053d3dc]` clear | a scene out of the table rather than a run: `0x14000bc61` writes 1 into `[0x14053d406]` and it returns |
 | `[0x14053d404]` set | a stage practised on its own: `0x14000bcae` writes **7** into `[0x140c6dfbc]`, the supervisor's wanted state, which is the screen a run that finished ends at |
-| `[0x14053d3dc]` set | a replay being played: `0x14000bccc` writes **8**, a run given up |
+| `[0x14053d3dc]` set | a replay being played: `0x14000bccc` writes **8**, a replay given up |
 | `[0x140549d2c]` at 3 or more, or `[0x14053d410]` 4 or more | **no continue is offered**: `0x14000bd00` and `0x14000bd0d` leave for `0x14000c3f4`, which writes **7** — so a run past its third continue, and every run of the Extra, walks straight onto the screen a run ends at |
 
 **And where none of those holds, the prompt goes up** and the machine runs on `[the run's own + 0xd94]`,
@@ -1826,10 +1925,10 @@ job it registers in the calc chain. The job a stage ends into, `0x14007b7f0`, al
 `0xbb48` bytes at `0x14007bd98`, builds it with `0x14006f5d0`, marks it a run's own at `+0x9e99`, writes
 its state at `0x14007bdde` — **nine** where `[0x14053d404]` is clear and seventeen where it is not, the
 latter being a run asked for no name — and hands it to `0x14006f3f0`, which allocates the `0x40`-byte
-element, puts the update `0x14006fa70` at its `+0x8` and the screen at its `+0x38`. The machine a run
-over puts up builds the same screen at `0x14000cd97` and writes state **twelve** into it at
-`0x14000cdc9` with `+0x9e9a` set — the ranking, see *The main menu's ten items*, where that machine is
-read.
+element, puts the update `0x14006fa70` at its `+0x8` and the screen at its `+0x38`. The menu a scene's
+end puts up builds the same screen at `0x14000cd97` and writes state **twelve** into it at
+`0x14000cdc9` with `+0x9e9a` set — its list of replay slots, the replay's save, see *The main menu's ten
+items*, where that machine is read.
 
 **And a picture says what state nine shows**: the **name entry over the ranking** — ten rows of the
 difficulty the run was on with this run's own lit among them, the character grid under it and its `End`
@@ -1852,11 +1951,11 @@ for i in range(18):
 | | |
 | --- | --- |
 | 0, 1 | `0x14006fbb0` and `0x1400702c5` — the screen's own first two |
-| 2 | `0x140071095`, which is where `0x140073037` puts it once the file has been written |
+| 2 | `0x140071095`, which is where `0x140073037` puts it once the replay has been written |
 | 3, 4, 5, 7 | `0x140071193`, and 6 the `0x140071184` nine bytes in front of it |
 | 8 | `0x140071732` |
 | **9** | `0x140071e9c` — **the entry the rest of this section is about** |
-| 10 – 14 | `0x140072b05`, which splits them again: 10 at `0x1400739e8`, 11 at `0x140073842`, **12 at `0x14007324c` — the list of replay slots**, **13 at `0x140072d6f` — the second entry, whose confirm at `0x14007301f` is the one write of the score file**, and 14 falling through at `0x140072b34` |
+| 10 – 14 | `0x140072b05`, which splits them again: 10 at `0x1400739e8`, 11 at `0x140073842`, **12 at `0x14007324c` — the list of replay slots**, **13 at `0x140072d6f` — the second entry, whose confirm at `0x14007301f` is the replay's write**, and 14 falling through at `0x140072b34` |
 | 15, 16 | `0x140073d93` — the way out, and 15 is what the entry's own end item writes at `0x1400727d5` |
 | 17 | `0x14006fb0e` — the state a run asked for no name opens in |
 
@@ -1865,7 +1964,7 @@ for i in range(18):
 「今回のリプレイを保存しますか？」 over `はい` and `いいえ`** — the same question 15 puts up, still
 drawn — **13 is the name typed for the slot**, the chosen row lit over the same alphabet grid state 9
 has (a launch's read `No.01 ORB_ 09/21/26 Reimu Standard EXTRA`), which is the entry `0x140072d3a` takes
-the address of at `+0x9e88` and whose confirm is the one write of the score file — and **12 is the list
+the address of at `+0x9e88` and whose confirm is the replay's write — and **12 is the list
 of fifteen replay slots**,
 a row apiece under `No.`, `Name`, `Date`, `Player`, `Mode` and `Detail`, with the one slot this copy
 holds reading `No.01 ORB 09/20/26 Reimu Standard NORMAL` and `No.02` to `No.15` empty. So the three
@@ -1875,9 +1974,9 @@ slots it indexes at `+0x9eb0` `0x78` apart are the rows of 12.
 
 **The `Mode` column is the game's own mode**, `Standard` there against `Challenge` — a replay carries it
 in its header's `+0x6`, see *The second table, and the replay list behind it*, and `0x14053d414` is what
-a run is played under. **Which is also why 12 is not the ranking**: that name belongs to state 12 of the
-*other* machine, `0x14000c960`'s, which `0x14000cdc9` writes — two machines with a state 12 each, and
-this table is the screen a run ends at.
+a run is played under. **And it is the same 12 the scene-end menu opens the screen in**: `0x14000c960`'s
+item 1 builds this screen and `0x14000cdc9` writes 12 into it, so a card of the Spell Practice saves its
+replay through the same list a run's end walks.
 
 **And the name entry is for a run that made the top ten, which is what a launch found and the exe says.**
 `0x14006e290(the list, the record)` answers **the rank** — the count of nodes its walk passed, `esi`
@@ -1903,17 +2002,20 @@ setting it and the ranking's build leaving it alone.
 `ranking: 0 frame(s) up, picking on 0x0` **once**, five seconds *before* the screen came up, and nothing
 after — so `what_a_job_runs_on(0x140009800)` answered nothing for the whole of the ranking being up.
 
-**What that job is instead is the ranking a *scene* puts up**, which a `--clear` launch that beat a card
-of the Spell Practice read: the machine came up a second and a half after `run: the boss is gone with 878
-life left` and counted `ranking: 1 frame(s) up` to `405`, with `[obj + 0xd98]` at nought the whole way —
-which is `0x14000ca51`'s twelve-row branch. Its states are the six above, its way out through the
-**cancel** at state 1, and that way out is the supervisor's 12.
+**What that job is instead is the menu a *scene's* end puts up**, which a `--clear` launch that beat a
+card of the Spell Practice read: the machine came up a second and a half after `run: the boss is gone
+with 878 life left` and counted `ranking: 1 frame(s) up` to `405`, with `[obj + 0xd98]` at nought the
+whole way — `0x14003be3a` writing nought where the boss still has life, the card's time having run out.
+Its states are the six above, its way out through the **cancel** at state 1, and that way out is the
+supervisor's 12, the card started again.
 
 **And 11 and 16 are states that wait for nobody.** A launch drove a Normal run that stood still, took
 the continue its prompt offered and stood still again — which is what sets `[0x140549d2c]` — and the
 screen it then reached walked **15, 16, 10, 11, 2** and went down: 16 arrived and handed on within half a
-second, 11 within *sixteen milliseconds* of 10, and **2 is where the file has been written**,
-`0x140073037` putting it there, with `score: score.dat opened as the game's own, write` beside it. So a
+second, 11 within *sixteen milliseconds* of 10, and **2 is the state the screen goes down from** —
+`0x140073037` puts it there after state 13's replay write, and 11 handed on to it here — with
+`score: score.dat opened as the game's own, write` beside it, the screen's taken-out callback being the
+score file's write. So a
 picture of either is that screen mid-transition and not a screen of its own. **And no state 9 stood in
 that launch's log**, where the Extra runs before it all showed one — whether a run that has continued is
 asked for a name at all is the next thing to read there.
@@ -1937,12 +2039,12 @@ the cursor at nought `0x140072bfb` clears the grace, the run of word writes from
 reaches `0x140073c31`, which calls `0x14006e9e0` — the queue of sound commands at `0x1405542c0` given
 `0xa`, and then `0x14006e8b0` — and leaves the handler.
 
-**And what state 13 does with the name is write it into the replay as well as the score file**:
+**And what state 13 does with the name is write it into the replay and into `th06.cfg`**:
 `0x140072fa3` reads `[+0x9e7c]` as the character the cursor is on and `0x140072fc8` and `0x140072fd9`
-write into `+0x9e88`, `0x140072fed` takes `replay/th6_%.2d.rpy`, `0x140073014` and `0x140073024` hand
-`+0x9e88` on, and `0x140073043` writes the state the entry leaves for. **So one name goes into both
-files**, and the two references to that path in this screen are `0x140072fed` — state 13's — and
-`0x140073283`, the ranking's.
+write into `+0x9e88`, `0x140072fed` takes `replay/th6_%.2d.rpy`, `0x140073014` hands `+0x9e88` to the
+replay's write and `0x140073024` to `0x14007d850`, the name `th06.cfg` keeps, and `0x140073043` writes
+the state the entry leaves for. **So one name goes into both files**, and the two references to that
+path in this screen are `0x140072fed` — state 13's — and `0x140073283`, state 12's list of slots.
 
 **What is left of it is what state 14's two items say.** The question is read and so is where each answer
 goes; which of them is はい is not, and that is a picture of the screen. `Game::skip_replay_prompt`
@@ -1966,18 +2068,16 @@ th06c reaches its own.
 build has the state at `+0x5194`, the name at `+0x5173` and the count at `+0x517c`.
 
 **And there is a second entry, into `+0x9e88`**, typed in state thirteen at `0x140072fa3`, which no run
-of a recipe's reaches. **It is the name the score file's own record is built from**: its end item at `0x14007301f` hands `+0x9e88` and the byte at `+0x9e9a` to
-`0x14006db10` with a record beside them, which is the one write of that file in the whole exe — see *The
-one write of this file, and the six calls that are not it*. So the two entries are not the same name:
-`+0x9e70`'s end item copies its eight bytes into `0x140c6db90`, the object `th06.cfg` sits in, and
-`+0x9e88`'s reach the file.
+of a recipe's reaches. **It is the name the replay is saved under**: its end item at `0x14007301f` hands
+`+0x9e88` and the byte at `+0x9e9a` to `0x14006db10` with the slot's path — see *The replay's own
+write*. So the two entries are two names: `+0x9e70`'s is the one the `HSCR` hung in the ranking's list
+carries into the score file, and `+0x9e88`'s is the replay's.
 
-**And the one a run arrives at is `+0x9e70`'s, which the copy beside the exe says**:
-`Th06nc::types_its_name` writes `+0x9e70` and nothing else, the launches that used it typed `ORB`, and
-`th06.cfg`'s own name-last-taken at `+0x454` reads `ORB` and five spaces — which only the end item of
-*that* entry writes, through `0x14007d850`. So the state a played run opens the screen in is the entry
-whose name reaches the configuration, and what the score file's own record is named from is the entry
-**no** run of a recipe's has reached.
+**And the one a run arrives at is `+0x9e70`'s**: `Th06nc::types_its_name` writes `+0x9e70` and nothing
+else, the launches that used it typed `ORB`, and `th06.cfg`'s own name-last-taken at `+0x454` reads `ORB`
+and five spaces — which both entries' end items write, through `0x14007d850` at `0x1400727d5` and at
+`0x140073032`. So the state a played run opens the screen in is the entry whose name reaches the score
+file's ranking, and the replay is named from the entry **no** run of a recipe's has reached.
 
 ## The window, which `th06.env` says the size of
 
@@ -1989,12 +2089,13 @@ window.** What they are:
 
 | | |
 | --- | --- |
-| `+0x434`..`+0x43d` | **the keys**, five words the key config writes together at `0x14004c0b3`. A copy beside the exe held `12, 13, 9, 14, 4` |
+| `+0x434`..`+0x43d` | **the pad's buttons**, five words the key config writes together at `0x14004c0b3`: the shot, the bomb, the focus, the skip and the pause, each an XInput button's bit number — see *The keyboard* for what each gives the word. The defaults at `0x140429210` are `12, 13, 9, 14, 4` — A, B, RB, X and Start — and a copy beside the exe held the same |
+| `+0x440` | **the file's version**, a dword `0x102`: the read at `0x14007d586` refuses a file that is not 44 bytes and `0x14007d590` one whose `+0xc` is not `0x102`, laying the defaults down instead |
 | `+0x444`, `+0x445` | **the lives and the bombs a run starts with**, which is where the run's own start takes them from: `0x14004f32b` and `0x14004f341` read them and `0x14004f33b` and `0x14004f363` write them into `0x140549d40` and `0x140549d41`. A copy beside the exe held `2` and `3`, which is what every launch's first `run:` line reads. The options screen shows them, `0x14004a89f` and `0x14004a979` among its reads, and steps neither |
 | `+0x446`, `+0x447` | **two settings of nought to nine**, which the options screen steps: `0x14004abda` and `0x14004abbb` step them down while they are over nought and `0x14004ad3f` and `0x14004ad20` up while they are under nine, `0x14004ad28` and `0x14004ad05` being the compares. A copy held `7` and `7` |
 | `+0x448` | **楽曲モード, `NewClassic` or `Classic`** — which music the game plays, named by a picture of the option screen's fifth row (`menu-item8-options.png` beside the copy). That row is what steps it: `0x14004acd3`'s `inc` with `0x14004ace6` wrapping it to nought at two, `0x14004ab7e` stepping it the other way, and each change followed by `0x14007d8d0(0x140c6db90, "data/bgm/th06_01.opus")` — the title's own track asked for again, which is what a change of soundtrack needs. A copy held `0` |
 | `+0x449` | **the difficulty last chosen**, `0x140c6dfd9`, which `0x140049d0f` tests and `0x140049d1c` puts back to 1 where it is four or more — a copy left on `4` by an Extra run reads Normal on the way in. **Both of those are in the menu's item 2 case**, and `0x140049cfc` and `0x140049d05` do the same to the run's own `[0x14053d410]` two instructions earlier: a practice run is not one of the Extra, so taking that item puts both difficulties back |
-| `+0x44a` | **the decide and the cancel swapped**: `0x140013094` reads it and builds the indices `12 + it` and `13 - it` into the button states at `[rsp+0x20]`, the first of the two contributing `0x200` to the word and the second `0x100` — so nought makes 12 the cancel and 13 the decide and anything else swaps them. The key config screen toggles it with `0x14004bf63`'s `sete`, draws the pair in that order at `0x14004ba41`, and `0x14004c1d5` puts it to nought; `0x14007d7bb` writes it back after the defaults are laid down, so a reset keeps it. A copy held `0` |
+| `+0x44a` | **the decide and the cancel swapped**: `0x140013094` reads it and builds the indices `12 + it` and `13 - it` into the button states at `[rsp+0x20]`, the first of the two contributing `0x100` to the word and the second `0x200` — so nought makes 12, A, the decide and 13, B, the cancel, and anything else swaps them. The key config screen toggles it with `0x14004bf63`'s `sete`, draws the pair in that order at `0x14004ba41`, and `0x14004c1d5` puts it to nought; `0x14007d7bb` writes it back after the defaults are laid down, so a reset keeps it. A copy held `0` |
 | `+0x44b` | **the mode last chosen**, Standard or Challenge, which screen 14 writes on either of its edges and the run's own start turns into `0x14053d414` — see *`0x14053d414`, the byte that changes what a run starts with*. A copy held `0` |
 | `+0x450` | **a dword whose bit `0x10` puts a column of raw numbers on the screen**, and that bit is the only one of it any instruction reads — seven accesses in all, five `test … ,0x10` and two dword loads whose one use is a `test al,0x10`. Under it `0x140042d9d` draws `[0x140549d1c]`, the graze, with `"%d"` (`0x14034f03c`) at `1228, 207` — out past the play field — and `0x140042ddf` the word at `0x14053d40a` beside it; `0x140042431`, `0x1400426f0`, `0x140042862`, `0x140042955` and `0x140042eff` are the other five, each gating a draw of its own. A copy held nought |
 | `+0x454`..`+0x45b` | **the name the entry last took**, eight bytes, which `0x14007d850` writes. A copy held `ORB` and five spaces |
@@ -2111,7 +2212,7 @@ each back — the seven numbers, and then the buttons:
 | `+0xc` | **the power**, a byte widened into the word at `0x14053cad8` |
 | `+0xd`, `+0xe` | **the lives and the bombs**, into `0x140549d40` and `0x140549d41` — the two `0x14004ef72` and `0x14004ef87` read at a playback's start as well |
 | `+0x10` | **how far up the point item's own value table the run has got**, into `0x140549d2d`: the item walk's point case steps that byte at `0x14004462a` while the power is full, holds it at 30 (`0x140044636`, the compare being against `0x1f`), and `0x14004464f` indexes the dwords at `stage + 0x308580` by it to add to the score |
-| `+0x12` | **the manager's own first dword**, a signed word widened into `[0x14053cab0]` — see *The game manager*, where what that dword is is not established, and note that this is a field a replay carries per stage |
+| `+0x12` | **the deaths**, a signed word widened into the manager's own first dword `[0x14053cab0]` — see *The game manager* — which a replay carries per stage |
 | `+0x14` onwards | **the buttons**, `0x14006d00e` writing `record + 0x14` into the playback's own cursor |
 
 **And the buttons are entries of twelve bytes, run-length by frame.** `0x14006d140` is the feed:
@@ -2177,44 +2278,32 @@ What did change, and what orb had to change with it:
   and put back with a chapter. Its statics in `.data` are held back; these are not, and a file opened or
   closed between a chapter being taken and being put back is the case that would find its handle table
   as it was.
-- **Whether a launch can walk the supervisor's state 12** — **the path is read and the one press it
-  wants is not orb's to press.** The two writes of `0xc` into `[0x140c6dfbc]` are each a machine's own
-  way out and neither is a run's end: `0x14000cfb9` is **state 5** of `0x14000c960`, which state 1's
-  **cancel** goes to, and `0x14000b4b5` is **state 7** of `0x14000a850`, gated on that machine's own
-  `[+0xb4c]` reaching `0x14`. Three launches walked the first of those to its door: `27, 28, 29, 30, 31`
-  into a card of the Spell Practice, the card beaten under `--clear`, the machine up inside the
-  supervisor's `2/2` — and then nothing. **A card is not ended by dying in it** (`deaths=11 lives=0`,
-  the card restarting each time) and **not by being given up** either (`wanting 8` and the front end
-  after it, the same 8 an ordinary run given up asks for); beaten, it puts the machine up and leaves the
-  supervisor where it was. **And three `bomb` presses at that menu moved nothing**: `ranking:` counted
-  from 1 to 3,111 with no reset, where state 5 writes `[+0xb4c]` back to nought at `0x14000cba3`.
-  Which the exe explains: the bit state 1 reads as its cancel is `0x4000`, and the word's one source of
-  that bit is `0x140013499`'s binding byte `[0x140c6e093]` indexed into the keyboard state — a block
-  filled at `0x140013375` whenever `GetKeyboardLayout` differs from `[0x140c6e180]`, which is past
-  `.data`'s raw bytes and so zero in the file. **So what is left is which key that byte holds**, read out
-  of the running game rather than off the exe, and `the-supervisors-twelve.yaml` beside the copy is the
-  recipe waiting for it. The other
-  eleven are read off the exe *and* watched on a launch — **10 by a clear**, which read `2/10` and then
-  `10/10` and then `10/7`, and **6 by the menu's item 5**, `1/6` and then `6/6` — and **state 4 is dead**
-  as far as four launches and every write of the field carrying a literal can say. Every other is
-  read: 1 the front end, 2 a run, 3 the next stage of one, 5 the game going, 6 the screen a run ends at
+- **A launch walking the supervisor's state 12** — **the path is read and its key is `R`.** The two
+  writes of `0xc` into `[0x140c6dfbc]` are the two menus' ways of starting again: `0x14000cfb9` is
+  **state 5** of `0x14000c960`, which state 1's **cancel** goes to, and `0x14000b4b5` is **state 7** of
+  the pause menu's `0x14000a850`, gated on that machine's own `[+0xb4c]` reaching `0x14`. Three launches
+  walked the first of those to its door: `27, 28, 29, 30, 31` into a card of the Spell Practice, the card
+  beaten under `--clear`, the machine up inside the supervisor's `2/2` — and then nothing. **And three
+  `bomb` presses at that menu moved nothing**: `ranking:` counted from 1 to 3,111 with no reset, where
+  state 5 writes `[+0xb4c]` back to nought at `0x14000cba3`. Which the exe explains: the bit state 1
+  reads as its cancel is `0x4000`, and the word's one source of that bit is `R` on the keyboard,
+  `0x140013499`'s remap byte `[0x140c6e093]` — no pad button gives it. `the-supervisors-twelve.yaml`
+  beside the copy is the recipe waiting for a press of it. Of the other states, **10 is watched by a
+  clear**, which read `2/10` and then `10/10` and then `10/7`, **6 by the menu's item 5**, `1/6` and then
+  `6/6`, and **4 by the menu's item 9**, the process ending; and every other is read: 1 the front end, 2 a
+  run, 3 the next stage of one, 4 the game quitting, 5 the walk ended with 2, 6 the screen a run ends at
   asked of the front end, 7 the screen a run that *finished* ends at, 8 a run given up, **9 the music
-  room** — item 6's state 21 asks for it and its job reaches `data/bgm/th06_%d` — **10 the ending** and
+  room** — item 6's state 21 asks for it and its job reaches `data/bgm/th06_%d` — **10 the ending**,
   **11 the credits**, which item 7's state 23 asks for and a picture of that screen reads `CREDIT` over
-  a page counter. **And 6 is the screen a run ends at either way**: item 5's own screen 12 asks for it
-  too, and what that screen then shows is 夢の記録 — a row per difficulty over `SCORE & SPELLCARD` — so
-  the ranking browser and the screen a finished run lands on are one object, which is what
-  `Th06nc::show_ranking` and `result_screen::A_RUNS_OWN` are about. And **nothing asks for 4**: among the writes of
-  `[0x140c6dfbc]` — the state wanted, the supervisor's `+0x42c` — the literals are 1, 2, 3, 7, 8, `0xa`,
-  `0xc` and `-1`, and no site writes four — thirty-one writes of it in all, of which the rest carry a
-  register; its own case is `0x14007be15` from every table it appears in,
-  which is the nothing-to-do branch. **And two launches watching the field never saw one**, which is what
-  `say_the_supervisors_state_when_it_changes` was added for — a line of orb's saying the pair
-  `[+0x428]` and `[+0x42c]` the frame either changes. Between them they walked the front end, a run, a
-  stage transition, a run given up, the screen a run that *finished* ends at, the music room and the
-  credits, and what those two fields ever held is **acted on 0, 1, 2, 7, 9 and 11** and **wanted -1, 0,
-  1, 2, 3, 7, 8, 9 and 11**. So the reading is that the state is dead; what no launch has walked yet is
-  6 asked of the menu, 10 the ending and 12.
+  a page counter, and **12 the run started again**. **And 6 is the screen a run ends at either way**:
+  item 5's own screen 12 asks for it too, and what that screen then shows is 夢の記録 — a row per
+  difficulty over `SCORE & SPELLCARD` — so the ranking browser and the screen a finished run lands on are
+  one object, which is what `Th06nc::show_ranking` and `result_screen::A_RUNS_OWN` are about. **Two
+  launches watching the field** — `say_the_supervisors_state_when_it_changes`, a line of orb's saying the
+  pair `[+0x428]` and `[+0x42c]` the frame either changes — walked the front end, a run, a stage
+  transition, a run given up, the screen a run that *finished* ends at, the music room and the credits,
+  and what those two fields held is **acted on 0, 1, 2, 7, 9 and 11** and **wanted -1, 0, 1, 2, 3, 7, 8,
+  9 and 11**.
 
   **And the pair says which of the twelve the job ever acts on.** 3 and 8 are wanted and never acted on —
   `2/3` goes back to `2/2` and `2/8` to `1/1` — because the case of the state they are asked *from*
@@ -2250,62 +2339,5 @@ What did change, and what orb had to change with it:
     `a_run_played_to_its_clear_without_a_bomb` that came back `ok over 100818 frames` walked
     `ending skipped, 31587 frames run` straight into the state at `result_screen::TYPING_A_NAME`, and
     fourteen was never entered.
-- **Which of the front end's screens hand on with no press, and why 11 did not.** `0x1400491af` writes
-  the decide into the word itself where `[front end + 0x9638]` is exactly `0xf`, which is what
-  `fake::th06nc`'s `A_SELECT_GOES_BY_ON_ITS_OWN_AFTER` was written from — and it hands the difficulty, the
-  character and the shot on by themselves after fifteen frames. **A launch says the real game does not**:
-  one that decided at 9 and then only waited stood on **screen 11 for 1,200 frames**, where the launch
-  beside it that pressed at 11, 13 and 14 walked `9, 11, 13, 14, 24`. So either `+0x9638` is not the count
-  that comment takes it for or the write is gated on something else, and which screens self-advance is
-  unread. **The fake is over-generous until it is**, which `the_run_of_th06nc_left_behind` says of its own
-  walk, and `orb-real`'s recipes press at each select and so do not lean on it.
-- **What the other writer of `[obj + 0xd98]` puts there**, `obj` being
-  `what_a_job_runs_on(0x140009800) + 0x6e10` — **and what the two fields are is read**: `+0xb4c` is the
-  frames its own state has been up, `0x14000b5c0`, `0x14000c3e9` and `0x14000d046` stepping it,
-  `0x14000ca6e` putting it back to nought as a state is asked for, and its compares being the four, the
-  seven and the `0x14` that gate the machine's own moves; and `+0xd98` is the byte that picks between
-  them, `0x14000ca51`'s `cmovne` taking **9, the name entry**, where it is not nought and **12, the
-  ranking**, where it is — and the same byte picks the pictures `0x776` and `0x775` at `0x14000c9c9` and a
-  2 against a nought at `0x14000c9ae`. **And what looked like a byte no instruction writes** — all four
-  accesses reads, `0x14000c9ae`, `0x14000c9c9`, `0x14000ca51` and `0x14000d199`, each a byte — **and not from
-  the job's own base either**: the sub-object sits at `+0x6e10`, so the same byte is `+0x7ba8` of the job
-  and no instruction addresses **that displacement** — and that is because the machine's object is a
-  **static**: `0x140009b30` builds the chain element at `0x140436e30` with `0x140009800` as its callback
-  and **`0x140429270`** as the object it runs on, so the field sits at a fixed address and the compiler
-  reaches it rip-relative. `0x140429270 + 0x6e10 + 0xd98` is **`0x140430e18`**, and two instructions
-  write it:
-  - `0x14000bc6e` writes **nought**, inside `0x14000bc2b` — gated on `[0x14053d405]` being set, a scene,
-    and `[0x14053d3dc]` clear, no replay playing. It copies the score `[0x14053d3e8]` into
-    `[0x14053d3e0]`, sets `[0x14053d406]`, and clears `+0xd94` (`0x140430e14`) and `+0xb4c`
-    (`0x140430bcc`) beside the byte. So a scene's own end puts it to nought, which is the **12** branch;
-  - `0x14003be3a` writes **`al`** — nought where `ecx` is above nought and `[0x140aee0ad]` equals `dil`,
-    **1** otherwise, which is the **9** branch. **And the machine it sits in is read**: `0x14003bd1c`
-    dispatches on `[0x140c6e39c]`, its own state — nought, one, two and three, with three writing **8**
-    into the supervisor's wanted at `0x14003bd5a` — and this is **case two**, which reads
-    `[[0x140bfa198] + 0x234]` into `[0x140c6e2a8]` as that `ecx`, counts `[0x140c6e398]` down at
-    `0x14003bd8f` and leaves while it is above nought. At nought it writes `[0x14053d406]`, the score
-    into `[0x14053d3e0]`, `+0xd94`, the byte and `+0xb4c`, and `0x14003be46` moves the machine to its
-    state three.
-
-  **So both writers turn the machine on rather than ending a run**, each writing `[0x14053d406]` in the
-  same breath, and which of them runs is which end the game came to: `0x14000bc6e` is a **scene's**, the
-  object `0x14000995c` hands to `0x14000bc20` behind `[0x14053d401]`, and `0x14003be3a` is a **stage's**,
-  beside the `0x14003be26` this file already reads as the stage's own build. Neither touches the
-  supervisor at all.
-
-  **And a scene's is measured.** A `--clear` launch walked into a card of the Spell Practice, played it
-  out — `run: the boss is gone with 878 life left`, a card whose timer ran out with an invulnerable
-  player, which is a card captured — and then read `ranking: 1 frame(s) up, picking on 0x0` a second and
-  a half later, counting to 405 with the byte at nought the whole way and **the supervisor never leaving
-  `2/2`**. So a scene's end is the nought, which is `0x14000ca51`'s **12**, the ranking; the machine
-  comes up inside the supervisor's state 2; and what is left to read is only the other writer's `al`,
-  which wants a run played to its own end rather than a card.
-
-  **And a card does not end by being died in.** A launch started one and stood still through it:
-  `deaths=11 lives=0` with the supervisor at `2/2` throughout, the card restarting each time — which is
-  what the Spell Practice is for.
-
-  **Nor by being given up**: a launch that started a card and then left it read
-  `retry: the run is given up`, `supervisor: state 2, wanting 8` and then `1/1` — **the same 8 an
-  ordinary run given up asks for**, and the front end after it. So what is left is a card **beaten**,
-  which is the one way into that end nothing has driven yet.
+- **What a launch reads in the menu a scene's end puts up when the card is emptied** rather than timed
+  out — the byte at `0x140430e18` at 1 — which no launch has driven yet.

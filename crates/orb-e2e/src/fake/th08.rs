@@ -245,20 +245,35 @@ const THE_SEAL_IS_CHECKED_EVERY: u32 = 200;
 ///   and down by one in state 3 (0x44d35c);
 /// - **a hit, state 2, stands until that count has reached [`A_COUNT_RUNS_TO`]**: then 0x44cbf0 takes the life
 ///   (0x44d100) and puts the player back at the start in state 1 with the count at nothing (0x44d012 through
-///   0x44d07a);
+///   0x44d07a) — in the game only once the hit's own count at `[player+0xe2a68]` has run down first, 15 time
+///   orbs an update while it does (0x44cc10) and the miss on the update it reaches nothing, which this file
+///   leaves out;
 /// - **state 1 does the same**, and then 0x44d180 puts the player in state 3 with [`UNTOUCHABLE_FOR`] under it
 ///   (0x44d252, 0x44d29f) — which at a stage's start, whose build leaves [`A_BUILD_LEAVES`], is the first update
 ///   the player runs;
 /// - **state 3 runs its count down**, and on the update it reaches nothing the state goes back to 0 (0x44d39f);
 /// - and **states 1 and 2 move nothing, shoot nothing and focus nothing** (0x44c4b5 through 0x44c4cb).
 ///
-/// So a hit is 31 updates of state 2, 30 of state 1 and then 239 of state 3; a stage's start, state 1 for as
-/// long as its build is held and then 240 updates of state 3.
+/// So a hit is at least 31 updates of state 2, 30 of state 1 and then 239 of state 3; a stage's start,
+/// state 1 for as long as its build is held and then 240 updates of state 3.
 const PLAYER_PLAYING: u8 = 0;
 const PLAYER_COMING_IN: u8 = 1;
 const PLAYER_HIT: u8 = 2;
 const PLAYER_UNTOUCHABLE: u8 = 3;
 const A_COUNT_RUNS_TO: i32 = 0x1e;
+/// How many taps a test gives a stage's end to be pressed past in, a build standing `0x1e` or `0x50` frames.
+const A_TALLY_IS_PRESSED_PAST_WITHIN: u32 = 0x60;
+/// **What a hit's own count starts at** — see [`Fake::takes_the_hit_it_is_in`] — and what running it down
+/// costs: 0x44ab40's six a bomb at most 15, at most 30 under a card, two with no bomb; 0x44cc10's 15 time orbs
+/// an update; and the miss's 500 time orbs over `0x1388` or a tenth of them, and its 16 of power.
+const A_HIT_COUNTS_PER_BOMB: i32 = 6;
+const A_HITS_COUNT_AT_MOST: i32 = 15;
+const A_HITS_COUNT_AT_MOST_UNDER_A_CARD: i32 = 30;
+const A_HIT_WITH_NO_BOMB_COUNTS: i32 = 2;
+const A_HIT_COSTS_AN_UPDATE: u32 = 15;
+const A_MISS_COSTS_AT_MOST: u32 = 500;
+const A_MISS_COSTS_A_TENTH_UP_TO: u32 = 0x1388;
+const A_MISS_COSTS_POWER: f32 = 16.0;
 const UNTOUCHABLE_FOR: i32 = 0xf0;
 const A_BUILD_LEAVES: i32 = 120;
 
@@ -316,8 +331,11 @@ fn the_stage_after(stage: i32, to_kaguya: bool) -> Option<i32> {
 /// - `eirins_stage_passed`: bit 6 in a Normal, Hard or Lunatic `+0x16` word, which the run manager ORs in
 ///   as stage word 6 ends (0x439c50 through 0x439d02) and 0x439856 asks for at 0x433b47 — and a run after
 ///   it goes from 5 to 7.
-/// - `cleared`: `0x8000` in a `+0x16` word, which the run manager ORs in as a last stage ends (0x439eaa
-///   through 0x439ed5) and 0x43c2c5 lights the title's third item, the spell practice, out of.
+/// - `cleared`: `0x8000` in a `+0x16` word, which the ending's own start ORs in where the stage word is not
+///   7 — 0x429980, the `+0x8` callback of the ending's element (0x429a00 through 0x429c07), so an Eirin clear
+///   — and 0x43c2c5 lights the title's third item, the spell practice, out of. The run manager's own
+///   last-stage path writes `0x8000` only at the Extra's clear (0x439e78 through 0x439eb5), into words the
+///   title does not read.
 /// - `extra_lit`: `0x4000` in a `+0xc` word, which only Kaguya's ending writes (0x429a00 through 0x429c07,
 ///   the stage word 7) and 0x43c1e9 lights the second, the Extra, out of.
 ///
@@ -493,8 +511,8 @@ pub const ASKED_SIZE: (i32, i32) = (646, 505);
 enum Build {
     /// No build, or the one asked for not yet begun.
     Idle,
-    /// The stage built and its jobs on the chain, and the build's last wait not yet over: `[gm+0x3c]` under
-    /// what it stands for.
+    /// The stage built and its jobs on the chain, and the build's wait on its frames not yet over:
+    /// `[gm+0x3c]` under what it stands for.
     WaitingOutItsFrames,
     /// The count up, and the thread asleep for this many more frames before it wakes and clears its word.
     Asleep(u32),
@@ -575,8 +593,8 @@ pub struct Fake {
     /// record the real screen fills its field out of on its first update (0x4563d0).
     last_name: Cell<[u8; 8]>,
     /// Whether the load the supervisor's thread is on is a run starting rather than a stage carrying one
-    /// on — the branch 0x43aaf4 takes at 0x43aafd, which the build on the thread puts the run's starting
-    /// numbers in on.
+    /// on — the build's own branch on the thread, 0x43ac89 through 0x43acb8, which is where it puts the
+    /// run's starting numbers in.
     the_load_starts_a_run: Cell<bool>,
     /// **How many frames the supervisor's thread sleeps on after the count it waits for is up**, where an e2e
     /// test asks — see [`Fake::goes_on_building_for`]. Nought by default, which is a thread that wakes on the
@@ -734,7 +752,7 @@ impl Fake {
 
     /// And laid out with **no device**, which is what a process is before its Direct3D setup has run: orb
     /// attaches there in a real launch and finds the device afterwards, through its hook over
-    /// `GameWindow::InitD3dDevice` at 0x435810. A game that had one already is a game that hook is never
+    /// the device setup at 0x4424c0. A game that had one already is a game that hook is never
     /// reached in — see [`finds_its_device`](Fake::finds_its_device), which is the other half of this.
     pub fn attach_before_its_device(
         display: Display,
@@ -890,7 +908,12 @@ impl Fake {
                     update,
                     draw,
                     input,
-                    stage_building,
+                    // A `fastcall` of one, which `runtime::stage_building_in_ecx` calls through as one — the
+                    // field's own type being the one every other game's build has.
+                    stage_building: std::mem::transmute::<
+                        extern "fastcall" fn(i32) -> i32,
+                        extern "C" fn(i32) -> i32,
+                    >(stage_building),
                     stage_begun,
                     unlocks_read,
                     ranking_read,
@@ -901,7 +924,11 @@ impl Fake {
                     create_window,
                     create_file,
                     stop_recording,
-                    create_game_window,
+                    // Handed its instance in `ecx`, as `runtime::create_game_window_in_ecx` calls it.
+                    create_game_window: std::mem::transmute::<
+                        extern "fastcall" fn(*mut c_void) -> i32,
+                        extern "C" fn(*mut c_void) -> i32,
+                    >(create_game_window),
                     joystick_position,
                     pad_buttons,
                     save_replay,
@@ -1003,7 +1030,8 @@ impl Fake {
     /// decided inside: the game reads its own configuration in there, and orb's one chance to overrule a
     /// display taken exclusively is in front of that read — see `Th08::hooks`' `create_window`.
     pub fn creates_its_window(&self) -> orb_api::Hwnd {
-        orb_core::runtime::create_game_window(std::ptr::null_mut());
+        // Handed the instance in `ecx`.
+        orb_core::runtime::create_game_window_in_ecx(std::ptr::null_mut());
         self.asks_for_a_window_of_the_class(WINDOW_CLASS)
     }
 
@@ -1042,11 +1070,16 @@ impl Fake {
         orb_api::Hwnd(window as usize)
     }
 
-    /// And the device it shows through, with the vtable orb redirects the `Present` slot of laid out under
-    /// it — then orb's own device setup, where that redirection happens.
+    /// And the device it shows through, made by the game's own device setup with orb's hook in front of it.
     ///
     /// A step of its own because the launch is attached before the game has a device, as a real one is.
     pub fn finds_its_device(&self) {
+        orb_core::runtime::init_d3d_device();
+    }
+
+    /// The device and the vtable orb redirects the `Present` slot of, laid out under it — what
+    /// [`init_d3d_device`] makes, and so only once that call has been made.
+    fn makes_its_device(&self) {
         let device = self.launch.device();
         let vtable = self.launch.vtable();
         let space = self.image.space();
@@ -1060,7 +1093,6 @@ impl Fake {
                 .vtable_bytes(device_present as *const () as usize),
         );
         self.image.shows_through(device, WINDOW);
-        orb_core::runtime::init_d3d_device();
     }
 
     /// The driver behind that device refusing to stretch a present, which is what `Present` answering a
@@ -1232,7 +1264,7 @@ impl Fake {
     /// starts over at each stage.
     fn the_numbers_a_run_starts_with_are_in_place(&self) {
         // The run's own clock back to nothing, which is the one thing here a stage carrying a run on does
-        // not do — 0x43ae88, on the branch 0x43aaf4 takes for a run starting.
+        // not do — 0x43ae88, on the branch the build takes for a run starting (0x43ac89 through 0x43acb8).
         self.image.has_been_in_the_run_for(0);
         self.image.the_stage_script_has_run_for(0);
         self.image.has_a_runs_numbers();
@@ -1249,9 +1281,9 @@ impl Fake {
     /// stage was built out of, the player where a stage starts one, and nothing on the field. **Not the
     /// front end gone**, which is its own update's to do — see [`Fake::the_front_end_leaves_the_chain`].
     ///
-    /// **The clock is not put back, which is the real game's own behaviour**: 0x43aaf4 branches on the
-    /// wanted scene and only a run *starting* reaches the `and [gm+0x3de04],0x0` at 0x43ae88 — a stage
-    /// carrying a run on jumps past it. A launch measured the same thing from outside, reading
+    /// **The clock is not put back, which is the real game's own behaviour**: the build branches at
+    /// 0x43ac89 through 0x43acb8 and only a run *starting* reaches the `and [gm+0x3de04],0x0` at 0x43ae88 —
+    /// a stage carrying a run on goes to 0x43b13b, past it. A launch measured the same thing from outside, reading
     /// `stage=0 frames=18218` and `stage=1 frames=18218` either side of a stage 1 cleared.
     fn the_stage_is_laid_out(&self) {
         self.image.the_run_wants_no_scene();
@@ -1302,6 +1334,19 @@ impl Fake {
         self.stage_frames.set(Some(frames));
     }
 
+    /// **A bullet of the stage's own standing still at `at`**, which is a test saying where a bullet is.
+    pub fn a_bullet_stands_at(&self, at: (f32, f32)) {
+        let mut bullets = self.bullets.borrow_mut();
+        let slot = (0..)
+            .find(|slot| bullets.iter().all(|bullet| bullet.slot != *slot))
+            .unwrap_or(0);
+        bullets.push(Bullet {
+            slot,
+            at,
+            step: (0.0, 0.0),
+        });
+    }
+
     /// **Whether that stage fires at the player**, which it does unless an e2e test says not: a pass
     /// stepping around a replay is no run to be hit in, and a hit there is a run it loses.
     pub fn fires_at_the_player(&self, fires: bool) {
@@ -1327,9 +1372,10 @@ impl Fake {
     }
 
     /// **The supervisor's thread asleep `frames` past the count its build waits for**, which is the real build's
-    /// own last act: 0x43b86e sleeps seventeen milliseconds at a time until `[gm+0x3c]` is up, so the frames the
-    /// main thread fits into the last sleep are frames of the walk running a stage whose build is not over.
-    /// Three pick-ups of one file on the real game began their stage at `frames=5` with `script=5`, `7` and `8`.
+    /// own last act: 0x43b86e sleeps seventeen milliseconds at a time until `[gm+0x3c]` is up, and only after
+    /// that, 0x448972 and bits 5 and 6 of the run kind reading nothing does it clear the hold `[gm+0x38]`
+    /// (0x43b8a8) that the run manager answers 3 on (0x439fe2). Three pick-ups of one file on the real game
+    /// began their stage at `frames=5` with `script=5`, `7` and `8`.
     pub fn goes_on_building_for(&self, frames: u32) {
         self.goes_on_building_for.set(frames);
     }
@@ -1341,35 +1387,29 @@ impl Fake {
     /// is the same job's tail, and everything a run is made of is registered above it.
     fn update(&self) {
         self.comes_up_at_its_title();
-        // **A frame the supervisor sits out**: while its loader's word is set, its own update — the
-        // chain's first job — serves the thread and answers 1 before the sound and the input read — see
-        // [`Fake::the_supervisor_sits_out_a_build`]. **And 1 is not a stop**: the walk takes it to the next job
-        // (0x43cb0e), so the run manager steps the frames the build waits out (0x439fdf) and whatever of the
-        // stage the thread has put on the chain runs too — **from the count being up**, which is what three
-        // pick-ups of the real game say, each beginning its stage with `script=5` after thirty frames of build
-        // and two of them `7` and `8` where the thread slept on past the count.
-        if self.the_supervisor_sits_out_a_build().is_some() {
+        // **A frame of a build**, while the loader's word is set — see
+        // [`Fake::the_supervisor_sits_out_a_build`]: here the run manager steps the frames the build waits out
+        // (0x439fdf), and from the count being up the stage the thread has put on the chain runs too. In the
+        // game the supervisor's update runs whole through a stage's build, its 1 off that word being the
+        // startup load's alone (0x445584, 0x4455bc), and the run manager answers 3 (0x439fe2) while
+        // `[gm+0x38]` is set, ending the walk before the stage's jobs until the thread clears it (0x43b8a8).
+        // Three pick-ups of the real game each began their stage with `script=5` after thirty frames of build
+        // and two of them `7` and `8`.
+        if self.image.the_loader_is_running() {
+            // The supervisor's read through the build as on any other frame (0x4455f5), and the run manager's
+            // tail before its hold (0x439f3c): a press there is what takes a stage's end down.
+            let (word, last) = self.reads_its_keys();
+            self.the_supervisor_sits_out_a_build();
             let stood = self.image.how_long_the_build_has_stood();
             let up = stood >= self.image.what_the_build_stands_for();
             self.image.the_build_has_stood_for(stood + 1);
+            self.takes_a_stages_end_down(word, last);
             if up && self.build.get() != Build::Idle {
                 self.the_stages_jobs_run(self.image.the_word_the_run_acts_on());
             }
             return;
         }
-        // **Last frame's word copied out before the read**, which is where this game copies it: 0x4455e4,
-        // in front of the read at 0x4455f5. Which is what makes every screen's `(cur & mask) != (last &
-        // mask)` an edge — and what `Th08::swallow_input` has to write both halves of.
-        let last = self.image.the_word_the_keys_read();
-        // The read the game's own update makes for a frame's buttons, which orb stands in front of: the
-        // whole of 0x43d970, whose answer is one word. Through the hook only where a launch installs it,
-        // for the reason `orbs_own_loop` is.
-        let word = match self.reads_the_keys {
-            true => orb_core::runtime::get_input(),
-            false => input(),
-        };
-        self.word.set(word);
-        self.image.the_keys_read(word, last);
+        let (word, last) = self.reads_its_keys();
         // **The switch before the front end, and so a frame after the ask**: a scene the front end
         // writes into `+0x15c` on this update is one the supervisor's own job — already run this update
         // — switches to on the next, which is the frame orb reads `1 -> 2` on and offers a run left
@@ -1407,6 +1447,40 @@ impl Fake {
         }
     }
 
+    /// **The supervisor's read of a frame's buttons**: last frame's word copied out before the read, which is
+    /// where this game copies it (0x4455e4, in front of the read at 0x4455f5) — which is what makes every
+    /// screen's `(cur & mask) != (last & mask)` an edge, and what `Th08::swallow_input` has to write both
+    /// halves of — and the read the game's own update makes, which orb stands in front of: the whole of
+    /// 0x43d970, whose answer is one word. Through the hook only where a launch installs it, for the reason
+    /// `orbs_own_loop` is.
+    fn reads_its_keys(&self) -> (u16, u16) {
+        let last = self.image.the_word_the_keys_read();
+        let word = match self.reads_the_keys {
+            true => orb_core::runtime::get_input(),
+            false => input(),
+        };
+        self.word.set(word);
+        self.image.the_keys_read(word, last);
+        (word, last)
+    }
+
+    /// **A stage's end taken down by the run manager's tail** — bits 5 and 6 of the run's kind, which the
+    /// stage's end puts up and the build's thread waits on: down on a press of the shot or the enter, or with
+    /// nothing pressed where the run plays a recording or its stage word is 6, 7 or 8 (0x439f3c through
+    /// 0x439f91). Where a scene is asked as well, the hand-over in [`Fake::follows_its_supervisor`] is the one
+    /// that takes them down.
+    fn takes_a_stages_end_down(&self, word: u16, last: u16) {
+        if self.image.the_run_is_ending() == 0 || self.image.the_scene_the_run_wants() >= 0 {
+            return;
+        }
+        let pressed = word & MENU_DECIDE != 0 && word & MENU_DECIDE != last & MENU_DECIDE;
+        let a_recording = self.image.the_run_plays_a_recording();
+        let the_last_stages = (6..=8).contains(&self.state().stage);
+        if pressed || a_recording || the_last_stages {
+            self.image.the_run_is_handed_over();
+        }
+    }
+
     /// **The game's own pause, over a run**: the menu's job at priority 1 (0x402200, 0x4037b0) and the run
     /// manager's at 2 (0x43a0e8) — see `Th08`'s `G_PAUSED`. With the pause up, a menu press puts the menu in
     /// its closing phase and [`THE_PAUSE_CLOSES_OVER`] updates later the byte goes back to nothing; with it
@@ -1417,6 +1491,11 @@ impl Fake {
     fn its_pause_menu(&self, word: u16, last: u16) -> bool {
         if !self.image.a_run_is_on() || self.image.the_loader_is_running() {
             return false;
+        }
+        // **The game over holds the run the way the pause does** (0x439bc7 testing the two bytes together),
+        // under the continue menu 0x404890 — which is not laid out here: the run stands until a test says.
+        if self.image.is_the_game_over() {
+            return true;
         }
         let edge = word & BUTTON_MENU != 0 && word & BUTTON_MENU != last & BUTTON_MENU;
         if self.image.is_paused() {
@@ -1675,7 +1754,8 @@ impl Fake {
     ///
     /// And the other way a scene changes, which is a run asking: `[gm+0x3db9c]` is `-1` while a run goes
     /// on and 0x439fb6 is the one place that copies it across — the hand-over `Th08::leave_run` writes,
-    /// which waits for a decide of its own.
+    /// which waits for a decide of its own. The run manager's ending also writes 7 and 3 into the
+    /// supervisor's wanted scene directly (0x439dc8, 0x439ddc, 0x439e25), past the hand-over.
     fn follows_its_supervisor(&self, word: u16, last: u16) {
         let (scene, wanted) = (self.image.the_scene_now(), self.image.the_scene_wanted());
         if scene != wanted {
@@ -1736,7 +1816,7 @@ impl Fake {
             return;
         }
         self.image.the_run_wants_no_scene();
-        self.image.the_run_is_its_own();
+        self.image.the_run_is_handed_over();
         if asked == Scene::FrontEnd as i32 {
             self.the_front_end_is_up_on(self.left_the_title_on.get());
         } else {
@@ -1747,9 +1827,11 @@ impl Fake {
     /// **The build a run's own scene arrives by**, which is where the two seams of a resume go in: the
     /// seed settled inside it and the numbers put in place at its end.
     ///
-    /// The order is the game's own — [`stage_building`] is the job the build calls three instructions past
-    /// its seed's copy (0x409b20) and [`stage_begun`] is the run manager's own added callback (0x43aaf4),
-    /// which is the chain job the build registers — so the seed goes in first and the numbers after.
+    /// The seed goes in first and the numbers after: [`stage_building`] is the job the build calls three
+    /// instructions past its seed's copy (0x409b20), and the moment a stage's numbers are in place is read
+    /// off the loader's word — see `Th08::a_stage_has_just_been_built`. [`stage_begun`] is the run manager's
+    /// own added callback (0x43aaf4), which in the game runs as 0x43aa5c adds the run manager to the chain,
+    /// before the thread is started and so before any of the build.
     fn builds_the_stage(&self) {
         self.the_stage_is_laid_out();
         self.stage_built_at
@@ -1762,13 +1844,17 @@ impl Fake {
         self.image.the_stage_began_with_the_seed(seed);
         // **Through orb's own patch over the seam, and not straight to this file's callback**, which is
         // where the build's call lands in the real game once the prologue is written over. Called
-        // straight, a run of the laid-out game was built with the seam never run.
-        orb_core::runtime::stage_building(self.image.the_games_stage_word());
+        // straight, a run of the laid-out game was built with the seam never run. **And entered as the
+        // build enters it**, the stage in `ecx` and nothing on the stack (0x43b3dc) — which is the hook
+        // `Building::InEcx` installs.
+        orb_core::runtime::stage_building_in_ecx(self.image.the_games_stage_word());
     }
 
-    /// **The supervisor's update on a frame its loader's word is set**, which is where it stops short of the
-    /// sound and the input read: the thread's requests served — [`Fake::its_loader_goes_on`] — and 1 answered
-    /// at 0x4455bc. Nothing where the word is clear, which is a frame the rest of [`Fake::update`] is.
+    /// **The supervisor's update on a frame its loader's word is set**, which this file stops short of the
+    /// sound and the input read: the thread's requests served — [`Fake::its_loader_goes_on`], which is
+    /// 0x466000 at 0x445570 — and the frame carried on. The game's own 1 at 0x4455bc is the startup load's
+    /// alone, reached only where `[supervisor+0x294]` is set (0x445584); through a stage's build its update
+    /// runs whole. Nothing where the word is clear, which is a frame the rest of [`Fake::update`] is.
     fn the_supervisor_sits_out_a_build(&self) -> Option<i32> {
         if !self.image.the_loader_is_running() {
             return None;
@@ -1782,8 +1868,11 @@ impl Fake {
     /// at `[0x18bdc90]` for a file and sleeps until 0x466000 has served it, and 0x466000 is called at 0x445570
     /// of the supervisor's update. Its first step builds the stage and puts its jobs on the chain; then it waits
     /// out the frames its build stands for, and clears its word [`Fake::goes_on_building_for`] steps after they
-    /// are up. The word is what `Th08::a_stage_has_just_been_built` reads the moment off; what has to hold is
-    /// that the numbers are in before any job of the stage runs.
+    /// are up. The real thread waits twice more before it clears the hold and its word — on 0x448972, and on
+    /// bits 5 and 6 of the run kind reading nothing (0x43b88b through 0x43b8a6), which the run manager's tail
+    /// clears on a press (0x439f3c) — and this file waits on neither. The word is what
+    /// `Th08::a_stage_has_just_been_built` reads the moment off; what has to hold is that the numbers are in
+    /// before any job of the stage runs.
     fn its_loader_goes_on(&self) {
         if !self.image.the_loader_is_running() {
             return;
@@ -1808,14 +1897,20 @@ impl Fake {
                     A_BUILD_LEAVES
                 };
                 self.image.the_player_comes_in(count);
+                // And the hit's own count at what the spec holds it at (0x44d9a9).
+                self.image
+                    .the_hits_own_count_is(self.image.what_the_hits_own_count_is_held_at());
                 self.build.set(Build::WaitingOutItsFrames);
                 return;
             }
-            // **The build's last wait**, 0x43b86e: its frames counted by the run manager's own step, see
+            // **The build's wait on its frames**, 0x43b86e: its frames counted by the run manager's own step, see
             // [`Fake::update`], and the thread asleep for as long after they are up as a test asks.
+            // **And then on a stage's end being taken down**, bits 5 and 6 of the run's kind reading nothing
+            // (0x43b88b through 0x43b8a6) — see [`Fake::takes_a_stages_end_down`].
             Build::WaitingOutItsFrames => {
                 if self.image.how_long_the_build_has_stood()
                     < self.image.what_the_build_stands_for()
+                    || self.image.the_run_is_ending() != 0
                 {
                     return;
                 }
@@ -1855,9 +1950,36 @@ impl Fake {
 
     /// And the stage after it, which is how this game moves a run on: the run built again, which is the
     /// scene its manager asks for at 0x439ddc.
+    /// **Pressed past a stage's end**, which is somebody at the keyboard tapping the shot at the tally until
+    /// the run manager's tail takes it down — see [`Fake::takes_a_stages_end_down`]. A frame's tap apiece,
+    /// down and let go, for as many frames as a build stands and then some.
+    pub fn presses_past_the_stages_end(&self) {
+        for _ in 0..A_TALLY_IS_PRESSED_PAST_WITHIN {
+            if self.image.the_run_is_ending() == 0 {
+                return;
+            }
+            self.press(orb_sim::keys::Z);
+        }
+    }
+
+    /// **A stage carried on to and pressed past**, which is what a test about the stage after it wants of the
+    /// move: [`Fake::moves_on_to_the_stage`], the build begun, and the tally tapped past.
+    pub fn moves_on_to_the_stage_pressing_past_its_end(&self, stage: i32) {
+        self.moves_on_to_the_stage(stage);
+        for _ in 0..A_TALLY_IS_PRESSED_PAST_WITHIN {
+            if self.image.the_loader_is_running() {
+                break;
+            }
+            self.frame();
+        }
+        self.presses_past_the_stages_end();
+    }
+
     pub fn moves_on_to_the_stage(&self, stage: i32) {
         self.image.is_playing(stage, self.state().difficulty);
         self.image.is_in_scene(Scene::Run, Scene::RunAgain);
+        // The stage's end up in the run's kind, as the build comes to it (`01`, 0x439bc7 and 0x43aaf4).
+        self.image.the_stage_hands_itself_over();
     }
 
     /// **And the run over where there is no stage after the one just played**, which is the run manager's
@@ -2016,9 +2138,10 @@ impl Fake {
     }
 
     /// **What the run manager writes into the records as a stage ends** — that stage's bit into the
-    /// difficulty's `+0x16` word (0x439c50 through 0x439d02), and `0x8000` with it where the stage is a last
-    /// one (0x439eaa through 0x439ed5); nothing for a recording played, which that code steps past — see
-    /// [`Records`]. Answers the records as they now stand.
+    /// difficulty's `+0x16` word (0x439c50 through 0x439d02); nothing for a recording played, which that code
+    /// steps past — see [`Records`]. **`cleared` is marked here too, as a last stage ends**, where the game's
+    /// own `0x8000` is the ending's start's (0x429a00 through 0x429c07) and not the run manager's. Answers the
+    /// records as they now stand.
     fn writes_down_the_stage(&self, stage: i32) -> Records {
         let mut records = self.records.get();
         if !self.image.the_run_plays_a_recording() {
@@ -2089,7 +2212,10 @@ impl Fake {
         // pressed left and right by turns to get back to a place they had never left.
         self.the_player_read
             .set((word, self.image.the_word_the_run_acted_on()));
-        if self.the_players_state_goes_on() {
+        // **Not under a held card**: 0x44c390 returns at once while `[gm+0x2c]` stands — no move, no step of
+        // the state, no countdown.
+        let held = self.image.the_card_is_held() != 0;
+        if !held && self.the_players_state_goes_on() {
             self.moves_its_player(word);
         }
         // **And the timer every live enemy carries, in every run and not only in a stage this file drives**:
@@ -2247,7 +2373,7 @@ impl Fake {
             .the_stage_script_has_run_for(u32::try_from(state.script_frames).unwrap_or(0) + 1);
         // And the generator drawn from, which is what every frame of a run does: a stage whose word never
         // moved is one orb reads as a frame nothing happened on. The step is this file's own — what it has
-        // to be is a word that moves, this game's own draw being 0x4425c0 and unread.
+        // to be is a word that moves, this game's own draw being 0x43ecc0, which this file does not copy.
         self.image.the_generator_has_drawn(
             self.image
                 .the_generators_word()
@@ -2362,23 +2488,76 @@ impl Fake {
     }
 
     /// **Whether the player is standing in a bullet**, which is asked of a player that can be hit and of no
-    /// other: the game's three box tests decline while the state byte is not nothing (0x44a333, 0x44a445,
-    /// 0x44a8f2). A hit is state 2 with its count from nothing — see [`PLAYER_PLAYING`] for what the player's
+    /// other: the game's three box tests take no life while the state byte is not nothing — 0x44a333 and
+    /// 0x44a445 answer 1 and 0x44a900 answers 0. A hit is state 2 with its count from nothing — see
+    /// [`PLAYER_PLAYING`] for what the player's
     /// own update makes of it.
+    ///
+    /// **The bullet's box against the player's**, 0x44a230: the bullet's centre ± half its size overlapping
+    /// `[player+0x38c]..[player+0x398]`, with `<=` and `>=`.
     fn takes_the_hit_it_is_in(&self) {
         if self.image.what_the_player_is_doing() != PLAYER_PLAYING {
             return;
         }
-        let (x, y) = self.image.where_the_player_is();
+        let ((near_x, near_y), (far_x, far_y)) = self.image.the_players_box();
         let half = BULLET_SIZE / 2.0;
-        let hit = self
-            .bullets
-            .borrow()
-            .iter()
-            .any(|bullet| (bullet.at.0 - x).abs() < half && (bullet.at.1 - y).abs() < half);
+        let hit = self.bullets.borrow().iter().any(|bullet| {
+            bullet.at.0 - half <= far_x
+                && bullet.at.0 + half >= near_x
+                && bullet.at.1 - half <= far_y
+                && bullet.at.1 + half >= near_y
+        });
         if hit {
             self.image.the_player_has_been_hit();
+            // **And the hit's own count**, 0x44ab40's: six for each bomb held at most 15, doubled at most 30
+            // while a card is up (0x44ac2b, 0x4178a0), two with no bomb held (0x44ae92). The seven more where
+            // the time orbs have reached the stage's norm and the nine fifths for characters 0, 4 and 5 are
+            // not laid out.
+            let numbers = self.state();
+            let count = match numbers.bombs {
+                0 => A_HIT_WITH_NO_BOMB_COUNTS,
+                bombs => {
+                    let count =
+                        (i32::from(bombs) * A_HIT_COUNTS_PER_BOMB).min(A_HITS_COUNT_AT_MOST);
+                    match numbers.spellcard {
+                        Some(_) => (count * 2).min(A_HITS_COUNT_AT_MOST_UNDER_A_CARD),
+                        None => count,
+                    }
+                }
+            };
+            self.image.the_hits_own_count_is(count);
         }
+    }
+
+    /// **The hit's own count run down, 0x44cbf0's first half**: while it is not nothing, 15 time orbs an
+    /// update (0x44cc10) and one off it, and on the update it reaches nothing the miss's losses — 500 time
+    /// orbs, or a tenth of them at `0x1388` or under (0x44cd46 onward), and the power to nothing at 16 or under
+    /// and down by 16 over it (0x406fa0, 0x441850). Answers whether it ran this update, which is an update the
+    /// countdown does not count.
+    fn runs_the_hits_own_count_down(&self) -> bool {
+        let count = self.image.the_hits_own_count();
+        if count == 0 {
+            return false;
+        }
+        let orbs = self.image.the_time_orbs_picked_up();
+        let mut orbs = orbs.saturating_sub(A_HIT_COSTS_AN_UPDATE);
+        self.image.the_hits_own_count_is(count - 1);
+        if count - 1 == 0 {
+            // The miss counted (0x44cd29, through 0x44e260), the life following at the countdown's end.
+            self.image.has_died(self.state().deaths as f32 + 1.0);
+            orbs -= match orbs > A_MISS_COSTS_A_TENTH_UP_TO {
+                true => A_MISS_COSTS_AT_MOST.min(orbs),
+                false => orbs / 10,
+            };
+            let power = f32::from(self.state().power);
+            self.image
+                .shot_is_at_power(match power <= A_MISS_COSTS_POWER {
+                    true => 0.0,
+                    false => power - A_MISS_COSTS_POWER,
+                });
+        }
+        self.image.the_time_orbs_picked_up_are(orbs);
+        true
     }
 
     /// **The part of the player's own update its state byte decides**, and whether the player moves on this
@@ -2388,12 +2567,20 @@ impl Fake {
     /// puts the player back — which is the whole of what a run with the bomb forbidden has to do about one.
     fn the_players_state_goes_on(&self) -> bool {
         let mut state = self.image.what_the_player_is_doing();
+        if state == PLAYER_HIT && self.runs_the_hits_own_count_down() {
+            return false;
+        }
         let count = self.image.the_frames_the_hit_has_counted();
         if state == PLAYER_HIT && count >= A_COUNT_RUNS_TO {
+            // The life taken where there is one, and the game over where there is not (`0x42f2b0() < 1`
+            // writing `0x164d0bb`); the player coming in either way, which comes first.
             let numbers = self.state();
-            self.image
-                .has_lives_and_bombs((f32::from(numbers.lives) - 1.0).max(0.0), BOMBS);
-            self.image.has_died(numbers.deaths as f32 + 1.0);
+            match numbers.lives {
+                0 => self.image.the_game_is_over(),
+                lives => self
+                    .image
+                    .has_lives_and_bombs(f32::from(lives) - 1.0, BOMBS),
+            }
             self.image.the_player_comes_in(0);
             self.bullets.borrow_mut().clear();
             self.image.bullets_alive(0);
@@ -2406,7 +2593,13 @@ impl Fake {
                 UNTOUCHABLE_FOR
             };
             self.image.the_player_is_untouchable_for(untouchable_for);
+            // The hit's own count back at what the spec holds it at (0x44d2b0).
+            self.image
+                .the_hits_own_count_is(self.image.what_the_hits_own_count_is_held_at());
             state = PLAYER_UNTOUCHABLE;
+        } else if state == PLAYER_COMING_IN {
+            // State 1 holds it at nothing (0x44d232).
+            self.image.the_hits_own_count_is(0);
         }
         let count = self.image.the_frames_the_hit_has_counted();
         if state == PLAYER_UNTOUCHABLE {
@@ -2671,12 +2864,17 @@ unsafe extern "thiscall" fn sums_the_run(_manager: usize) -> u32 {
     running().image.the_runs_checksum()
 }
 
-/// **The supervisor's update**, 0x445453, `__thiscall` on the supervisor — which orb calls alone on a frame a
-/// build is going on, see `Th08::walks_a_frame_of_its_build`. **As far as such a frame reaches**, the thread
-/// served and 1 answered: orb calls nothing else of this laid-out game's that way.
+/// **The supervisor's update**, 0x445453, `__thiscall` on the supervisor — which orb calls alone on a frame of
+/// a build that has stood out its frames, see `Th08::walks_a_frame_of_its_build`. **As far as such a frame
+/// reaches here**, the thread served and the frame carried on, where the game's own update runs whole through
+/// a stage's build: orb calls nothing else of this laid-out game's that way.
 unsafe extern "thiscall" fn supervisor_update(_supervisor: usize) -> i32 {
-    running()
-        .the_supervisor_sits_out_a_build()
+    let fake = running();
+    // The read the supervisor makes on every frame, a build's among them (0x4455f5).
+    if fake.image.the_loader_is_running() {
+        fake.reads_its_keys();
+    }
+    fake.the_supervisor_sits_out_a_build()
         .unwrap_or(CHAIN_CARRIED_ON)
 }
 
@@ -2829,7 +3027,11 @@ fn the_pads_share() -> u16 {
 ///
 /// What orb does in front of it is `Th08::seed`, which is the whole reason the seam is inside the build
 /// rather than in front of it.
-extern "C" fn stage_building(_stage: i32) -> i32 {
+///
+/// **Entered with the stage in `ecx`**, which is the build's own call (`mov ecx,[eax+0x3ddc4]` at 0x43b3dc,
+/// `call 0x409b20` after it) — and kept where 0x409b27 keeps it.
+extern "fastcall" fn stage_building(stage: i32) -> i32 {
+    running().image.the_seeds_job_keeps_the_stage(stage);
     0
 }
 
@@ -2940,17 +3142,22 @@ extern "C" fn pad_buttons() -> *mut c_void {
     std::ptr::null_mut()
 }
 
-/// **`GameWindow::CreateGameWindow` at 0x435640**, which is the call everything about this game's window is
+/// **`GameWindow::CreateGameWindow` at 0x442240**, which is the call everything about this game's window is
 /// decided inside: nothing of its own, a laid-out launch asking for no window until
 /// [`Fake::creates_its_window`] does.
 ///
 /// What orb's hook in front of it is for is the windowed flag underneath it — see `Th08::force_windowed`.
-extern "C" fn create_game_window(_instance: *mut c_void) {}
+extern "fastcall" fn create_game_window(_instance: *mut c_void) -> i32 {
+    0
+}
 
-/// And its device setup at 0x435810, which orb gets in front of to redirect `Present` before anything is
-/// presented through it: nothing of its own, the device and its vtable being
-/// [`Fake::finds_its_device`]'s writes.
-extern "C" fn init_d3d_device() {}
+/// **And its device setup at 0x4424c0, which is where the device is made**: `IDirect3D8::CreateDevice` into
+/// `[0x17ce760]` at 0x442681, 0x4426c8 and 0x442710 — so orb's hook in front of it finds no device until this
+/// has run, and the device and its vtable are laid out here and not before the call.
+extern "C" fn init_d3d_device() -> i32 {
+    running().makes_its_device();
+    0
+}
 
 /// **And its `SetActiveWindow`**, which orb's rewrite calls through for a window it leaves to the game: the host
 /// writes the window down as brought forward, an active window being the one in front.

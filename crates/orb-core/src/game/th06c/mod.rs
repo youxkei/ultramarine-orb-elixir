@@ -196,6 +196,12 @@ handed_over_at!(
     FINISHES_THE_PICTURE
 );
 handed_over_at!(RUN_START_AT, run_start, set_run_start, RUN_START);
+handed_over_at!(
+    CAPTURES_THE_FIELD_AT,
+    captures_the_field,
+    set_captures_the_field,
+    CAPTURES_THE_FIELD
+);
 
 /// **Where the game keeps a virtual key in the 256 it plays a run off**, out of its own table — see
 /// [`THE_TABLE_OF_KEYS`], and `Th06c::presses_into_its_own_keys`, which is the one thing that asks.
@@ -231,9 +237,11 @@ unsafe fn the_index_of_the_key(key: u8) -> Option<usize> {
 ///
 /// **Because a run's own input does not come through the keyboard at all while this is here.** The read
 /// at `0x14008e0f0` takes the device where there is one — `GetDeviceState` straight into the game's own
-/// key buffer at `0x14008e1c8` — and the translation from virtual keys that orb's answer feeds is on the
-/// *other* branch, reached only where `[0x140441fa4]` or `[0x140441fe4]` is 1 or this is nought. So a
-/// menu, which is up while one of those flags is, took orb's presses, and a run did not: measured with
+/// key buffer at `0x14042893c`, called at `0x14008e1c8` — and the translation from virtual keys that
+/// orb's answer feeds is on the *other* branch, reached only where `[0x140441fa4]` or `[0x140441fe4]` is
+/// 1, or this is nought, or `[0x140441fa8]` is nought with the build number at `0x140452438` at `0x108`
+/// or above — and then only on the thread whose id is at `0x140443af0`, the main one. So a menu, which
+/// is up while one of those flags is, took orb's presses, and a run did not: measured with
 /// the shot and the right held for six hundred frames, the player still in the middle of the field and
 /// the score still `000000000` with the fairies of stage 1 in formation in front of it.
 ///
@@ -295,19 +303,80 @@ mod pad {
     pub const DOWN: u16 = 0x0002;
     pub const LEFT: u16 = 0x0004;
     pub const RIGHT: u16 = 0x0008;
-    pub const START: u16 = 0x0010;
-    pub const A: u16 = 0x1000;
-    pub const B: u16 = 0x2000;
-    pub const X: u16 = 0x4000;
+    /// The bit number the menus take their decide off where `th06.cfg` swaps nothing: `A`'s.
+    pub const DECIDE: u16 = 12;
+    /// And `th06.cfg`'s own pad bindings where it is not there to be read — `0x1403e0290`'s five, see
+    /// `super::supervisor::CONFIG_PAD_SHOT`.
+    pub const DEFAULTS: [(usize, i16); 4] = [
+        (super::supervisor::CONFIG_PAD_SHOT, 12),
+        (super::supervisor::CONFIG_PAD_BOMB, 13),
+        (super::supervisor::CONFIG_PAD_FOCUS, 9),
+        (super::supervisor::CONFIG_PAD_PAUSE, 4),
+    ];
+
+    /// The `wButtons` bit a bit number is, nothing for one past the sixteen.
+    pub const fn bit(number: u16) -> u16 {
+        match number {
+            0..16 => 1 << number,
+            _ => 0,
+        }
+    }
 }
 
-/// **The same buttons in the numbering orb's sampling gives an XInput pad's** — `A` 0, `B` 1, `X` 2 and `Start`
-/// 7, DirectInput's order (see `joystick`'s own table) — each with the bits of the word it presses. `A` both the
-/// shot and the decide, as [`Game::press_into_pad`] presses both on it.
+/// **The `wButtons` bit the `th06.cfg` at `config` binds `field` bytes into it**, or the game's default where
+/// the field cannot be read; nothing for a binding the file left negative, which is no button.
+fn the_button_bound_in(config: usize, field: usize) -> u16 {
+    let bound = mem::read_committed::<i16>(config + field).or_else(|| {
+        pad::DEFAULTS
+            .iter()
+            .find(|(at, _)| *at - supervisor::CONFIG_PAD_SHOT == field)
+            .map(|(_, default)| *default)
+    });
+    match bound {
+        Some(number @ 0..) => pad::bit(number.unsigned_abs()),
+        _ => 0,
+    }
+}
+
+/// **The `wButtons` a word presses on a pad bound by the `th06.cfg` at `config`** — the shot, the bomb, the
+/// focus and the pause on the buttons the file binds, the decide on `A` or, where the file swaps the two, on
+/// `B`, and the four directions on the d-pad. `pub(crate)` for th06nc, which keeps the same file at another
+/// address and binds its pad the same way.
+///
+/// **The game's own bindings and not a mapping of orb's**: the focus is the right shoulder by default and
+/// `X` is the conversation skip, so a focus pressed on `X` skipped every conversation it was held through and
+/// never slowed the player.
+///
+/// `swap` is the byte that swaps the decide and the cancel, which the two builds keep at different places of
+/// the file: th06c's `+0x15`, th06nc's `+0x16`.
+pub(crate) fn the_buttons_pressed_through(config: usize, swap: usize, word: u16) -> u16 {
+    let swapped = mem::read_committed::<u8>(swap).is_some_and(|swapped| swapped != 0);
+    let bound = |field: usize| the_button_bound_in(config, field - supervisor::CONFIG_PAD_SHOT);
+    [
+        (button::SHOT, bound(supervisor::CONFIG_PAD_SHOT)),
+        (button::DECIDE, pad::bit(pad::DECIDE + u16::from(swapped))),
+        (button::BOMB, bound(supervisor::CONFIG_PAD_BOMB)),
+        (button::FOCUS, bound(supervisor::CONFIG_PAD_FOCUS)),
+        (button::MENU, bound(supervisor::CONFIG_PAD_PAUSE)),
+        (button::UP, pad::UP),
+        (button::DOWN, pad::DOWN),
+        (button::LEFT, pad::LEFT),
+        (button::RIGHT, pad::RIGHT),
+    ]
+    .iter()
+    .filter(|(bit, _)| word & bit != 0)
+    .fold(0, |buttons, (_, button)| buttons | button)
+}
+
+/// **The same buttons in the numbering orb's sampling gives an XInput pad's** — `A` 0, `B` 1, the right shoulder
+/// 5 and `Start` 7, DirectInput's order (see `joystick`'s own table) — each with the bits of the word it presses.
+/// `A` both the shot and the decide, as [`Game::press_into_pad`] presses both on it; **the focus on the right
+/// shoulder**, which is where `th06.cfg` binds it by default in both builds (`0x1403e0290`'s 9, th06nc's
+/// `0x140429210`'s), `X` being the conversation skip there and a button orb has no bit for.
 const SAMPLED_BUTTONS: [(i16, u16); 4] = [
     (0, button::SHOT | button::DECIDE),
     (1, button::BOMB),
-    (2, button::FOCUS),
+    (5, button::FOCUS),
     (7, button::MENU),
 ];
 
@@ -411,6 +480,26 @@ mod key {
     pub const DOWN: u8 = 0x28;
     pub const LEFT: u8 = 0x25;
     pub const RIGHT: u8 = 0x27;
+
+    /// **And the focus again as this build's own table holds it**: `VK_LSHIFT`, which the table at
+    /// `0x1402bc0b0` keeps at scan `0x2a` beside `VK_RSHIFT` at `0x36` — and it holds no [`FOCUS`] at all.
+    /// See [`the_key_the_games_table_holds`](super::the_key_the_games_table_holds).
+    pub const FOCUS_IN_THE_GAMES_TABLE: u8 = 0xa0;
+}
+
+/// **The key this game's own table holds for a button orb presses**, which is the key itself for eight of
+/// the nine.
+///
+/// **The focus is the ninth.** The table has `VK_LSHIFT` and `VK_RSHIFT` and no `VK_SHIFT`, so a focus
+/// looked up by [`key::FOCUS`] finds no entry, and a snapshot holding `VK_SHIFT` alone is one the game's read
+/// copies no focus out of. And [`key::FOCUS`] still stands for what a person presses: `GetKeyboardState`
+/// fills its 256 bytes by virtual key and sets `VK_SHIFT` beside the side that is down, which is the read
+/// [`Th06c::word_in`] makes. th06nc's table is the same, and so is this.
+const fn the_key_the_games_table_holds(key: u8) -> u8 {
+    match key {
+        key::FOCUS => key::FOCUS_IN_THE_GAMES_TABLE,
+        key => key,
+    }
 }
 
 /// **The bits orb's own word carries for this game**, which are orb's and not the game's: what this
@@ -600,12 +689,29 @@ const PUTS_THE_RATE_TOGETHER: usize = 0x1_4005_92d0;
 const WHAT_IT_PUTS_IT_ON: usize = 0x1_40bc_2580;
 const FINISHES_THE_PICTURE: usize = 0x1_4007_55c0;
 
+/// **And the two things the wait does after it has waited**, which are the game's and not the wait's: the
+/// field captured where something asked for it, and a count of the supervisor's taken down a frame.
+///
+/// The capture is asked for in the renderer's `+0x1c608`, nought or more being a request and `-1` none —
+/// the pause menu writes `3` there with the field's rectangle in the four words after it (0x1400093b8 through
+/// 0x1400093e0, where `[0x140bc2914]` says the pause shows the field behind it) — and 0x140025da4 onwards
+/// serves it: 0x140007620 handed the renderer, the request and the rectangle, and `-1` written back
+/// (0x140025dd8). Left out with the wait, a pause that asked for the field behind it was never given it.
+const CAPTURES_THE_FIELD: usize = 0x1_4000_7620;
+/// The renderer's request, and the rectangle after it — see [`CAPTURES_THE_FIELD`].
+const THE_CAPTURE_ASKED_FOR: usize = 0x1_c608;
+const NO_CAPTURE_ASKED_FOR: i32 = -1;
+/// **The count the wait's last act takes one off** where it is not nought (0x140025de2 through 0x140025dee).
+const THE_WAITS_OWN_COUNT: usize = 0x1_40bc_258c;
+
 /// **The game's own run start**, called by the shot select's decide at `0x140035958` and the practice
 /// stage select's at `0x14003629b` once their screens have written the run's numbers: the lives and the
-/// bombs out of the configuration — `0x302` over the pair where the difficulty is the Extra's, `0x14002cc30`
-/// — the supervisor's state to two, the playback flag at `0x1403ed7b8` cleared, the decide's own sound
-/// queued, and the music stopped and its track put to `-1` (`0x14002cc9e` on). No arguments; see
-/// `th06c/asm.md`. What orb calls where it writes a run into being — `Th06c::start_a_run`.
+/// bombs out of the configuration — `0x302` over the pair where the difficulty is the Extra's or the run
+/// is a practice one, `0x14002cc30` — the supervisor's state to two, the decide's own sound queued, the
+/// playback flag at `0x1403ed7b8` cleared, and then by the configuration byte at `0x140bc28c6`: the
+/// music stopped and its track put to `-1` where it is 1 (`0x14002cc9e` on), `0x1400381d0` called on the
+/// sound object instead where it is 2. No arguments; see `th06c/asm.md`. What orb calls where it writes a
+/// run into being — `Th06c::start_a_run`.
 const RUN_START: usize = 0x1_4002_cc00;
 /// **How far into that object [`the_swapchain`] looks for one**, which is as far as the frame itself
 /// reaches into it and a little over: what is being searched is the renderer's own fields, and the
@@ -995,13 +1101,16 @@ mod player {
     pub const BOMB_IN_USE: usize = 0x97d0;
     /// **The frames a bomb still takes the hit back in**, one off a frame at `0x14004a7ae`, and the frame
     /// it reaches nought is the frame the death is made final — `0x14004a7bd` onwards reads the lives.
+    /// The player's register writes it 8 (`0x14004a45d`), the walk-in nought (`0x14004ab32`) and the
+    /// walk-in's end 6 (`0x14004abb4`).
     ///
     /// **Which is what says a hit was taken at all**, where the state above says what the player is in
     /// the middle of: read beside it in the line a hit writes, because a run kept reporting hits with
     /// nothing within sixteen of the player and the two readings tell those apart.
     pub const A_BOMB_STILL_TAKES_IT_BACK: usize = 0x7254;
     /// And the frames of invulnerability the state above counts down — `0x14004ac4e`, whose pair is a
-    /// `Timer`.
+    /// `Timer`. In every other state it counts up, and states 1 and 2 read it (`0x14004aaeb`,
+    /// `0x14004a93e`).
     pub const UNTOUCHABLE: usize = 0x7378;
     /// **The phase of the shot the player is firing, and the phase the update before it had** — the pair
     /// `0x14004b8aa` steps every update: `[+0x40c]` up one and `[+0x408]` keeping what it was, with the
@@ -1033,10 +1142,11 @@ const ONE_UPDATE_INTO_A_CYCLE: (i32, i32) = (1, 0);
 /// **The field the player may move in**, four floats — left, top, width, height — which
 /// `0x14004b006`–`0x14004b05f` puts the position back inside.
 ///
-/// **And nothing in the exe writes them**, which is why [`sight::field`] does not trust them alone: they
-/// initialise to nought in `.data`, and a search of every function `.pdata` names and every byte between
-/// those functions found no instruction naming one as a destination. A rectangle of nought would pin the
-/// player at its corner, so the game fills them some way this reading has not found.
+/// **They initialise to nought in `.data`, and the stage callback writes them as a run starts**: as the
+/// game manager's `+0x17e4`..`+0x17f0` off `rcx`, so with no rip-relative address naming them — `8`, `16`,
+/// `368` and `416` at `0x140024345`, `0x14002434f`, `0x140024359` and `0x140024363`. So the player is held
+/// to x from 8 to 376 and y from 16 to 432. Before that first stage they are still nought, which is why
+/// [`sight::field`] does not trust them alone.
 const PLAYER_AREA: usize = 0x1_403e_e7f4;
 
 /// **The field's own size**, two floats initialised in `.data` to `384` and `448`, and what every
@@ -1164,8 +1274,9 @@ mod game_manager {
     /// at `0x140014e99`) and `+0x20` after them is the stage — see [`super::STAGE`].
     pub const CHARACTER: usize = 0x1c;
     pub const SHOT: usize = 0x1d;
-    /// **The score**, the field the replay's record saves at `0x14004da37` and the capture adds its bonus
-    /// to at `0x140014e1f`. The field before it is what the panel draws, which the update raises to this.
+    /// **The score**, the field the recording init saves into the previous stage's record at
+    /// `0x14004da37` as a stage begins, and the capture adds its bonus to at `0x140014e1f`. The field
+    /// before it is what the panel draws, which the update raises to this.
     pub const GUI_SCORE: usize = 0x7ac;
     pub const SCORE: usize = 0x7b0;
     /// **The two menus a run stops for**: the pause menu, and the menu a run out of lives is asked to
@@ -1190,8 +1301,10 @@ mod game_manager {
     pub const RANDOM_SEED: usize = 0x195c;
     /// **The frames the stage has run**, which the game's own recording counts its entries by.
     pub const GAME_FRAMES: usize = 0x196c;
-    /// **The rank**, which the enemies read and `0x1400243cf` starts at eight; the bounds either side of
-    /// it come out of a table by difficulty at `0x140024e7e`, and the sub-rank counts towards a step.
+    /// **The rank**, which the enemies read. `0x1400243cf` writes eight, and a run's first stage then
+    /// takes it and the bounds either side of it out of the table by difficulty at `0x1403e0010`
+    /// (`0x140024cac` on) — sixteen on every difficulty; a playback takes the bounds again on every stage
+    /// at `0x140024e65`–`0x140024e86`. The sub-rank counts towards a step.
     pub const RANK: usize = 0x1970;
     pub const SUB_RANK: usize = 0x197c;
 }
@@ -1210,7 +1323,7 @@ mod supervisor {
     pub const LAST_STATE: usize = 0x328;
     /// How many lives and bombs a run starts with, out of `th06.cfg`'s `+0x10` and `+0x11`: the run's
     /// start at `0x14002cc0b` copies them over the lives and the bombs, and writes two and three over
-    /// both where the difficulty is the Extra.
+    /// both where the difficulty is the Extra or the run is a practice one (`0x14002cc30`).
     ///
     /// **Allowed rather than `cfg`ed**, the same answer `super::STATE_THE_RUNS_OWN_END` got: a `cfg`
     /// takes the constant out of the build this module's doc links are resolved in, and what is wrong is
@@ -1225,6 +1338,30 @@ mod supervisor {
         reason = "read by `image`, which is behind `feature = \"sim\"`"
     )]
     pub const CONFIG_BOMBS: usize = 0x345;
+    /// **How the music is played**, 1 for the wav tracks by default (`0x01010302` at 0x140059935) and 2 for
+    /// MIDI: a run's start stops the track only where it is 1 (0x14002cc70).
+    #[allow(
+        dead_code,
+        reason = "read by `image`, which is behind `feature = \"sim\"`"
+    )]
+    pub const CONFIG_MUSIC: usize = 0x346;
+    /// **The pad's buttons, as `th06.cfg`'s `+0x0` to `+0x9` hold them**: five `i16` bit numbers into
+    /// `XINPUT_GAMEPAD`'s `wButtons` for the shot, the bomb, the focus, the conversation skip and the pause,
+    /// a negative one being no button. `0x14000f710` reads them over the pad it polled (0x140bc28b4 to
+    /// 0x140bc28bc), and the defaults it falls back on, `0x1403e0290`, are `12, 13, 9, 14, 4` — `A`, `B`,
+    /// the right shoulder, `X` and `Start`.
+    pub const CONFIG_PAD_SHOT: usize = 0x334;
+    pub const CONFIG_PAD_BOMB: usize = 0x336;
+    pub const CONFIG_PAD_FOCUS: usize = 0x338;
+    #[allow(
+        dead_code,
+        reason = "read by `image`, which is behind `feature = \"sim\"`: orb presses no conversation skip"
+    )]
+    pub const CONFIG_PAD_SKIP: usize = 0x33a;
+    pub const CONFIG_PAD_PAUSE: usize = 0x33c;
+    /// And `th06.cfg`'s `+0x15`, which swaps the menus' decide and cancel: `0x14000f710` takes the decide
+    /// `0x100` off bit `12 + this` and the cancel `0x200` off `13 - this`.
+    pub const CONFIG_DECIDE_SWAPPED: usize = 0x349;
 }
 
 /// The supervisor's states, th06 1.02h's numbering — see [`supervisor::CUR_STATE`].
@@ -1290,7 +1427,8 @@ const CATK_ATTEMPTS: usize = 0x3c;
 const CURRENT_CARD: usize = ENEMY_MANAGER + enemy_manager::SPELLCARD_IDX;
 
 /// **The stage callback of the game manager**, `0x1400242d0`: the numbers a stage starts with go in
-/// here — the rank from a table by difficulty, the seed copied out of the generator at `0x140024e9c` —
+/// here — the rank from a table by difficulty on a run's first stage, the seed copied out of the
+/// generator at `0x140024e9c` —
 /// and the stage is built out of them at `0x140024ea3`. Answers nought where it built one and `-1`
 /// where it could not. Registered as the game manager's element's own callback and called with the
 /// manager in `rcx`, which is what makes it [`Entered::InEcx`].
@@ -1333,9 +1471,9 @@ const RESULT_SCREEN_UPDATE: usize = 0x1_4004_ff40;
 /// jobs go and stands alone until the screen a run ends at registers.
 ///
 /// **Found by walking the chain rather than by the file it reads.** `th06ED.dat`'s string sits at
-/// `0x14030ab08` and no reference to it is in `.text` at all — not rip-relative, not indexed, not a
-/// `movabs` operand — which is the negative the name entry's own grid gave before that was found the same
-/// way. So [`say_the_jobs_when_they_change`] wrote the chain's callbacks down whenever the set of them
+/// `0x14030bf08` and is named once in `.text`, by the `lea r8` at `0x140018c62` — inside the ending's own
+/// code, which says what the ending loads and not which callback of the chain is the ending. So
+/// [`say_the_jobs_when_they_change`] wrote the chain's callbacks down whenever the set of them
 /// changed, and one launch of a Normal clear named this one outright: the stage's jobs at `f98220`, this
 /// one alone from `f98220` to `f106680` — `8,460` frames, which is the ending's own length — and
 /// [`RESULT_SCREEN_UPDATE`] registered on the frame after it went.
@@ -1578,8 +1716,9 @@ mod bullet_manager {
     /// slot nothing is in.
     pub const STATE: usize = 0x44;
     /// **And the only one the player is tested against.** State 1's branch is the one whose path reaches
-    /// `0x14000e3fb`, and the four calls of the player's own test at `0x14004c690` are all on it; the
-    /// other four end at the manager's own loop tail with no test made.
+    /// `0x14000e3fb`, and the manager's one call of the player's own test `0x14004c690`, at `0x14000e490`,
+    /// is on it. States 2 to 4 fall into that branch on the frame they become 1 (`0x14000ddee`) and are
+    /// tested then; state 5 ends at the manager's own loop tail with no test made.
     pub const FLYING: u16 = 1;
     /// **The size the game's own hit test is given**, which `0x14000e47e` hands over beside the position
     /// at `0x14000e490`.
@@ -1594,18 +1733,18 @@ mod bullet_manager {
     /// | 2 | `0x14000dd57` | a half — `1.0 / 2.0` |
     /// | 3 | `0x14000dd6d` | `1.0 / 2.5` |
     /// | 4 | `0x14000dd7e` | `1.0 / 3.0` |
-    /// | 5 | `0x14000dcf9` | nothing at all either |
+    /// | 5 | `0x14000dcf9` | a half — `0x14030dfc8`'s `0.5` in `xmm13` (`0x14000dc4f`) |
     ///
     /// **The jump is a chain of subtractions and not a table**: `0x14000dcd6` onwards takes `r15d` — one —
     /// off the state four times over, sending 1 to `0x14000de04`, 2, 3 and 4 to the divisor chain at
     /// `0x14000dd52`, and letting 5 fall through to `0x14000dcf9`.
     ///
-    /// **And state 5 was read as a half, which a run then contradicted.** `0x14000dd15`'s `mulss xmm1,xmm13`
-    /// is in the code that branch falls into and `xmm13` is `0x14030dfc8`'s `0.5`, so the half looked like
-    /// the answer — but what that block scales is `[rsi]`..`[rsi+8]` into `[rdi]`..`[rdi+8]`, off the
-    /// `rbx+0x490` the `lea` before it takes, and **not** the bullet's own `+0x8` into its `+0x30`. A launch
-    /// said so outright: `the widest of them moved 3.30,5.38 saying 1.65,2.69, in the game's own state 5` —
-    /// twice what a half predicts, on both axes, which is the step applied whole.
+    /// **State 5's half is the bullet's own step**: `rsi` and `rdi` are the bullet's `+0x8` and `+0x30`
+    /// (`lea` at 0x14000dc4b and 0x14000dc58, stepped a slot at a time at 0x14000e4e1 and 0x14000e4e8), and the
+    /// `rbx+0x490` the `lea` between them takes is the argument of the animation call after. A launch that read
+    /// `the widest of them moved 3.30,5.38 saying 1.65,2.69, in the game's own state 5` was a bullet the hit
+    /// test or the graze test had just put in state 5 (0x14000e499, 0x14000e464): it moved its whole step in
+    /// state 1 on that frame, before the test, and is read in state 5 after it.
     ///
     /// **And getting this wrong is what a flat half cost**: a launch that scaled every state by `0.5`
     /// had the rules judge ten of ten bullets as moved by something other than their own step, so every
@@ -1614,7 +1753,7 @@ mod bullet_manager {
     /// stage 3's boss.
     pub const fn a_steps_scale(state: u16) -> f32 {
         match state {
-            2 => 1.0 / 2.0,
+            2 | 5 => 1.0 / 2.0,
             3 => 1.0 / 2.5,
             4 => 1.0 / 3.0,
             _ => 1.0,
@@ -1671,10 +1810,11 @@ mod laser {
     /// **The frame of its first phase it starts hitting on**: `0x14000e7a1` runs the player's own test
     /// only once the frames have reached it, so a laser before that is drawn and hits nothing.
     pub const HITS_FROM: usize = 0x26c;
-    /// From this phase on the test is run every frame — `0x14000e847` and `0x14000e93d`.
+    /// In this phase the test is run every frame — `0x14000e847` — and in the next while its frames are
+    /// under the slot's own `+0x0` (`0x14000e8fb`, the call at `0x14000e93d`).
     pub const FIRING: u8 = 1;
     /// And from this one it is going out, `0x14000e8bd` onwards taking `width × (1 − frames ÷`
-    /// [`NARROWS_OVER`]`)` and writing it where the length goes.
+    /// [`NARROWS_OVER`]`)`, halving it and writing it where the length goes.
     pub const FADING: u8 = 2;
     /// **How many frames it goes out over**, which is what that fraction is of.
     ///
@@ -1821,16 +1961,17 @@ const DOWN_IN_ITS_OWN_KEYS: u8 = 0x80;
 /// holding — see `Th06c::presses_into_its_own_keys`, which writes it for the keys a word does not hold.
 const UP_IN_ITS_OWN_KEYS: u8 = 0x00;
 /// **The game's own table from a virtual key to the index it keeps that key at**: six bytes an entry —
-/// the virtual key, the index, and two bytes of nought — walked at `0x14008e2c0` and ending at a key of
-/// `0xffff`. `A` is `0x41 -> 0x1e`, which is `DIK_A`, so the buffer is indexed by DirectInput's own scan
-/// codes.
+/// the virtual key, the index, and two bytes of nought — walked at `0x14008e2c0`, and 110 entries before
+/// the key of `0xffff` that ends it, the walk loading the first key, `0x41`, at `0x14008e2a2` rather
+/// than reading it. `A` is `0x41 -> 0x1e`, which is `DIK_A`, so the buffer is indexed by DirectInput's
+/// own scan codes.
 ///
 /// **Read rather than written down**, because a scan code per button is nine numbers to get right and
 /// this is the mapping the game itself uses.
 const THE_TABLE_OF_KEYS: usize = 0x1_402b_c0b0;
 /// How far apart its entries are, and how many of them there can be before the walk gives up: the table
-/// ends at a key of `0xffff` and `0x41` entries is what the walk was measured over, so twice that is a
-/// bound that cannot loop on a table orb has misread.
+/// ends at a key of `0xffff` after 110 entries, so `0x82`, 130, is a bound above that which cannot loop
+/// on a table orb has misread.
 const A_KEY_IN_THE_TABLE: usize = 6;
 const KEYS_IN_THE_TABLE: usize = 0x82;
 /// What the table's own end is.
@@ -1867,6 +2008,9 @@ static DEATHS: AtomicI32 = AtomicI32::new(0);
 /// Whether the player's state was [`player::HIT`] on the frame before, which is what makes the count above
 /// move once per hit rather than once per frame of one.
 static WAS_HIT: AtomicBool = AtomicBool::new(false);
+/// The stage word the last frame in a stage's own state read — see [`Th06c::read_state`]'s frame between
+/// the stages.
+static THE_WORD_PLAYED: AtomicI32 = AtomicI32::new(0);
 
 /// **Which line of a conversation is up**, and negative for none — the panel's own field, behind a pointer
 /// the game manager makes and nulls, so a null is no conversation either.
@@ -2173,16 +2317,23 @@ impl Game for Th06c {
     /// keyboard would otherwise be added to every word the rules chose. `Th06c::presses_into_its_own_keys`
     /// has the measurement for what a union of two words does to a run.
     ///
+    /// **Each button at its own virtual key and at the one this game's table holds for it**, which is what
+    /// carries the focus: that key goes in at `VK_SHIFT`, and the table holds `0xa0` and `0xa1` at the shift
+    /// scans and no `0x10` — see [`key::FOCUS_IN_THE_GAMES_TABLE`]. Both keys is what a real
+    /// `GetKeyboardState` answers, and for the other eight buttons the two are one key written twice.
+    ///
     /// # Safety
     /// `state` must be the 256 bytes the game's read was given.
     unsafe fn press_into(&self, state: *mut u8, word: u16) {
         for (_, bit, key) in Self::BUTTONS {
-            if usize::from(*key) < KEYS_IN_A_SNAPSHOT {
-                let held = match word & bit != 0 {
-                    true => DOWN,
-                    false => UP,
-                };
-                unsafe { state.add(usize::from(*key)).write(held) };
+            let held = match word & bit != 0 {
+                true => DOWN,
+                false => UP,
+            };
+            for key in [*key, the_key_the_games_table_holds(*key)] {
+                if usize::from(key) < KEYS_IN_A_SNAPSHOT {
+                    unsafe { state.add(usize::from(key)).write(held) };
+                }
             }
         }
     }
@@ -2241,7 +2392,7 @@ impl Game for Th06c {
     unsafe fn presses_into_its_own_keys(&self, word: u16) -> bool {
         let mut pressed = false;
         for (_, bit, key) in Self::BUTTONS {
-            let index = unsafe { the_index_of_the_key(*key) };
+            let index = unsafe { the_index_of_the_key(the_key_the_games_table_holds(*key)) };
             let Some(index) = index else {
                 continue;
             };
@@ -2263,25 +2414,17 @@ impl Game for Th06c {
     /// from is the game's business, and a pad held to the corner says the same thing either way. Full
     /// deflection, since a stick half over is a game's own dead zone away from meaning nothing.
     ///
+    /// **On the buttons the game's own `th06.cfg` binds**, read where its read reads them — see
+    /// [`the_buttons_pressed_through`] and [`supervisor::CONFIG_PAD_SHOT`].
+    ///
     /// # Safety
     /// `state` must be the sixteen bytes of an `XINPUT_STATE`.
     unsafe fn press_into_pad(&self, state: *mut u8, word: u16) {
-        let mut buttons = 0u16;
-        for (bit, button) in [
-            (button::SHOT, pad::A),
-            (button::DECIDE, pad::A),
-            (button::BOMB, pad::B),
-            (button::FOCUS, pad::X),
-            (button::MENU, pad::START),
-            (button::UP, pad::UP),
-            (button::DOWN, pad::DOWN),
-            (button::LEFT, pad::LEFT),
-            (button::RIGHT, pad::RIGHT),
-        ] {
-            if word & bit != 0 {
-                buttons |= button;
-            }
-        }
+        let buttons = the_buttons_pressed_through(
+            at(SUPERVISOR + supervisor::CONFIG_PAD_SHOT),
+            at(SUPERVISOR + supervisor::CONFIG_DECIDE_SWAPPED),
+            word,
+        );
         let across = match (word & button::RIGHT != 0, word & button::LEFT != 0) {
             (true, false) => i16::MAX,
             (false, true) => i16::MIN,
@@ -2393,7 +2536,27 @@ impl Game for Th06c {
         let wanted = unsafe { in_the_image::<i32>(SUPERVISOR + supervisor::LAST_STATE) };
         // **The game's own number less one**, this game counting stages from one where `State::stage`
         // is counted from nought the way orb counts them everywhere — see `RunStart::stage`.
-        let stage = unsafe { in_the_image::<i32>(STAGE) } - 1;
+        //
+        // **And no stage between a stage's end and the next one's build**: the end asks for the rebuild
+        // (0x140028410's case 0xb writing 3 over the state) and the supervisor's next update builds it, so the
+        // frame between is the old stage over and the new one not there. The word itself says nothing of it —
+        // nothing writes it nought, and the callback raises it by one — so it is the state asked for and not
+        // yet acted on that says it, which is what `runtime`'s wall at a stage's end reads as no stage.
+        //
+        // **And only while the word is still the stage played**: the stage callback runs inside that same
+        // state, the supervisor putting it back only once the build is done, and a stage's start read there
+        // is of the stage it has just raised the word to.
+        let word = unsafe { in_the_image::<i32>(STAGE) };
+        if scene == STATE_GAMEMANAGER {
+            THE_WORD_PLAYED.store(word, Ordering::Relaxed);
+        }
+        let between_the_stages = scene == STATE_GAMEMANAGER_REINIT
+            && wanted == STATE_GAMEMANAGER
+            && word == THE_WORD_PLAYED.load(Ordering::Relaxed);
+        let stage = match between_the_stages {
+            true => -1,
+            false => word - 1,
+        };
         let playing = unsafe { sight::in_a_stage() };
         // **Wider than `playing`, the way th06's is**: a frame the game holds everything on is a frame
         // of a run, and what reads this is whether a `play_until` is over — see [`sight::in_a_run`].
@@ -2782,6 +2945,34 @@ impl Game for Th06c {
         let finish: unsafe extern "win64" fn() =
             unsafe { std::mem::transmute(finishes_the_picture()) };
         unsafe { finish() };
+        // **And what the wait does once it has waited**, in its order — see [`CAPTURES_THE_FIELD`].
+        if let Some(renderer) =
+            mem::read_committed::<usize>(at(THE_RENDERER)).filter(|renderer| *renderer != 0)
+        {
+            let asked = renderer + THE_CAPTURE_ASKED_FOR;
+            let request = mem::read_committed::<i32>(asked).unwrap_or(NO_CAPTURE_ASKED_FOR);
+            if request >= 0 {
+                let word = |at: usize| mem::read_committed::<i32>(asked + at).unwrap_or(0);
+                let capture: unsafe extern "win64" fn(usize, i32, i32, i32, i32, i32) =
+                    unsafe { std::mem::transmute(captures_the_field()) };
+                unsafe {
+                    capture(
+                        renderer,
+                        request,
+                        word(0x4),
+                        word(0x8),
+                        word(0xc),
+                        word(0x10),
+                    )
+                };
+                unsafe { mem::write::<i32>(asked, NO_CAPTURE_ASKED_FOR) };
+            }
+        }
+        if let Some(left) =
+            mem::read_committed::<i32>(at(THE_WAITS_OWN_COUNT)).filter(|left| *left != 0)
+        {
+            unsafe { mem::write::<i32>(at(THE_WAITS_OWN_COUNT), left - 1) };
+        }
     }
 
     /// **Both of them orb's own, for a game whose frame has neither as a function to call.** The sound's
@@ -3296,7 +3487,8 @@ impl Game for Th06c {
         resume::decode(bytes)
     }
 
-    /// The eight fields this game's own stage record carries and the two orb keeps beside them — see
+    /// The eight fields this game's own stage records carry — the score in the previous stage's, the
+    /// other seven in the stage's own — and the two orb keeps beside them — see
     /// [`resume::Numbers`], and [`Th06c::numbers`] for where each is read.
     unsafe fn run_state(&self) -> Vec<u8> {
         resume::encode_state(&unsafe { self.numbers() })
@@ -3570,9 +3762,10 @@ impl Th06c {
             && mem::read_committed::<i32>(at(FRONT_END + front_end::STATE)) == Some(screen)
     }
 
-    /// **The numbers a stage starts with, read where the game's own record reads them** — `0x14004da71`
-    /// onwards, out of the same statics: the score, the seed the stage was seeded with, the point items,
-    /// the power, the lives, the bombs, the rank and the power items — and orb's own two beside them.
+    /// **The numbers a stage starts with, read where the game's own recording reads them** — the score,
+    /// which `0x14004da37` saves into the previous stage's record, and `0x14004da71` onwards for the new
+    /// stage's own, out of the same statics: the seed the stage was seeded with, the point items, the
+    /// power, the lives, the bombs, the rank and the power items — and orb's own two beside them.
     ///
     /// The seed out of the game manager's copy and not the generator, for th06's reason: the copy is what
     /// the stage started from once the stage has drawn from the generator.
@@ -3606,8 +3799,8 @@ impl Th06c {
 
     /// **And back, field for field, the way the playback's own init puts them at `0x14004db3a`
     /// onwards** — all but the seed, which is [`Th06c::seed`]'s and has to be earlier. The score into both
-    /// of the game's two, the one the panel draws and the one the run counts, since the stage's first
-    /// update raises the second to the first.
+    /// of the game's two, the one the panel draws and the one the run counts, as that init puts the
+    /// previous record's into both from stage 2 on (`0x14004dbe1`, `0x14004dbe7`).
     ///
     /// # Safety
     /// Must run on the game's main thread, with a stage built and not yet updated.
@@ -3713,7 +3906,7 @@ mod tests {
     /// `moved 3.30,5.38 saying 1.65,2.69` — so it is here beside the four that were right.
     #[test]
     fn each_bullet_state_scales_its_own_step_by_what_the_game_divides_it_by() {
-        for (state, scale) in [(1, 1.0), (2, 0.5), (3, 0.4), (4, 1.0 / 3.0), (5, 1.0)] {
+        for (state, scale) in [(1, 1.0), (2, 0.5), (3, 0.4), (4, 1.0 / 3.0), (5, 0.5)] {
             assert_eq!(
                 bullet_manager::a_steps_scale(state),
                 scale,

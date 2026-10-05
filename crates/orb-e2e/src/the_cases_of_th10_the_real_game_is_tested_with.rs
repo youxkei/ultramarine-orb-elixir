@@ -168,13 +168,14 @@ fn left_beside(game: &Fake) -> Vec<(PathBuf, Vec<u8>)> {
 
 /// **The score file of a copy that has played a Normal run of Reimu A into its first stage**, which is what the
 /// copies the real cases run on are, and what offers that stage's practice: the run reaching a stage sets the
-/// byte at `+0x5` of its entry (0x416c08), the entries from `+0x4dc` of the shot type's record by `difficulty * 6
-/// + stage`, and the practice select takes a decide only on a stage whose byte is set (0x43114f).
+/// byte at `+0x5` of its entry (0x416c08), the entries from `+0x4dc` of the shot type's record by
+/// `difficulty * 6 + stage` with the stage counted from 1 (`[0x474c7c]`), and the practice select takes a decide
+/// only on a stage whose byte is set (0x43114f, which reads the entry one on from its cursor).
 ///
 /// The record is summed again after the byte, as the game's parse checks every record's sum (0x42b0a5 through
 /// 0x42b109).
 fn a_score_file_that_has_reached_stage_1() -> Vec<u8> {
-    const NORMAL_STAGE_1_OFFERED: usize = 0x4dc + 6 * 8 + 0x5;
+    const NORMAL_STAGE_1_OFFERED: usize = 0x4dc + (6 + 1) * 8 + 0x5;
     let mut record = score_file::shot_types_record(0, 0);
     record[NORMAL_STAGE_1_OFFERED] = 1;
     let sum = record[0x8..]

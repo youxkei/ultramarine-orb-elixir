@@ -9,6 +9,7 @@ To read it again:
 i686-w64-mingw32-objdump -d -M intel 東方紅魔郷.exe > th06.asm          # the whole of .text, once
 i686-w64-mingw32-objdump -d --start-address=0x426c40 --stop-address=0x426df0 -M intel 東方紅魔郷.exe
 i686-w64-mingw32-objdump -s --start-address=0x4200f8 --stop-address=0x420118 東方紅魔郷.exe   # a table
+analyzeHeadless <project dir> <name> -import 東方紅魔郷.exe -scriptPath <dir> -postScript DumpAll.java <out.c>   # every function decompiled
 ```
 
 `objdump` loses the thread after a `jmp` table or a misaligned byte and starts printing data as
@@ -26,51 +27,67 @@ functions do — so that the next person reading them starts where this stopped.
 
 - **2** where the box overlaps one of the 16 boxes at `player+0x8b8`, each `{x, y, w, h}` of 0x10 bytes and
   skipped where its `w` is nought (`0x426cc9`). What the callers do with a 2 is turn the bullet into an item —
-  `ItemManager` at `0x69e268`, kind 6 — so these are a bomb's own clearing boxes and not the player.
+  `ItemManager` at `0x69e268`, kind 6 — so these are a bomb's own clearing boxes and not the player. Their
+  widths are put back to nought at the top of every `Player::OnUpdate` (`0x42892a`), and the four bomb functions
+  write them, `0x405260`, `0x406160`, `0x4066f0` and `0x406e70` (`0x40583d`, `0x406488`, `0x4069e8`,
+  `0x40708e`).
 - **1** where it overlaps the player's own box, which is the two corners at `player+0x458` and `+0x464`
   (`0x426d74` onwards, four `fcomp`). Where the state at `+0x9e0` is 0 it calls `Player::Die` (`0x427770`)
   and answers 1 whether it did or not.
 - **0** where neither.
 
-`0x426df0` is the same test with `[0x46a548]` — 0.2667 — added to each side, and it is the graze: the
-bullet's `+0x5c3` is set from its answer and the hit test is asked on the frame after.
+`0x426df0` is the same test with `[0x46a548]` — 20.0 — added to each side, and it is the graze. It answers 2
+off the same 16 boxes, 0 where the player's state is 1 or 2 (`0x426f40`), and otherwise 1 where the grown box
+overlaps the player's, counting the graze at `0x426fbd`. Where it answers 1 the bullet's `+0x5c3` is set
+(`0x415ba4`) and the hit test is asked **on the same frame** (`0x415bab` jumps to `0x415be8`), and on every
+frame after it, `+0x5c3` sending the bullet straight to the test (`0x415b79`).
 
 ### The count moves on the hit and the life goes later
 
-`Player::Die` writes state 2 at `0x4277bc`, puts the timer at `+0x75b4` back to `-999`, plays the death sound,
-and
+`Player::Die` writes state 2 at `0x4277bc`, puts the timer at `+0x75b4` back — its count at `+0x75bc` to nought,
+the previous count to `-999` — plays the death sound, and
 **puts the death count up there and then**: `0x4277f9` reads `[0x69bcc0]`, which is `GameManager+0x20`, and
-`0x427802` writes it back one higher. Nothing in the exe ever takes it down again — the only other sites are
-the two reads the result screen makes (`0x42d58c`, `0x42d5a8`) — so what that field counts is **hits and not
-lives lost**, and a hit a bomb saves is counted with the rest.
+`0x427802` writes it back one higher. Nothing in the exe takes it down again: the one other write is
+`GameManager::AddedCallback` zeroing it — with `+0x24`, the bombs used, and `+0x28` — at `0x41bde8`, on a run's
+start, where `Supervisor`'s `curState` at `[0x6c6ea4]` is not 3 (`0x41bb1e`), and the only other sites are the
+two reads the result screen makes (`0x42d58c`, `0x42d5a8`). So what that field counts is **hits and not lives
+lost**, and a hit a bomb saves is counted with the rest.
 
 **Which leaves a window between the count and the death**, and it is `respawnTimer` at `+0x9d8`:
 
 | | |
 | --- | --- |
-| `0x42896d` | `Player::OnUpdate` takes a bomb only where that field is not nought — with a bomb in hand and no dialogue up |
+| `0x42896d` | `Player::OnUpdate` takes a bomb only where that field is not nought — with no bomb already going (`+0x75c8`, `0x42893a`), `0x4195a2` answering nought, a bomb in hand (`0x42897a`), and the bomb bit `0x2` down this frame and not the last (`0x42898b`–`0x4289b6`) |
 | `0x428a71`, `0x428a84` | the dying branch: state 2, and the field asked about again |
 | `0x428a9a` | one off it for this frame, where it was not nought already |
 | `0x428ab6` onwards | the frame it reaches nought, which is where the death is made final: the power items spawned and the power dropped, `[0x69d4ba]` read for whether there is a life to lose |
-| `0x428f9e`, `0x42a09c` | what is left in it — 6 after a respawn, 8 by `Player::AddedCallback` at a run's start |
+| `0x428f19` | nought, on every frame of state 1 |
+| `0x428f9e` | 6, as state 1 gives way to state 3 |
+| `0x42a09c` | 8, by `Player::AddedCallback` — which starts the run in state 1 (`0x429ec4`) with the timer at 120 (`0x429eda`), so the first `Player::OnUpdate` writes nought and then 6 over it |
 
-So a bomb pressed inside those frames — the four at `0x405577`, `0x4065a2`, `0x406ac7`, `0x407174`, each
-writing state 3 over the 2 — is a deathbomb, and the run goes on with the life it had. The **life**
-itself is not taken until the fade after all that: `0x428f19` onwards walks state 1, and `0x428ded` is where
-`[0x69d4ba]` comes down.
+So the window is six frames for every life, the first included, and a bomb pressed inside it — the four at
+`0x405577`, `0x4065a2`, `0x406ac7`, `0x407174`, each writing state 3 over the 2 — is a deathbomb, and the run
+goes on with the life it had. The **life** itself is not taken until the fade after all that: with the field
+at nought the dying branch goes to `0x428c48`, which writes state 1 at `0x428d23` once the timer at `+0x75bc` —
+put back to nought by `Player::Die` at `0x4277d1` — has reached 30 (`0x428d16`); `0x428ded` is where
+`[0x69d4ba]` comes down, and the same frame goes on into state 1 at `0x428e58`. State 1 in turn gives way to
+state 3 once its timer reaches 30 (`0x428f2f`), and that timer is put at 240 (`0x428f81`).
 
 **Which is what makes the count a poor thing for anything above the game to act on.** th07 moves its own in
 the death handler, after its window — see `Th07`'s `DEATHS` — so a count that moved there is a death. Here it
 moves as the hit lands, and the code that reads it has to ask `respawnTimer` what it means:
 `Th06::where_a_counted_death_stands`.
 
-**The player's own corners are worked out per frame** inside `Player::OnUpdate`: `0x427f1e` writes the min as
-`+0x440` minus the half at `+0x488`, and `0x427f95` writes the max as the sum. The half is the shot's own and
-differs by character, which is why nothing here is a hitbox written down.
+**The player's own corners are worked out per frame** by the movement, `0x427860`: `0x427f1e` writes the min as
+`+0x440` minus the half at `+0x488`, and `0x427f95` writes the max as the sum. The half is 1.25 across and 1.25
+down for every shot type — `Player::AddedCallback` writes it at `0x429dc2` and `0x429dcf`, and nothing else
+writes it — so the player's box is 2.5 on a side.
 
 ### The two walks
 
-`BulletManager::OnTick` at `0x4148f0`, `this` = `0x5a5ff8`:
+`BulletManager::OnTick` at `0x4149d0` — the callback `BulletManager::RegisterChain` (`0x4148f0`) puts in its
+chain element at `0x414931` — `this` = `0x5a5ff8`. Its first call is `ItemManager::OnTick` (`0x4149ff`), so the
+items move before the bullets do.
 
 | | |
 | --- | --- |
@@ -83,9 +100,18 @@ differs by character, which is why nothing here is a hitbox written down.
 `0x415986` is the movement: the velocity times `[0x6c6ec0]` added to the position, three components. **That
 scale is the whole of what a frame moves anything by** — `0x427da5` uses it on the player's step too.
 
-The hit test is reached at `0x415c00` from the tail every state but the fifth falls through to; the fifth's
-case is `0x415c4b`, past that block, and `0x415c11` is what puts a bullet that has just hit the player into
-it. So state 5 is the one live state that cannot hit.
+The table at `0x4164e0` sends the five states to `0x414e8c`, `0x414a9e`, `0x414bda`, `0x414d15` and
+`0x415c4b`:
+
+| | |
+| --- | --- |
+| 1 | the bullet in flight: `0x414e8c` onwards, ending in the tail that holds the graze and the hit test |
+| 2, 3, 4 | the bullet spawning in: each moves it by its velocity times the motion scale times 1/2, 0.4 and 1/3 (`0x414aad`, `0x414be8`, `0x414d24`), runs the spawn animation on the vm at `+0x110`, `+0x220` and `+0x330` (`0x414bc7`, `0x414d02`, `0x414e3e`), and jumps to `0x415db2`, past the tail, while it runs; when it ends, `0x414e4f` writes state 1 and the same frame goes on into state 1 |
+| 5 | a bullet that has hit or been cleared: `0x415c4b`, past the tail |
+
+So the hit test, reached at `0x415c00`, is asked of state 1 and of no other. Any answer but nought puts the
+bullet in state 5 (`0x415c11`) whatever the player's state was, so a bullet that touches an invulnerable player
+is spent all the same.
 
 `EnemyManager::OnTick` at `0x4123e0`, `this` = `0x4b79c8`:
 
@@ -93,7 +119,8 @@ it. So state 5 is the one live state that cannot hit.
 | --- | --- |
 | `this+0xed0` | the enemies, 0x100 of them every 0xec8 bytes — `0x4123f8`, `0x412422`, `0x41242a` |
 | `+0xe50` | bit 7 says the slot holds one (`0x41243a`) |
-| `+0xe51` | bits 0 and 1 gate the collision (`0x4126a6`, `0x4126c2`); with either down the test is not made |
+| `+0xe51`, `+0xe52` | the collision is made at all only where bit 2 of `+0xe51` is up (`0x412660`) and bit 3 of `+0xe52` is down (`0x41267d`); either way otherwise, `0x412dbc` skips it |
+| `+0xe51` | inside it, bits 1 and 0 gate the body test (`0x4126a6`, `0x4126c2`); with either down the test is not made |
 | `+0xc6c` | where it is, and `+0xc78` the size — scaled by `1.0/1.5` at `0x4126e5` and halved by the test, so a third of it on each side |
 | `+0xce4` | the life, which a body hit takes ten off (`0x41278e`) where bit 3 of `+0xe51` is down |
 
@@ -112,10 +139,21 @@ is the spawn looking for a free one). `[+0x258]` is what says a slot holds one.
 | `+0x230`, `+0x234` | how far along it runs, near and far: `0x415e35` grows the far end by `+0x240` times the motion scale, and `+0x238` is the length it is held to. **A firing beam of this game reaches further every frame**, which is the one thing about one that moves — stage 2's boss fires icicles straight down and lets them extend, and a bot that took the length as settled stood five units under a far end and died there nineteen times |
 | `+0x23c` | how wide it is |
 | `+0x26c` | the phase, switched on at `0x415f75`: 0 draws the warning line, 1 fires, 2 fades |
-| `+0x244`, `+0x264` | how long the phase lasts and how long it has run — `0x41615b` moves the phase on where the frames run out, so in phase 0 the difference is the frames until it starts hitting |
+| `+0x264` | how long the phase has run, the current count of the timer at `+0x25c` |
+| `+0x244`, `+0x24c`, `+0x250` | how long phases 0, 1 and 2 last: `0x41615b`, `0x416216` and `0x416401` move the phase on — or free the slot, after phase 2 or where `+0x250` is nought — where the frames run out, and each new phase starts on the same frame |
+| `+0x248`, `+0x254` | the hitting window in the two phases either side of the firing one: phase 0 hits from frame `+0x248` on (`0x4160ff`), phase 2 until frame `+0x254` (`0x41639d`) |
 
-**The player's own test is called from the firing phase and from no other**, at `0x416203`, and it is a
-different function: `0x427190`, which turns the box into the beam's own frame — along it and across it.
+The spawn, `0x414670`, fills those five and the growth at `+0x240` from what it is given (`0x41486f`–`0x4148ba`),
+and starts the laser in phase 1 where `+0x244` is nought (`0x4148c3`).
+
+**The player's own test is called from all three phases**, and it is a different function: `0x427190`, which
+turns the box into the beam's own frame — along it and across it — and halves the size it is given, as
+`0x426c40` does. It is called at `0x416150` in phase 0 once `+0x264` is `+0x248` or more, at `0x416203` on
+every frame of phase 1, and at `0x4163ee` in phase 2 while `+0x264` is under `+0x254`. The size handed in is
+the beam's length, `+0x234` minus `+0x230` (`0x415edc`), by half its width (`0x415ec7`), so a quarter of the
+width either side of the line. In phases 0 and 2, where bit 0 of `+0x268` is down (`0x415fb5`, `0x41629c`), the
+length is replaced by half the width the warning line or the fade has reached that frame (`0x4160ee`,
+`0x41638c`), so the box along the beam is that small too.
 
 ## The items
 
@@ -140,9 +178,12 @@ which of 3 and 5 is which.
 
 ## The shot is also the focus key, and a word orb hands in does not go through that
 
-`0x41cfc0`, the controller read, counts the frames the shot has been held in `[0x69d8f4]` — up to 16 at
-`0x41d06e` — and **once that count is 8 it sets bit `0x4` in the word it hands back** (`0x41d09b`). Bit `0x4`
-is the focus bit the movement switch reads, so holding the shot *is* holding focus in this game.
+`0x41cfc0`, the controller read, reads the pad's shot button by the index at `[0x4765a0]` (`0x41d01b`) and its
+focus button by the one at `[0x4765a4]`. Where the two are different buttons, the focus button sets bit `0x4`
+on its own (`0x41d056`). **Where they are the same button**, it counts the frames the shot has been held in
+`[0x69d8f4]` — up to 16 at `0x41d06e` — and **once that count is 8 it sets bit `0x4` in the word it hands
+back** (`0x41d09b`). Bit `0x4` is the focus bit the movement switch reads, so on a pad set up that way holding
+the shot *is* holding focus.
 
 **And one frame of letting go does not undo it**: `0x41d0a3` takes 8 off the count where it is above 8 and
 zeroes it only where it is not, so a release from 16 lands on 8 — which is still the count that sets the bit.
@@ -155,7 +196,8 @@ the word a *pad* hands in, which is `Th06::focusing`.
 
 ## What the player's step is
 
-`Player::OnUpdate`'s movement, `0x427a09` onwards: `[player+0xa0c]` is the direction, 1 through 8, and its
+The movement is `0x427860`, which `Player::OnUpdate` calls at `0x42910f` only where the state is neither 1
+nor 2 (`0x4290f1`, `0x429100`). From `0x427a09` onwards, `[player+0xa0c]` is the direction, 1 through 8, and its
 switch reads one of four speeds — `+0x9f4` and `+0x9f8` for a straight move, `+0x9fc` and `+0xa00` for a
 diagonal one, the second of each pair where the focus bit `0x4` is in `[0x69d904]`.
 
@@ -173,12 +215,13 @@ and 0 and `[0x46a7bc]` = 448 in y.
 **The item is the shot type select's, `0x436dae` to `0x436fc5`**, and every write it makes is one of these:
 the shot from its own cursor into `GameManager+0x181e`, the starting lives and bombs out of the options at
 `Supervisor+0x12c` and `+0x12d` into `+0x181a` and `+0x181b` — 2 and 3 where the difficulty is Extra
-(`0x436e0f`) — `currentStage` nought, or 6 for Extra, `isInReplay` nought, one call into the sound player to
-fade the music, the multiplier the refresh ladder at `0x436e9d` picked into `Supervisor+0x1ac`, and
+(`0x436dfb`; the `isInPracticeMode` asked again at `0x436e04` is nought on this path) — `currentStage`
+nought, or 6 for Extra, `isInReplay` nought, one call into the sound player to fade the music, the multiplier the refresh ladder at `0x436e9d` picked into `Supervisor+0x1ac`, and
 `curState` = 2 at `0x436e1d`. `0x436dbc` is where it goes to the practice stage select instead, on
 `isInPracticeMode`.
 
-**`GameManager::RegisterChain` is `0x41bb02`**, and three of the things it does are keyed on `currentStage`
+**`GameManager::AddedCallback` is `0x41bb02`** — the callback `GameManager::RegisterChain` (`0x41ba6a`) puts in
+its chain element at `0x41ba8d` — and three of the things it does are keyed on `currentStage`
 as it stands at the build: the enemy manager registered with the pair at `[stage*8 + 0x4764e8]`
 (`0x41c07d`), the ECL loaded by name from `[stage*4 + 0x4764c4]` into the interpreter at `0x487e50`
 (`0x41c0c1`), and the game's own replay recorder — `ReplayManager::RegisterChain` at `0x42a240`, mode 0 for
@@ -230,11 +273,15 @@ and `0x424c51` — finds the last dot in each with `strrchr` at `0x45ca20`, and 
 of the first and `pos` over the second's. Then it hands `[ebp-0x208]` to `SoundPlayer::LoadBGM` at `0x430a50`
 and `[ebp-0x108]` to `0x430e10`, both with `ecx = 0x6d3f50`, the sound player.
 
-`0x430a50` opens what it was given through a **stream object of its own on the stack**, `[ebp-0xac]`,
+`0x430a50` opens what it was given through a **wave file of its own on the stack**, `[ebp-0xac]`,
 constructed at `0x43b9b0` and destroyed at `0x43ba10` before it returns — the open is `0x43ba60` at
-`0x430b47` and the path is used once more at `0x430b5b`, to be printed in the failure it reports through
-`0x41e940`. What outlives the call is the mmio handle, the length and the loop points, which is what
-`wave_file`'s own offsets in `game/th06/mod.rs` read.
+`0x430b47`, read for the format the chunk is worked out from, and the path is used again at `0x430b5b`, to be
+printed in the failure it reports through `0x41e940`. Then it hands the path to `CreateStreaming` at
+`0x43a9c0` (`0x430d2c`, the stream's pointer going to the sound player's `+0x62c`, `0x6d457c`), which allocates
+a `WaveFile` of 0x98 bytes on the heap (`0x43aa1d`) and opens the path into it once more (`0x43aa67`).
+`WaveFile::Open` hands the name to `mmioOpenA` and keeps none of it. What outlives the call is that heap wave
+file's mmio handle, its length and the loop points, which is what `wave_file`'s own offsets in
+`game/th06/mod.rs` read.
 
 So **a launch cannot say which track is streaming by name**: the path is a local of a call that has returned.
 What tells one track from another is `Th06::music_identity`, out of the wave file's length and its two loop
@@ -253,9 +300,11 @@ two seconds. `0x43b420` and `0x43acf5` put the two sizes where `streaming_sound:
 `0x430c8d` makes **one auto-reset event** with `CreateEventA`. `0x43ab1b` allocates a `DSBPOSITIONNOTIFY` per
 chunk and `0x43ab4c`–`0x43ab81` fills each one's offset with the last byte of its chunk and each one's handle
 with **that same event**, which `0x43ab94` hands to `SetNotificationPositions`. `0x430cbd` starts the thread at
-`0x431370` that waits on it — the wait is on the player's two handles at `0x6d4580` with a 191 ms timeout, and
-where it answers the first of them the thread calls `CStreamingSound::ServiceBuffer` at `0x43b560` and goes
-round.
+`0x431370` that waits on it — `MsgWaitForMultipleObjects` at `0x4313a4` on the one handle at `0x6d4580`, the
+sound player's `+0x630` where `0x430c99` keeps the event, not waiting all, with no timeout and the wake mask
+`0xbf`, `QS_ALLEVENTS`. Where it answers 0, the event, the thread calls `CStreamingSound::ServiceBuffer` at
+`0x43b560` on the stream at `[0x6d457c]` and goes round; where it answers 1, a message, it empties the queue
+with `PeekMessageA` (`0x4313fa`) and stops on `WM_QUIT`, as it does once `[0x6d457c]` is nought.
 
 The refill locks the buffer at `[this+0x2c]` for `[this+0x28]` bytes (`0x43b61c`–`0x43b63a`, which are
 `NEXT_WRITE_OFFSET` and `NOTIFY_SIZE`), reads the wav into it through `WaveFile::Read` at `0x43c080`, and moves
@@ -275,31 +324,30 @@ heard from part way through stage 6's boss to the end of the run, and what `audi
 ## The plate a spell card's name is shown on
 
 The panel keeps the name in an `AnmVm` at `impl+0x20f4` (`GuiImpl::enemySpellcardName`) and the plate behind it
-in the one at `impl+0x1ed4`, the vms being 0x110 bytes apart (`0x1ed4`, `0x1fe4`, `0x20f4`, `0x2204`, … at
-`0x41b3ca` onwards, one `AnmVm` constructor call each). `Gui::SetSpellcardName` (`0x417bfd`) picks the plate's
-sprite into the first (`0x417c0c`) and bakes the name into the second (`0x417cb4`, then `DrawStringFormat` at
-`0x417cc0`).
+in the one at `impl+0x2314`, the vms being 0x110 bytes apart (`0x1ed4`, `0x1fe4`, `0x20f4`, `0x2204`, `0x2314`, …
+at `0x41b3ca` onwards, one `AnmVm` constructor call each). The plate's script, 0x618, is put on it as the panel
+is set up (`0x4183db`). `Gui::SetSpellcardName` (`0x417bfd`) starts the boss's portrait on the vm at
+`impl+0x1ed4` — script 0x4a3 and the card's sprite (`0x417c0c`, `0x417c60`) — and bakes the name into the name vm
+(`0x417cb4`, then `DrawStringFormat` at `0x417cc0`). The portrait is drawn on a bit of its own,
+`[impl+0x1f54] & 1` at `0x41af9a`.
 
 **Whether the plate is on the screen is one bit.** The panel's draw reads `[impl+0x2174] & 1` at `0x41b078` — the
 name vm's flags word at `+0x80`, whose lowest bit is `AnmVmFlags::isVisible` — and where it is clear jumps past
-both the plate (`0x1ed4`, positioned from the name's own position at `0x2184` and drawn) and the name
-(`0x20f4`, drawn at `0x41b11b`). `AnmManager::Draw` (`0x432ad0`) asks the same bit of any vm handed to it
-(`0x432adc`) and answers `-1` without drawing where it is clear. The bit is the ANM script's to set and clear:
+both the plate (`0x2314`, put at the name's own position — `+0x2184` copied into `+0x23a4` at `0x41b08f` — and
+drawn at `0x41b104`) and the name (`0x20f4`, drawn at `0x41b11b`). `AnmManager::Draw` (`0x432ad0`) asks the
+same bit of any vm handed to it (`0x432adc`) and answers `-1` without drawing where it is clear. The bit is the ANM script's to set and clear:
 the card's script is started on the vm as the card is shown, and the card's end sends the interrupt that hides
 it (`Gui.cpp:35` and `:430` of the decompilation). So `[impl+0x20f4+0x80] & 1` is what `Th06` answers
 `a_cards_name_is_shown` with.
 
 ## What is not established
 
-- Which of the five bullet states is which kind. That nought is an empty slot and 5 is one that has just hit is
-  read; what the four cases at `0x414e8c`, `0x414a9e`, `0x414bda` and `0x414d15` are *for* is not, beyond that
-  each ends in the same tail.
 - What the flags at `[bullet+0x5b8]` mean, one bit at a time. Bit 0 is read where the velocity is worked out
   from the angle, bit 4 and bit 6 gate two of the scripted paths, and 0x800 and 0x100 are tested in the tail;
   none of them is named.
-- What the 16 boxes at `[player+0x8b8]` are written by. That a hit on one turns a bullet into item 6 is read,
-  and a bomb is what does that in the game — the writer is not found.
 - Whether anything on an enemy is a step. The reading is that nothing is, which is why `what_a_bot_sees` hands
   a body over with none; what moves one is its own script, and no field of it was held against two frames.
-- Which of `+0x24c` and `+0x250` bounds the laser's firing and fading phases. Both are compared against
-  `+0x264` in that switch; which is which was not needed and was not read.
+- What writes bit 2 of `[enemy+0xe51]` and bit 3 of `[enemy+0xe52]`, the two the collision is gated on, and so
+  which enemies the game never tests against the player.
+- What the stages' ECL hands the laser spawn for `+0x248` and `+0x254`: whether a laser hits during its warning
+  line or its fade at all is theirs to say, and no stage's values were read.

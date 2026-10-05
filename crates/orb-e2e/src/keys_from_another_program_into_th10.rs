@@ -1,12 +1,16 @@
 //! **Keys another program sent, over th10: the read that sees them is the read this game already makes.**
 //!
 //! What `keys_from_another_program_into_th08.rs` asks of that game, asked of this one. `GetKeyboardState`
-//! reports a key another program sent where a DirectInput device held `DISCL_EXCLUSIVE | DISCL_FOREGROUND`
-//! reports only the hand, and `--sent-keys` is the flag that takes such a device away from a game. **th10 reads
-//! its keys with `GetKeyboardState`** (0x44a636) unless bit `0x200` of its settings' word `[0x491ff4]` is set
-//! (0x44a628), which sends the read through `IDirectInputDevice8::GetDeviceState` on `[0x491c38]` instead — see
-//! `asm.md`'s *The input*, and `Th10::take_sent_keys` answering that nothing was let go of. So on the settings
-//! this game comes with a sent key drives it with or without the flag.
+//! reports a key another program sent, and `--sent-keys` is the flag that takes a DirectInput keyboard away from
+//! a game so that its read falls back to it. **th10 reads its keys through DirectInput on the settings it comes
+//! with**: its input's set-up 0x43ba90, run on a thread of its own (`_beginthreadex` at 0x420249), makes the
+//! keyboard device at `[0x491c38]` and sets bit `0x200` of its input flags' word `[0x491ff4]`, and the read takes
+//! `IDirectInputDevice8::GetDeviceState` wherever that bit is set (0x44a628) and `GetKeyboardState` (0x44a636)
+//! only where it is clear — see `asm.md`'s *The input*.
+//!
+//! **Whether that device, taken `DISCL_NONEXCLUSIVE | DISCL_FOREGROUND` (0x43b8d0), sees a sent key is not
+//! measured**, which is why the flag lets it go rather than trusting it: the laid-out device answers what the
+//! hand holds and nothing sent, the stricter of the two.
 //!
 //! **The keyboard's word is the game's own and only the pad's half is orb's** (0x44a190, called with the word at
 //! 0x44a8b3), so what this file holds is that a sent key reaches the word that half answers.
@@ -40,22 +44,20 @@ fn launched(name: &str, sent_keys: bool) -> Box<Fake> {
     game
 }
 
-/// The flag is answered with what this game is: no device to let go of, and the read that sees a sent key
-/// already being the one it makes.
+/// **The device is let go of however late the set-up's thread makes it**: that thread races the game's own
+/// first frames, so a launch whose first frame came before the device found nothing to let go of and then had
+/// the bit set under it — every sent key after that read through a device that may not see one.
 #[test]
-fn th10_is_said_to_be_reading_the_other_way_already() {
+fn th10s_keyboard_device_is_let_go_of_though_its_thread_makes_it_after_orbs_first_frame() {
     in_its_own_process(|| {
-        let game = launched("th10-sent-keys-none", true);
+        let game = launched("th10-sent-keys-device", true);
         let log = game.log();
-        game.frames_until("orb's one ask about the device", 8, || {
-            log.said("input: the game had no keyboard device")
+        game.frames_until("the device let go of", 8, || {
+            log.said("input: the game's own keyboard device let go of")
         });
         assert!(
-            log.said(
-                "input: the game had no keyboard device to let go of; it was already reading the \
-                 other way"
-            ),
-            "orb did not say the game had none:\n  {}",
+            !game.image().reads_its_keyboard_through_directinput(),
+            "the input's flags still send the keyboard's read through the device:\n  {}",
             log.lines().join("\n  ")
         );
     });
@@ -87,19 +89,6 @@ fn a_key_another_program_sent_reaches_the_word_th10s_own_read_answers() {
         game.keyboard().sends(keys::Z, false);
         game.frames_until("the sent key let go of", 8, || {
             game.word_the_input_read_answered() & SHOOT == 0
-        });
-    });
-}
-
-/// And a launch that was *not* told to expect them reads them all the same, because the read is the same read.
-#[test]
-fn a_key_another_program_sent_reaches_th10_without_the_flag_as_well() {
-    in_its_own_process(|| {
-        let game = launched("th10-sent-keys-unasked", false);
-        game.one_frame();
-        game.keyboard().sends(keys::Z, true);
-        game.frames_until("the sent key reaching the game's own word", 8, || {
-            game.word_the_input_read_answered() & SHOOT != 0
         });
     });
 }

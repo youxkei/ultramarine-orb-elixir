@@ -22,8 +22,9 @@
 //! **And a run of it is chaptered**: [`Th06nc::rewinds`] answers true, [`GAME_MANAGER`] is the static
 //! every number of a run is a field of, [`SUPERVISOR`] is what a run being started and given up goes
 //! through, [`resume`] is the file one is picked up from and [`score_file`] this game's own file as
-//! bytes. What the mode still declines is what no reading settles yet — the ranking it shows, the card a
-//! fight is on, and the line one pass of a stage is held against another's.
+//! bytes. What the mode still declines is the ranking it shows — read, as the main menu's item 5, and not
+//! driven — and what no reading settles yet: the card a fight is on, and the line one pass of a stage is
+//! held against another's.
 //!
 //! **Neither seam is an address**, for the reason th06c's are not: this exe is built with ASLR on. The
 //! addresses below are the reading of a run, and every one of them goes through [`at`], which adds the
@@ -237,18 +238,6 @@ const WINDOW_SHOWN: &str = "ShowWindow";
 const WINDOW_PLACED: &str = "SetWindowPos";
 const WINDOW_RESTYLED: &str = "SetWindowLongW";
 
-/// **Which XInput button each of orb's own is** — the conventional mapping th06c uses too, see there.
-mod pad {
-    pub const UP: u16 = 0x0001;
-    pub const DOWN: u16 = 0x0002;
-    pub const LEFT: u16 = 0x0004;
-    pub const RIGHT: u16 = 0x0008;
-    pub const START: u16 = 0x0010;
-    pub const A: u16 = 0x1000;
-    pub const B: u16 = 0x2000;
-    pub const X: u16 = 0x4000;
-}
-
 /// **Which virtual key each of this game's buttons is pressed with** — the keys 東方紅魔郷 has always
 /// been played with; nothing has been read out of `th06.cfg`.
 mod key {
@@ -264,7 +253,7 @@ mod key {
 
     /// **And the focus again as this build's own table holds it**: `VK_LSHIFT`, which the table at
     /// `0x1402f6060` keeps at scan `0x2a` beside `VK_RSHIFT` at `0x36` — and it holds no [`FOCUS`] at
-    /// all, where th06c's table at `0x1402872e0` has `0x10` at that same `0x2a`. See
+    /// all, as th06c's own at `0x1402bc0b0` holds none. See
     /// [`the_key_the_games_table_holds`](super::the_key_the_games_table_holds).
     pub const FOCUS_IN_THE_GAMES_TABLE: u8 = 0xa0;
 }
@@ -278,8 +267,8 @@ mod key {
 /// [`INPUT_THE_RUN_ACTS_ON`].
 ///
 /// **The decide is not one of them, though**: the game's own is `0x100` — the front end writes that bit
-/// into the word at `0x1400491cc` where a screen is to be skipped, and `0x140013644` is the binding whose
-/// press sets it — where [`DECIDE`] below is `0x1000`. Nothing needs the two to agree: what orb does with
+/// into the word at `0x1400491cc` where a screen is to be skipped, and `Enter`'s press gives it alone at
+/// `0x1400136e0`, `Z`'s and `J`'s inside their `0x8101` — where [`DECIDE`] below is `0x1000`. Nothing needs the two to agree: what orb does with
 /// its own word is press keys with it — see [`Th06nc::press_into`], which walks
 /// [`Th06nc::BUTTONS`] — and the game builds its own out of those keys. A bit of orb's compared against
 /// the game's word would be the thing this note exists to stop.
@@ -302,8 +291,8 @@ mod button {
 const INPUT_THE_RUN_ACTS_ON: usize = 0x1_40ab_ae80;
 
 /// **The same word as the frame before left it**, which every screen of the front end edge-checks its own
-/// buttons against — `0x14004918e` copies one into the other as the update's first act, see
-/// [`Game::swallow_input`]'s own note about that copy.
+/// buttons against — `0x14007b8ac` copies one into the other in the supervisor's own job, before
+/// `0x14007b8b7` writes the keyboard's new answer, see [`Game::swallow_input`]'s own note about that copy.
 const THE_WORD_THE_FRAME_BEFORE: usize = 0x1_40ab_ae84;
 
 /// **The one bit of that word the game reads as a level rather than as an edge**: `0x14003d92b` tests
@@ -458,8 +447,9 @@ mod result_screen {
     /// is built — nine where `[0x14053d404]` is clear and seventeen where it is not, which is the run that
     /// is asked for no name.
     ///
-    /// **And twelve is the ranking**, which `0x14000cdc9` writes as the machine at `0x14000c960` builds
-    /// that screen — a run's own path here and no item of the main menu's, see [`Game::show_ranking`].
+    /// **And twelve is the list of replay slots**, which `0x14000cdc9` writes as the machine at
+    /// `0x14000c960` — the menu a scene's end puts up — builds that screen for its item 1, the replay's
+    /// save: a scene's own path and no item of the main menu's, see [`Game::show_ranking`].
     pub const TYPING_A_NAME: i32 = 9;
 
     /// **The field the entry types into**, eight bytes: `0x1400726f1` writes the character at
@@ -518,8 +508,9 @@ mod result_screen {
     pub const EXIT: i32 = 17;
 
     /// **Whether the screen is a run's own**, the byte `0x14007bdc3` writes 1 into as the supervisor
-    /// builds it for [`super::STATE_THE_RUNS_OWN_END`]. The ranking's own build sets `+0x9e9a` at
-    /// `0x14000cdc2` and leaves this alone — see [`super::Th06nc::show_ranking`] — so this is what tells a
+    /// builds it for [`super::STATE_THE_RUNS_OWN_END`]. The ranking browser's build — the supervisor's 6,
+    /// which the main menu's item 5 asks for — leaves it clear, and the menu a scene's end puts up sets
+    /// `+0x9e9a` at `0x14000cdc2` instead — see [`super::Th06nc::show_ranking`] — so this is what tells a
     /// run that finished from a ranking put up over one.
     pub const A_RUNS_OWN: usize = 0x9e99;
 }
@@ -530,12 +521,11 @@ static ENDING: AtomicBool = AtomicBool::new(false);
 
 /// **How many times a run has been hit, counted by orb rather than read off the game.**
 ///
-/// **Because the dword at `0x14053cab0` is not the deaths**, which is what it had been taken for:
-/// `0x14006a22a` does step it up, three instructions before `0x14006a581` puts the run in the retry
-/// menu — and a launch of nineteen deaths read it as nought on every frame of every one of them,
-/// `deaths=0` on all 335 `f<N>` lines including the frame each death was found on. So whatever that
-/// counter is, it is not a run's deaths, and the count is orb's to keep — which is th06c's answer for an
-/// exe that keeps none at all.
+/// **The game keeps a count of its own at `0x14053cab0`**, the game manager's first dword: `0x14006a22a`
+/// steps it up on every death, whether lives are left or `0x14006a581` puts the run in the retry menu,
+/// and in a Challenge run — where a death takes no life — the 1up steps it down instead at
+/// `0x140044cbf`. This one is orb's, counted off the player's own state — th06c's answer for an exe that
+/// keeps none at all.
 static DEATHS: AtomicI32 = AtomicI32::new(0);
 /// Whether the player's state was [`player::HIT`] on the frame before, which is what makes the count
 /// above move once per hit rather than once per frame of one.
@@ -685,6 +675,14 @@ mod front_end {
     /// clear records it leaves on and nothing of this byte — so the game laid out in [`super::image`]
     /// leaves it as it finds it there.
     pub const THE_RUN_IS_PRACTICE: usize = 0x168d1;
+    /// **The byte beside it that says the front end is skipping**, which the wrapper calls the front end's
+    /// update up to six hundred times a frame under, and on which `0x14004918c` lets four of its screens
+    /// press themselves through (`0x1400491af`).
+    #[allow(
+        dead_code,
+        reason = "read by `image`, which is behind `feature = \"sim\"`"
+    )]
+    pub const IS_SKIPPING: usize = 0x168d0;
 
     /// **And the title**, the screen a decide opens the menu from — one of the two a run's count of
     /// deaths is put back to nought on, see `super::DEATHS`.
@@ -740,6 +738,13 @@ mod supervisor {
     /// And `+0x430` is the state acted on before this one, written [`STATE`] at `0x14007b90f`, which
     /// nothing here reads.
     pub const WANTED: usize = 0x42c;
+    /// **`th06.cfg` itself**, whose pad bindings — five `i16` `wButtons` bit numbers for the shot, the bomb,
+    /// the focus, the conversation skip and the pause, `0x140429210`'s `12, 13, 9, 14, 4` by default — are
+    /// its first ten bytes, and whose [`DECIDE_SWAPPED`] swaps the menus' decide and cancel: `0x140012f00`
+    /// reads them at `0x140c6dfc4` to `0x140c6dfcc` and `0x140c6dfda`.
+    pub const CONFIG_PAD: usize = 0x434;
+    /// And that byte, `+0x16` of the file — th06c's own file keeps it at `+0x15`.
+    pub const DECIDE_SWAPPED: usize = 0x16;
 }
 
 /// **The state a run is.** The state the front end is what is running is 1 — the job's own case for
@@ -783,18 +788,29 @@ const STATE_NEXT_STAGE: i32 = 3;
 const STATE_THE_RUNS_OWN_END: i32 = 7;
 
 /// **The state a run is given up into**: the case for wanting it out of [`STATE_RUN`] is `0x14007bb13`,
-/// which takes the stage's two chain elements out through `0x140012e10`, hands the score file to
-/// `0x14006db10` where `[0x140abae58]` holds one, clears the two replay flags, and asks for the front
-/// end itself.
+/// which takes the stage's two chain elements out through `0x140012e10`, hands the replay being
+/// recorded to `0x14006db10` where `[0x140abae58]` holds one, clears the two replay flags, and asks for
+/// the front end itself.
 ///
 /// **And that call writes nothing**, which is worth writing down where it would otherwise read as the
-/// save: `0x14007bb40`'s `xor edx,edx` passes a null record, and `0x14006db4f` sends a null one to
-/// `0x14006e058` — the teardown that frees the score file object's seven buffers — instead of the write
-/// at `0x14006e038`. See [`Th06nc::writes_its_own_records`].
+/// save: `0x14007bb40`'s `xor edx,edx` passes a null path, and `0x14006db4f` sends a null one to
+/// `0x14006e058` — the teardown that frees the recorder's seven stage records and then the recorder —
+/// instead of the write at `0x14006e038`. Nor does anything else of this case write `score.dat`. See
+/// [`Th06nc::writes_its_own_records`].
 ///
-/// **Which is why giving a run up is a state asked for and not a state written**: writing the front end
-/// outright — wanting 1 out of 2, which is `0x14007bae1` — leaves the stage's elements in the chain.
+/// **And wanting 1 out of 2 is the other way out of a run**, `0x14007bae1`: its `0x14007b770` takes the
+/// stage's elements out the same way, and writes `score.dat` through `0x140076370` at `0x14007b782`
+/// unless a replay is playing before it builds the front end.
+///
+/// **Which of the two the game gives a run up by turns on the replay**: the pause menu's own give-up
+/// writes 8 only where [`A_REPLAY_IS_PLAYING`] is set (`0x14000b482`) and 1 otherwise (`0x14000b48e`), and
+/// the continue question's give-up writes 8 for a replay too (`0x14000bccc`). So 8 is a replay given up,
+/// and a run of somebody's own is given up into [`STATE_FRONT_END`].
 const STATE_RUN_OVER: i32 = 8;
+
+/// **The front end asked for out of a run**, `0x14007bae1`'s case, which writes `score.dat` on the way —
+/// see [`STATE_RUN_OVER`] for the way out that does not.
+const STATE_FRONT_END: i32 = 1;
 
 /// **The game manager**, the static at `0x14053cab0` that a run is made of: it is the `+0x38` of both
 /// chain elements the stage's build registers — the calc element at `0x14053ca70` and the draw element
@@ -819,7 +835,8 @@ mod game_manager {
     pub const POWER: usize = 0x28;
     /// **The score the run carries**, a qword: what the panel draws, what the extend check at
     /// `0x14003c9c0` holds against the thresholds in the table at `0x14034e0c8`, what a chapter of the
-    /// mode records and what the ranking entry the score file's write builds takes.
+    /// mode records and what the replay's write puts into its header's `+0x28` at `0x14006dcbf`. The
+    /// ranking entry the screen a run ends at builds takes the other one, `+0x938`, at `0x1400722b5`.
     ///
     /// **Which of the manager's two score fields this is was measured and not read.** The qword at
     /// `+0x938` is the one seventeen rip-relative adds land on — `0x1f4` for a point item at
@@ -830,8 +847,10 @@ mod game_manager {
     /// both fields from the frame a chapter is written on: at the second stage's own chapter `+0x938`
     /// read nought and this read 2,555,010 on one launch and 3,188,720 on the other, and at the first
     /// stage's — nine frames in, nothing scored — both read nought. **A field that is nought across a
-    /// boundary is not the field a run's score is in**, whatever the adds say, and what `+0x938` is
-    /// instead is `th06nc/asm.md`'s *What is not established*.
+    /// boundary is not the field a run's score is in**, whatever the adds say: `+0x938` is the score the
+    /// run counts, which the stage's build copies over this one at `0x14003c794` and then zeroes in its
+    /// shared tail at `0x14003ced2`, and which the stage's own job puts back out of this one at
+    /// `0x14003beef` on its first frame — see `th06nc/asm.md`'s *The stage's two seams*.
     ///
     /// **What the wrong one cost is a chapter with no score in it**: recorded off `+0x938`, a chapter of
     /// a run at 2,555,010 was written down as nought and put back as nought, which is the one field of
@@ -1503,10 +1522,12 @@ const THE_AUDIO_STATICS: Range<usize> = 0x1_4055_42b0..0x1_4055_42e8;
 /// are the same and what they are *in* is one object, the one both of the stage's chain elements are
 /// called on.
 ///
-/// The lives and the bombs are the pair `0x14007bca6` writes `0x302` over as an Extra run starts and
-/// that the item walk stops at eight (`0x140044cc7`, `0x140044c87`); a Normal run's start writes the two
-/// bytes at `0x140c6dfd4` and `0x140c6dfd5` over them instead, which is a starting stock this game lets
-/// somebody choose. Measured: a launch's run started with `2 live and 3 bomb(s)`.
+/// The lives and the bombs are the pair the item walk stops at eight (`0x140044cc7`, `0x140044c87`) and
+/// the run's own start `0x14004f320` writes out of the two bytes at `0x140c6dfd4` and `0x140c6dfd5` —
+/// a starting stock this game lets somebody choose — with `0x302` over both at `0x14004f37c` where the
+/// difficulty is 4 or the run is a practice, and `2` over the lives alone at `0x14004f373` for a
+/// Challenge run. The supervisor's state 12 writes them the same way as it starts a run again, its
+/// `0x302` at `0x14007bca6`. Measured: a launch's run started with `2 live and 3 bomb(s)`.
 const LIVES: usize = GAME_MANAGER + game_manager::LIVES;
 const BOMBS: usize = GAME_MANAGER + game_manager::BOMBS;
 /// A word, the item walk's power cases writing it back at `0x1400446b1` and `0x140044a9b`, and `0x80`
@@ -1552,10 +1573,13 @@ mod player {
     /// invulnerability begins.
     pub const STATE: usize = 0x7898;
     pub const NORMAL: u8 = 0;
-    /// **What a stage's own register and the walk-in after it leave**: `0x140069b3b` sets `cl` to 1 and
-    /// `0x140069b42` writes it, and `0x14006a4ce` writes it again past the walk-in's own thirty-frame
-    /// gate at `0x14006a4b7`. A player in it is a player no hit lands on and a frame no chapter is taken
-    /// on — see [`Game::read_state`]'s `unsettled`.
+    /// **What a stage's own register leaves and what the death's animation ends in**: `0x140069b3b`
+    /// sets `cl` to 1 and `0x140069b42` writes it, with the count at `0x78` — already past this state's
+    /// own thirty-frame gate at `0x14006a6a9`, so a stage's first update moves straight on to
+    /// [`INVULNERABLE`] — and `0x14006a4ce` writes it again once state 2's thirty frames of the death's
+    /// animation at `0x14006a4b7` have run, the player put back at (192, 384) and the count at nought,
+    /// thirty frames before the invulnerability. A player in it is a player no hit lands on and a frame
+    /// no chapter is taken on — see [`Game::read_state`]'s `unsettled`.
     pub const COMING_BACK: u8 = 1;
     pub const HIT: u8 = 2;
     pub const INVULNERABLE: u8 = 3;
@@ -1567,11 +1591,11 @@ mod player {
     /// `0x14006a6cf` writes it two instructions after `0x14006a6b3` writes the state — the same `0xf0`
     /// th06c's respawn gives.
     pub const INVULNERABLE_FRAMES: i32 = 0xf0;
-    // **And what the register leaves on that count, and how long the walk-in is, are not constants
+    // **And what the register leaves on that count, and how long states 1 and 2 last, are not constants
     // here**: nothing of orb's reads either — `0x78` at `0x140069b3b` and the `0x1e` of `0x14006a4b7`
-    // and `0x14006a6a9` — so they are `asm.md`'s *The 270 frames of a stage nothing can reach its player
-    // in* and the numbers `the_player_a_stage_of_th06nc_starts` holds the build to, and no dead constant
-    // of this module's.
+    // and `0x14006a6a9` — so they are `asm.md`'s *The frames nothing can reach the player in* and the
+    // numbers `the_player_a_stage_of_th06nc_starts` holds the build to, and no dead constant of this
+    // module's.
     /// **The frames a bomb still takes the hit back in**: the hit writes 8 into it at `0x14006c20e`,
     /// and the laser's own hit the same at `0x14006c45b`. Taken one off a frame of the hit's state at
     /// `0x14006a21b`, and the frame it reaches nought is the frame the death is made final — the count at
@@ -1685,11 +1709,12 @@ mod bullet_manager {
 
     /// **What a bullet's own step is scaled by before it reaches its position**: states 2, 3 and 4 divide
     /// one by `2.0`, `2.5` and `3.0` — `0x140011138`, `0x14001114e`, `0x14001115f`, the floats at
-    /// `0x140352ad0`, `0x140352ae8` and `0x140352b08` — and states 1 and 5 add the step whole. The same
-    /// five th06c has.
+    /// `0x140352ad0`, `0x140352ae8` and `0x140352b08` — state 1 adds the step whole, and state 5 adds half of
+    /// it: `0x1400110d9` onwards takes the bullet's own `+0x8` (`rbp`, `lea` at 0x140011024) times `xmm15`,
+    /// `0x140352a44`'s `0.5` (0x140011028), into its `+0x30` (`rsi`, 0x140011031). The same five th06c has.
     pub const fn a_steps_scale(state: u16) -> f32 {
         match state {
-            2 => 1.0 / 2.0,
+            2 | 5 => 1.0 / 2.0,
             3 => 1.0 / 2.5,
             4 => 1.0 / 3.0,
             _ => 1.0,
@@ -1905,7 +1930,7 @@ const DOWN_IN_ITS_OWN_KEYS: u8 = 0x80;
 const UP_IN_ITS_OWN_KEYS: u8 = 0x00;
 /// **The game's own table from a virtual key to the index it keeps that key at**: six bytes an entry,
 /// walked at `0x1400b00c0` and ending at a key of `0xffff`. `A` is `0x41 -> 0x1e`, which is `DIK_A`,
-/// so the buffer is indexed by DirectInput's own scan codes — the same table th06c has at `0x1402872e0`.
+/// so the buffer is indexed by DirectInput's own scan codes — the same table th06c has at `0x1402bc0b0`.
 const THE_TABLE_OF_KEYS: usize = 0x1_402f_6060;
 const A_KEY_IN_THE_TABLE: usize = 6;
 const KEYS_IN_THE_TABLE: usize = 0x82;
@@ -2154,7 +2179,9 @@ unsafe fn say_the_line_being_typed_when_it_changes() {
     }
 }
 
-/// **The job the ranking's own machine runs in**, whose object holds the two fields below.
+/// **The job the menu a scene's end puts up runs in**, whose object holds the two fields below — the
+/// machine that builds the screen a run ends at straight into its list of replay slots, which a card of
+/// the Spell Practice reaches as it ends and an ordinary run never does.
 const RANKINGS_MACHINE_UPDATE: usize = 0x1_4000_9800;
 
 /// **Where that machine's own state sits inside the job's object**, `+0x6e10` — the sub-object
@@ -2164,12 +2191,15 @@ const THE_RANKINGS_MACHINE: usize = 0x6e10;
 /// **The frames its state has been up**, which `0x14000b5c0`, `0x14000c3e9` and `0x14000d046` step.
 const RANKINGS_FRAMES: usize = 0xb4c;
 
-/// **And the byte that picks the state after its own**, which `0x14000ca51`'s `cmovne` takes nine — the
-/// name entry — from where it is not nought and twelve — the ranking — from where it is.
+/// **And the byte that says which end the scene came to**, `0x140430e18`: `0x14003be3a`, in the stage's
+/// own job, writes 1 where the boss's life is gone and nought where the card's time ran out with the boss
+/// still alive, and `0x14000bc6e` writes nought where the scene's player has run out of lives. What it
+/// then picks is the menu's pictures: `0x14000ca51`'s `cmovne` hands `0x14000a6f0` nine where it is set
+/// and twelve where it is not, a sprite number past `0x76b`, and `0x14000c9c9` picks `0x776` or `0x775`.
 ///
-/// **No instruction of the exe writes it**: all four accesses are reads, and the same byte addressed
-/// from the job's own base would be `+0x7ba8`, which nothing addresses either. So what sets it is a
-/// `memset` or a pointer, and watching it is the only thing that says when.
+/// **Its two writes are rip-relative**, the machine's object being the static `0x140429270 + 0x6e10` —
+/// which is why a grep for `+0xd98` off a register finds the four reads, `0x14000c9ae`, `0x14000c9c9`,
+/// `0x14000ca51` and `0x14000d199`, and neither write.
 const RANKINGS_PICK: usize = 0xd98;
 
 /// **Those two said the frame either changes**, so that a launch says what the byte above is ever set by.
@@ -2201,11 +2231,11 @@ unsafe fn say_the_rankings_machine_when_it_changes() {
 /// wanted, [`supervisor::STATE`] and [`supervisor::WANTED`].
 ///
 /// **An instrument and not a reading orb acts on**: what a launch is asked here is which of the
-/// supervisor's twelve states are ever reached at all. Eleven are read off the exe, and the twelfth —
-/// **4** — is asked for by no write of `[0x140c6dfbc]` that carries a literal, so either a register
-/// carries one there on some path or the state is dead. Nothing but a launch says which, and nothing
-/// said it before this line: `State::wanted` is the front end's screen for this game and these two are
-/// another machine's numbers. See `th06nc/asm.md`'s *What is not established*.
+/// supervisor's twelve states are ever reached at all. Each is read off the exe — **4**, the game
+/// quitting, through a register: `0x14004d91f` writes `ebx` into `[0x140c6dfbc]` in the front end's
+/// state 5, which the main menu's item 9 opens — and a launch is what says which of them a run reaches.
+/// Nothing said it before this line: `State::wanted` is the front end's screen for this game and these
+/// two are another machine's numbers. See `th06nc/asm.md`'s *What is not established*.
 ///
 /// # Safety
 /// Must run on the game's main thread, with the exe's base already told.
@@ -2342,7 +2372,8 @@ unsafe fn named(record: usize) -> bool {
 /// **And this is what the rules read to press past one**, `sight::what_a_bot_sees` putting it into
 /// `Frame::dialogue`: `orb_bot::steer` lets the shot go every
 /// `SHOT_LET_GO_EVERY_IN_A_CONVERSATION` frames while a line is up instead of every
-/// `SHOT_LET_GO_EVERY`, this game having no skip button for `Keys::skip` to find.
+/// `SHOT_LET_GO_EVERY`, [`Th06nc::BUTTONS`] naming no skip for `Keys::skip` to find — the game's own
+/// being `0x8` of the word, left `Ctrl` or `;` on the keyboard and X on a pad by default.
 ///
 /// # Safety
 /// Must run on the game's main thread, with the exe's base already told.
@@ -2412,8 +2443,10 @@ const SHOT_COMBINATIONS: i32 = 4;
 
 /// **The run's own start**, `0x14004f320`, called once in the exe — `0x14004dc06`, from the last screen
 /// before a stage with the front end in `rcx` and `[0x140c6e378]`'s `+0x34` reading 2. What it writes:
-/// `0x302` over the lives and the bombs at `0x14004f37c` (two lives and three bombs, the same word
-/// th06c's start writes), the supervisor's state wanted to 2 at `0x14004f38b`, the playback flag at
+/// the lives and the bombs out of `th06.cfg`'s `[0x140c6dfd4]` and `[0x140c6dfd5]`, with `0x302` over
+/// both at `0x14004f37c` (two lives and three bombs, the same word th06c's start writes) only where the
+/// difficulty is 4 or the run is a practice, and `2` over the lives alone at `0x14004f373` where the
+/// mode is Challenge; the supervisor's state wanted to 2 at `0x14004f38b`, the playback flag at
 /// `0x14053d3dc` cleared, the track put to `-1` with its playing byte cleared (`0x14004f3b3` on), the
 /// extra walks at `0x1405542e0` cleared, and the byte at `0x14053d404` written from what it was handed —
 /// which is the byte `0x14007bdde` reads to choose between the name entry and the way out. What orb
@@ -2460,6 +2493,17 @@ const A_RUN_IS_IN_CHALLENGE_MODE: usize = 0x1_4053_d414;
 /// [`Game::run_pointed_at`] answer it at screen 25 as well as [`Game::run_start`] answering it inside a
 /// run.
 const THE_MODE_LAST_CHOSEN: usize = 0x1_40c6_dfdb;
+/// **The lives and the bombs `th06.cfg` gives a run**, the two bytes `0x14004f32b` and `0x14004f341` read.
+#[allow(
+    dead_code,
+    reason = "read by `image`, which is behind `feature = \"sim\"`"
+)]
+const THE_CONFIGURED_LIVES: usize = 0x1_40c6_dfd4;
+#[allow(
+    dead_code,
+    reason = "read by `image`, which is behind `feature = \"sim\"`"
+)]
+const THE_CONFIGURED_BOMBS: usize = 0x1_40c6_dfd5;
 
 /// **What a Challenge run's slot is called by**, the word in front of the name a Standard run's slot is —
 /// see [`Game::run_slot`], which is where the two are told apart. The game's own English for the mode,
@@ -3140,27 +3184,19 @@ impl Game for Th06nc {
     }
 
     /// **A word's buttons put into the pad state orb answers this game's own read with** — the d-pad
-    /// and the stick both, at full deflection, the way th06c's are.
+    /// and the stick both, at full deflection, the way th06c's are, and the buttons the game's own
+    /// `th06.cfg` binds: the same file as th06c's, kept here at [`supervisor::CONFIG_PAD`] and read by
+    /// `0x140012f00` the same way (shot `0x140c6dfc4`, bomb `+0x2`, focus `+0x4`, skip `+0x6`, pause `+0x8`,
+    /// the decide's swap `0x140c6dfda`). See `th06c::the_buttons_pressed_through`.
     ///
     /// # Safety
     /// `state` must be the sixteen bytes of an `XINPUT_STATE`.
     unsafe fn press_into_pad(&self, state: *mut u8, word: u16) {
-        let mut buttons = 0u16;
-        for (bit, button) in [
-            (button::SHOT, pad::A),
-            (button::DECIDE, pad::A),
-            (button::BOMB, pad::B),
-            (button::FOCUS, pad::X),
-            (button::MENU, pad::START),
-            (button::UP, pad::UP),
-            (button::DOWN, pad::DOWN),
-            (button::LEFT, pad::LEFT),
-            (button::RIGHT, pad::RIGHT),
-        ] {
-            if word & bit != 0 {
-                buttons |= button;
-            }
-        }
+        let buttons = crate::game::th06c::the_buttons_pressed_through(
+            at(SUPERVISOR + supervisor::CONFIG_PAD),
+            at(SUPERVISOR + supervisor::CONFIG_PAD + supervisor::DECIDE_SWAPPED),
+            word,
+        );
         let across = match (word & button::RIGHT != 0, word & button::LEFT != 0) {
             (true, false) => i16::MAX,
             (false, true) => i16::MIN,
@@ -3381,10 +3417,10 @@ impl Game for Th06nc {
             // refuses to run through — see [`the_run_is_stopped_at_a_menu`].
             paused: unsafe { the_run_is_stopped_at_a_menu() },
             // **A player the hit test cannot reach is a run standing somewhere no chapter is taken**: the
-            // hit's own state and the one a stage's register and its walk-in leave — see
-            // [`player::COMING_BACK`], and `asm.md`'s *The 270 frames of a stage nothing can reach its
-            // player in*. The invulnerability's own state is not among them, that being 240 frames of
-            // every stage and a quarter of what a chapter is.
+            // hit's own state and the one a stage's register leaves and the death's animation ends in —
+            // see [`player::COMING_BACK`], and `asm.md`'s *The frames nothing can reach the player in*.
+            // The invulnerability's own state is not among them, that being 240 frames of every stage and
+            // a quarter of what a chapter is.
             // **The read above and not a second one of the same byte**, which is what this was: the state
             // the hit is counted off is this same field, and two reads of it a frame can also disagree —
             // nothing suspends the game between them, so a hit landing in the gap made `hit` false and
@@ -3413,8 +3449,8 @@ impl Game for Th06nc {
             // **The generator itself**, which is the word every draw in the exe reads and writes back —
             // see [`RNG_SEED`].
             random_seed: unsafe { mem::read::<u16>(at(RNG_SEED)) },
-            // **orb's own count and not the game's** — see [`DEATHS`], which has the launch that says
-            // why the field this once read is not a run's deaths.
+            // **orb's own count and not the game's** — see [`DEATHS`], which says what the game's own
+            // count at `0x14053cab0` does.
             deaths: DEATHS.load(Ordering::Relaxed),
             lives,
             bombs,
@@ -3828,25 +3864,24 @@ impl Game for Th06nc {
         true
     }
 
-    /// **Nothing, because this game's front end has no ranking to be asked for** — which three launches
-    /// say between them: of the main menu's ten items, 0 and 1 start a run, 2 and 3 start one too, 4 and
-    /// 5 write no state at all, 6 opens screen 21, 7 screen 23, 8 screen 4 and 9 quits the game, and not
-    /// one of them builds the screen a run ends at. See `th06nc/asm.md`'s *The main menu's ten items*.
+    /// **Nothing, and the five methods below answer the emptiest true answer with it.** This game's
+    /// ranking is the main menu's item 5, 夢の記録: its front end state 12 asks the supervisor for **6**
+    /// at `0x14004d92c`, and the supervisor's case `0x14007b966` builds the screen a run ends at, which
+    /// comes up in state 0 with [`result_screen::A_RUNS_OWN`] clear. See `th06nc/asm.md`'s *The main
+    /// menu's ten items*.
     ///
-    /// **And where the ranking *is* built is a run's own path**: `0x14000c960`, the machine the chain job
-    /// at priority 2 runs behind `[0x14053d406]`, whose state 2 builds that screen with twelve in its
-    /// [`result_screen::STATE`] — and the two writers of that byte are a function of the job's own and
-    /// **the stage's build**, not an item. So the three steps orb's ranking is driven in — ask the front
-    /// end, wait for the screen, tell it to leave — have no first step on this game, and the five
-    /// methods below answer the emptiest true answer for the same reason rather than each for its own.
+    /// **And `0x14000c960` is not a ranking**: it is the menu a scene's end puts up, the machine the chain
+    /// job at priority 2 runs behind `[0x14053d406]`, whose state 2 builds that screen with twelve — its
+    /// list of replay slots — in its [`result_screen::STATE`] for item 1's replay save; the two writers of
+    /// that byte are a function of the job's own and **the stage's build**, both behind the scene's byte,
+    /// and no item of the main menu's.
     ///
-    /// **And a ranking built here would write nothing anyway**, which is the reading that settles it and
-    /// the reason [`Self::writes_its_own_records`] answers true: the one write of this game's score file
-    /// is the name entry's own confirm at `0x14007301f`, and the six other calls the run's end makes pass
-    /// a null record and reach the teardown at `0x14006e058` instead of the write at `0x14006e038` — see
-    /// `th06nc/asm.md`'s *The score file*. So this game's ranking screen is th07's and not th06's: a
-    /// screen orb built and took down would spend the whole of `commit_records`'s allowance and leave the
-    /// file as it was.
+    /// **And a ranking built from item 5 writes nothing**: `score.dat` is written as the screen a run
+    /// ends at goes down, by its taken-out callback `0x140075b40`, only where its `+0x9e99` says it is a
+    /// run's own, which the ranking's build leaves clear — the file's other write being `0x140076370`'s,
+    /// as a run is left for the front end or started again. See `th06nc/asm.md`'s *The score file's two
+    /// writes*. So a ranking orb built and took down would spend the whole of `commit_records`'s
+    /// allowance and leave the file as it was.
     unsafe fn show_ranking(&self) {}
 
     unsafe fn showing_ranking(&self) -> bool {
@@ -3975,26 +4010,25 @@ impl Game for Th06nc {
         );
     }
 
-    /// **True, and what it means here is that no ranking orb builds would write anything** — which is a
-    /// narrower thing than th07's and the reason this doc is not that one's.
+    /// **True, and what it means here is that no ranking orb builds would write anything**, the game's
+    /// own writes standing at every end of a run, [`Game::leave_run`]'s included.
     ///
-    /// **This game writes its score file in one place: the name entry's own confirm.** `0x14007301f`
-    /// passes the typed name at `result screen + 0x9e88` and a record built out of it, and
-    /// `0x14006e038` then writes the file. Every other call of `0x14006db10` in the exe —
-    /// `0x14007b7bb`, `0x14007bb42`, `0x14007bc63`, `0x14007bd30`, `0x14007bd60` and `0x14007c7c0`, which
-    /// are the run's own ends — reaches it with `xor edx,edx`, and `0x14006db4f` sends a null record to
-    /// `0x14006e058`, which frees the score file object's seven buffers and returns. So building a
-    /// ranking and taking it down, which is what this answering false asks `commit_records` to do, would
-    /// spend that function's whole frame allowance on a screen and leave the file exactly as it was.
+    /// **This game writes its score file in two places, each serialising it whole from memory**:
+    /// `0x140075b40`, the taken-out callback of the screen a run ends at, as that screen goes down and
+    /// where its `+0x9e99` says it is a run's own; and `0x140076370`, called at `0x14007b782` as a run is
+    /// left for the front end and at `0x14007bc2f` by the supervisor's state 12 as one is started again,
+    /// both unless a replay is playing. A ranking put up from the main menu's item 5 leaves `+0x9e99`
+    /// clear, so building one and taking it down, which is what this answering false asks
+    /// `commit_records` to do, would spend that function's whole frame allowance on a screen and leave
+    /// the file exactly as it was. **And a replay given up through the supervisor's 8 writes nothing**:
+    /// `0x14007bb13`'s one call, `0x14006db10` at `0x14007bb42`, passes a null path, and `0x14006db4f`
+    /// sends that to `0x14006e058`, which only drops the replay being recorded.
     ///
-    /// **And no card count of this build's ever reaches its file at all**, which is the part th07's
-    /// `true` does not carry and is the game's own doing rather than a gap of orb's: the write lays down
-    /// seven spans of the score file object, `+0x968` of the manager is a destination at both of the two
-    /// places the exe names it, and a span cannot be that static because `0x14006e058` hands all seven to
-    /// `free`. So a run's attempts at a card are a session's and the file's `CATK` records are whatever
-    /// was read in — see `th06nc/asm.md`'s *The score file*. What
-    /// [`Th06nc::put_back_the_cards_a_run_left`] is for is keeping them across the run build that would
-    /// otherwise lay the file back over them, which is the whole of what this game does with them.
+    /// **And the card counts reach the file at each of those writes**: both lay down the 134 `CATK`s out
+    /// of `0x14053d418`, the very array a run counts its attempts in (`0x140075e7e`, `0x140076940`) — see
+    /// `th06nc/asm.md`'s *The score file's two writes*. What [`Th06nc::put_back_the_cards_a_run_left`] is
+    /// for is keeping them across the run build that would otherwise lay the file back over them, so that
+    /// the next write carries them.
     fn writes_its_own_records(&self) -> bool {
         true
     }
@@ -4059,9 +4093,9 @@ impl Game for Th06nc {
     /// that a decide opens the menu from, so the question goes over the menu.
     ///
     /// **And `None` for the other six items**: each of them opens a screen that is neither a run nor a
-    /// list of replays, and those are the two things the mode is a question about — the music room and
-    /// four whose own state is all that is read of them, with the ranking among them being no item of
-    /// this menu at all (see [`Game::show_ranking`]). What each opens is in `th06nc/asm.md`.
+    /// list of replays, and those are the two things the mode is a question about — item 5 the ranking,
+    /// 夢の記録 (see [`Game::show_ranking`]), item 6 the music room, item 7 the credits, item 8 the
+    /// options and item 9 the game quitting. What each opens is in `th06nc/asm.md`.
     ///
     /// **And the question it is for has never gone up on the real game**, which two instrumented
     /// launches narrowed to one thing missing — see [`Game::menu_takes_a_press`], which is where it is
@@ -4175,20 +4209,26 @@ impl Game for Th06nc {
 
     unsafe fn add_pad_buttons(&self, _into: *mut c_void, _pad: Option<Reading>) {}
 
-    /// **[`STATE_RUN_OVER`] asked of the supervisor**, which is the transition that takes the stage's two
-    /// chain elements out and lands on the front end — see that constant for why the front end asked for
-    /// outright would leave them in. The two menus a run stops for are cleared first, so that the state
-    /// the transition runs in is a run nothing is paused in.
+    /// **The state the pause menu's own give-up asks of the supervisor**: [`STATE_FRONT_END`] for a run,
+    /// which writes `score.dat` on its way to the title, and [`STATE_RUN_OVER`] for a replay, which writes
+    /// nothing — see that constant. The two menus a run stops for are cleared first, so that the state the
+    /// transition runs in is a run nothing is paused in.
     ///
     /// Nothing where a run is not what the supervisor is running.
     unsafe fn leave_run(&self) -> bool {
         if mem::read_committed::<i32>(at(SUPERVISOR + supervisor::STATE)) != Some(STATE_RUN) {
             return false;
         }
+        let replay =
+            mem::read_committed::<u8>(at(A_REPLAY_IS_PLAYING)).is_some_and(|byte| byte != 0);
+        let wanted = match replay {
+            true => STATE_RUN_OVER,
+            false => STATE_FRONT_END,
+        };
         unsafe {
             mem::write::<u8>(at(GAME_MANAGER + game_manager::IS_IN_GAME_MENU), 0);
             mem::write::<u8>(at(GAME_MANAGER + game_manager::IS_IN_RETRY_MENU), 0);
-            mem::write::<i32>(at(SUPERVISOR + supervisor::WANTED), STATE_RUN_OVER);
+            mem::write::<i32>(at(SUPERVISOR + supervisor::WANTED), wanted);
         }
         true
     }
@@ -4197,7 +4237,8 @@ impl Game for Th06nc {
     /// against the frame before's — finds nothing on the frame the game carries on into.**
     ///
     /// **What makes it work is `0x14007b8ac`**: the supervisor's own job copies this word into the frame
-    /// before's as its first act, `mov eax,[0x140abae80]; mov [0x140abae84],eax`, and then reads the
+    /// before's once a walk of the calc chain, after the music's fade and before the state it acts on,
+    /// `mov eax,[0x140abae80]; mov [0x140abae84],eax`, and then reads the
     /// keyboard over it at `0x14007b8b7`. So a word of every bit left here is the frame before's next
     /// frame, and an edge — a bit set in this word and not in that one — is a bit that cannot be set in
     /// both: what is genuinely held still reads as held, and only the edge is gone.
@@ -4240,20 +4281,21 @@ impl Game for Th06nc {
     ///
     /// **What is read of the rest of that screen**: the eighteen states of the table at `0x140073ef4` are
     /// eight handlers, five of them sharing `0x140072b05`, and that splits into ten at `0x1400739e8`,
-    /// eleven at `0x140073842`, twelve the ranking at `0x14007324c`, thirteen the name entry at
-    /// `0x140072d6f` and fourteen falling through at `0x140072b34`. Fourteen pulses two colour words by
-    /// `[+0x9e7c]`, moves that cursor on `0x200` and `0x400` of `0x140abae80` against `0x140abae84`, and
-    /// on `0x100` — the decide — takes the name buffer's address at `0x140072d3a` and writes **thirteen**
-    /// into `[+0x9e94]` where the cursor is nought, or calls `0x14006e9e0` and stays where it is not.
-    /// **And thirteen writes that one name into both files**, `0x140072fed` taking
-    /// `replay/th6_%.2d.rpy` and `0x14007301f` being the one write of the score file.
+    /// eleven at `0x140073842`, twelve the list of replay slots at `0x14007324c`, thirteen the entry of
+    /// the name the replay is saved under at `0x140072d6f` and fourteen falling through at
+    /// `0x140072b34`. Fourteen pulses two colour words by `[+0x9e7c]`, moves that cursor on `0x200` and
+    /// `0x400` of `0x140abae80` against `0x140abae84`, and on `0x100` — the decide — takes the name
+    /// buffer's address at `0x140072d3a` and writes **thirteen** into `[+0x9e94]` where the cursor is
+    /// nought, or calls `0x14006e9e0` and stays where it is not. **And thirteen writes that one name into
+    /// the replay and into `th06.cfg`**, `0x140072fed` taking `replay/th6_%.2d.rpy`, `0x14007301f` being
+    /// the replay's write and `0x140073032` the copy of the name `th06.cfg` keeps.
     ///
     /// So that question is in front of the entry's own writing of the files and not behind it.
     ///
     /// **And what fourteen stands over is a slot that already holds a replay**: `0x1400734f3` indexes
     /// the screen's own slots at `+0x9eb0`, `0x78` apart, by that same cursor, and goes to fourteen
     /// where the slot's first dword is `T6RP` and its `+0x9eb4` is `0x10f` — a slot holding neither
-    /// falls through to `0x140072c0f`, which writes the name without asking.
+    /// goes to `0x140072c0f`, the way into thirteen, without asking.
     ///
     /// **A clear walks the same screen**: the launch of `a_run_played_to_its_clear_without_a_bomb` that
     /// passed went `ending skipped` straight into the entry [`Game::typing_a_name`] reads, which is the
@@ -4342,9 +4384,10 @@ impl Game for Th06nc {
     /// the game manager, and screen 25's own decide is what calls [`RUN_START`].
     ///
     /// **And not the shot select, which is where th06c reads it.** That screen presses itself through on
-    /// its own fifteenth frame — `0x1400491af`, the mask `0x6a00` — so a question raised there has
-    /// fifteen frames to be answered in and the screen is gone. Screen 25 presses itself through for
-    /// nobody: a launch that pressed nothing at 24 sat there for 1,800 frames.
+    /// its own fifteenth frame while the front end is skipping — `0x1400491af`, the mask `0x6a00`,
+    /// reached only where `[front end + 0x168d0]` is set — so a question raised there could be gone
+    /// before it was answered. Screen 25 presses itself through for nobody: a launch that pressed nothing
+    /// at 24 sat there for 1,800 frames.
     ///
     /// **Read out of the manager and not out of the cursor**, the shot select's decide having already
     /// written the shot at `0x14004d21d`: a cursor read here would be screen 25's own and not the shot's.
@@ -4950,7 +4993,7 @@ mod tests {
     /// **What each of the five bullet states multiplies its own step by** — th06c's five.
     #[test]
     fn each_bullet_state_scales_its_own_step_by_what_the_game_divides_it_by() {
-        for (state, scale) in [(1, 1.0), (2, 0.5), (3, 0.4), (4, 1.0 / 3.0), (5, 1.0)] {
+        for (state, scale) in [(1, 1.0), (2, 0.5), (3, 0.4), (4, 1.0 / 3.0), (5, 0.5)] {
             assert_eq!(bullet_manager::a_steps_scale(state), scale);
         }
     }

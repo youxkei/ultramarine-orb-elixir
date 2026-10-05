@@ -192,11 +192,12 @@ const BULLET_SPAWNING: u16 = 2;
 /// two, see [`LASER_KIND_ANCHORED`].
 ///
 /// The test builds its box as `± width / 2` across (0x4268d3 through 0x426922), and what it is handed is
-/// not the drawn width: a width up to 32 goes over halved, and past 32 the travelling kind hands
+/// not the drawn width: a width below 32 goes over halved, and from 32 on the travelling kind hands
 /// `(width - 16) / 2` (0x41d670 through 0x41d697) and the anchored kind `width - (width + 16) / 3`
-/// (0x41e8e7 through 0x41e90e).
+/// (0x41e8e7 through 0x41e90e) — `fcomp` against 32 and `jp` past the halving where it is not below, so 32
+/// itself takes the second answer.
 fn half_across(width: f32, anchored: bool) -> f32 {
-    let handed = if width <= 32.0 {
+    let handed = if width < 32.0 {
         width / 2.0
     } else if anchored {
         width - (width + 16.0) / 3.0
@@ -486,4 +487,18 @@ unsafe fn position(at: usize) -> (f32, f32) {
     (unsafe { mem::read::<f32>(at) }, unsafe {
         mem::read::<f32>(at + size_of::<f32>())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::half_across;
+
+    /// **A laser 32 wide is handed over by the formula and not halved**, the game's branch being taken where
+    /// the width is not below 32 — and one just under it halved, before the test halves either again.
+    #[test]
+    fn a_laser_32_wide_is_handed_over_by_its_kinds_formula() {
+        assert_eq!(half_across(32.0, false), (32.0 - 16.0) / 2.0 / 2.0);
+        assert_eq!(half_across(32.0, true), (32.0 - (32.0 + 16.0) / 3.0) / 2.0);
+        assert_eq!(half_across(31.0, false), 31.0 / 2.0 / 2.0);
+    }
 }

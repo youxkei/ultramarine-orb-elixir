@@ -347,6 +347,11 @@ fn the_rules_of_th06c_make_their_way_left_between_the_lines_laevateinn_leaves() 
 fn the_rules_of_th06c_cross_between_the_lines_of_bullets_laevateinn_leaves() {
     in_its_own_process(|| {
         let game = under_laevateinn("th06c-laevateinn-lane");
+        // After the laid-out stage's own start, whose build puts the run back where a stage starts it — the
+        // lines are ahead of a run at the right edge and of none at the start.
+        let log = game.log();
+        game.frames_until("the stage started", 600, || log.said("(stage start)"));
+        game.image().the_player_is_playing();
         game.image().the_player_is_at(352.0, 368.0);
         a_swing_to_the_right_fades(&game);
         // Slots past the sixteen the laid-out stage's own fire rewrites every frame.
@@ -560,9 +565,10 @@ fn the_rules_of_th06c_wait_for_the_next_pair_of_clocks_out_of_its_low_ones_reach
 /// the state lines of a launch that played it.
 const AND_THEN_THERE_WERE_NONE: u32 = 62;
 
-/// **The corners the card's chasers are led into, `48` in from each edge of the laid-out game's field** — its
-/// field being `384` by `448` from nought.
-const THE_WHOLE_FIELDS_CORNERS: (f32, f32, f32, f32) = (48.0, 48.0, 336.0, 400.0);
+/// **The corners the card's chasers are led into, `48` in from each edge of the box the player is held to** —
+/// the box the stage callback writes at `0x1403ee7f4`, `368` by `416` from `8,16` (0x140024345 through
+/// 0x140024363).
+const THE_WHOLE_FIELDS_CORNERS: (f32, f32, f32, f32) = (56.0, 64.0, 328.0, 384.0);
 
 /// **The card's frames its second half is played at**, past the four chasers coming in out of the field's
 /// corners at `1020` — see `cards::and_then_there_were_none` — and the first half's, before any chaser is up.
@@ -957,12 +963,12 @@ fn the_rules_of_th06c_step_through_slow_fire_on_their_way_under_and_then_there_w
     });
 }
 
-/// **Once the chasers are all gone the rules wait the card out at the bottom middle**, a quarter of the field up
-/// from its floor — the laid-out field being `448` high, `336` — from wherever they were.
+/// **Once the chasers are all gone the rules wait the card out at the bottom middle**, a quarter of the box the
+/// player is held to up from its floor — that box being `416` high from `16`, `328` — from wherever they were.
 #[test]
 fn the_rules_of_th06c_wait_the_card_out_low_in_the_middle_under_and_then_there_were_none() {
     in_its_own_process(|| {
-        const THE_BOTTOM_MIDDLE_A_QUARTER_UP: (f32, f32) = (192.0, 336.0);
+        const THE_BOTTOM_MIDDLE_A_QUARTER_UP: (f32, f32) = (192.0, 328.0);
         let (_, top, right, _) = THE_WHOLE_FIELDS_CORNERS;
         let game = under_and_then_there_were_none(
             "th06c-and-then-there-were-none-waited-out",

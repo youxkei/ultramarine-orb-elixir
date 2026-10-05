@@ -17,9 +17,11 @@
 
 use orb_config::LogLevel;
 use orb_core::game::th06c::image::{
-    RESULT_LEAVING, RESULT_SAVE_REPLAY_QUESTION, RESULT_STATS, RESULT_STATS_FADING,
-    RESULT_TYPING_A_NAME,
+    RESULT_GRID_ACROSS, RESULT_LEAVING, RESULT_NAME_BYTES, RESULT_PLACES_RANKED,
+    RESULT_SAVE_REPLAY_QUESTION, RESULT_STATS, RESULT_STATS_FADING, RESULT_THE_END_ITEM,
+    RESULT_THE_ENTRY_TAKES_A_KEY_AFTER, RESULT_TYPING_A_NAME,
 };
+use orb_core::game::th06c::score_file;
 use orb_sim::keys;
 
 use crate::fake::th06c::Fake;
@@ -56,6 +58,8 @@ fn a_cleared_run(name: &str) -> Box<Fake> {
     );
     game.stages_last(STAGE_FRAMES);
     game.fires_at_the_player(false);
+    // On Normal, an Easy run ending after its fifth stage — see `the_way_a_stage_of_th06c_ends`.
+    game.image().the_difficulty_is(NORMAL);
     game.in_a_run_in_the_stage(0);
     game.frames_until("the screen the run ends at", A_WHOLE_RUN, || {
         game.image().the_state_the_screen_a_run_ends_at_is_in() != 0
@@ -134,6 +138,102 @@ fn the_screens_of_a_finished_run_of_th06c_are_walked_to_the_question_orb_writes_
         );
     });
 }
+
+/// **The name entry the way case 9 of 0x14004ff40 walks it**: up with eight spaces and the cursor on the
+/// grid's first cell, deaf to a key for its first thirty updates, a decide typing the cell the cursor is on,
+/// the eighth character putting the cursor on the end item, and a decide there leaving for the stats.
+#[test]
+fn the_name_entry_of_th06c_types_a_character_a_decide_and_leaves_on_its_end_item() {
+    in_its_own_process(|| {
+        let game = a_cleared_run("th06c-the-name-entry");
+        assert_eq!(
+            game.image().the_name_the_entry_holds(),
+            "",
+            "the entry came up holding a name"
+        );
+        game.frames(THE_ENTRY_HEARS_NOTHING_FOR);
+        game.press(keys::Z);
+        assert_eq!(
+            (
+                game.image().the_state_the_screen_a_run_ends_at_is_in(),
+                game.image().the_name_the_entry_holds()
+            ),
+            (RESULT_TYPING_A_NAME, "A".to_owned()),
+            "a decide in the entry did not type the cell the cursor is on",
+        );
+        for _ in 1..RESULT_NAME_BYTES {
+            game.press(keys::Z);
+        }
+        assert_eq!(
+            game.image().the_entrys_cursor(),
+            RESULT_THE_END_ITEM,
+            "the eighth character did not put the cursor on the end item",
+        );
+        game.press(keys::Z);
+        assert_eq!(
+            game.image().the_state_the_screen_a_run_ends_at_is_in(),
+            RESULT_STATS,
+            "a decide on the end item did not leave the entry for the stats",
+        );
+    });
+}
+
+/// And the cursor walks the grid round, over the cells that are spaces.
+#[test]
+fn the_cursor_of_th06cs_name_entry_walks_its_grid_round() {
+    in_its_own_process(|| {
+        let game = a_cleared_run("th06c-the-name-entry-cursor");
+        game.frames(THE_ENTRY_HEARS_NOTHING_FOR);
+        game.press(keys::LEFT);
+        assert_eq!(
+            game.image().the_entrys_cursor(),
+            RESULT_GRID_ACROSS - 1,
+            "left from the first cell did not go round to the end of its row",
+        );
+        game.press(keys::UP);
+        assert_eq!(
+            game.image().the_entrys_cursor(),
+            RESULT_THE_END_ITEM,
+            "up from the first row did not go round to the last",
+        );
+    });
+}
+
+/// And a run whose score ten of the file's own records are above is asked for no name at all.
+#[test]
+fn a_run_of_th06c_placed_below_the_ranking_is_asked_for_no_name() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th06c-below-the-ranking",
+            Work::wandering(WORK_US),
+            |config| {
+                config.fast_clear = true;
+                config.block_replay_save = true;
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let mut records = vec![score_file::th6k()];
+        records.extend(
+            (0..RESULT_PLACES_RANKED)
+                .map(|_| score_file::record(b"HSCR", &A_SCORE_ABOVE_ANY_RUN.to_le_bytes())),
+        );
+        game.its_records_are(&records);
+        game.stages_last(STAGE_FRAMES);
+        game.fires_at_the_player(false);
+        game.image().the_difficulty_is(NORMAL);
+        game.in_a_run_in_the_stage(0);
+        game.frames_until("the stats", A_WHOLE_RUN, || {
+            game.image().the_state_the_screen_a_run_ends_at_is_in() == RESULT_STATS
+        });
+        assert_eq!(game.image().the_name_the_entry_holds(), "");
+    });
+}
+
+/// The updates the entry hears no key for, and a score no run here reaches.
+const THE_ENTRY_HEARS_NOTHING_FOR: u32 = RESULT_THE_ENTRY_TAKES_A_KEY_AFTER as u32 + 1;
+const A_SCORE_ABOVE_ANY_RUN: u32 = 999_999_990;
+const NORMAL: i32 = 1;
 
 /// And that state is said in the log whenever it changes, which is how a walk of those screens is read back
 /// off a launch of the real game.

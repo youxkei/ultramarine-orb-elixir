@@ -460,6 +460,28 @@ pub fn stop() {
     }
 }
 
+/// **And the same as the process exits, without waiting on anything.** By the time `DllMain` hears the process
+/// detach the writing thread has been ended with every other one, so [`stop`]'s wait for it is a wait for
+/// nothing, and the queue it or any other thread held is held for good. So the lines waiting are taken only
+/// where the queue is free, and written here — the tail of a launch the game ended itself being in them alone.
+pub fn close_at_exit() {
+    WRITING.store(false, Ordering::Relaxed);
+    let lines = match WAITING.try_lock() {
+        Ok(mut waiting) => std::mem::take(&mut waiting.lines),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+            std::mem::take(&mut poisoned.into_inner().lines)
+        }
+        Err(std::sync::TryLockError::WouldBlock) => Vec::new(),
+    };
+    let file = FILE.swap(0, Ordering::AcqRel);
+    if file != 0 {
+        for line in lines {
+            write_where_it_stands(file, &line);
+        }
+        logfile::close(LogFile(file));
+    }
+}
+
 fn frequency() -> i64 {
     let cached = FREQUENCY.load(Ordering::Relaxed);
     if cached != 0 {
@@ -468,4 +490,41 @@ fn frequency() -> i64 {
     let frequency = clock::frequency();
     FREQUENCY.store(frequency, Ordering::Relaxed);
     frequency
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The close orb's detach makes returns with the queue held by another thread**: at process exit the
+    /// writing thread and every other one have been ended where they stood, so a queue one of them held is
+    /// held for good and the thread [`stop`] waits for is not there to answer.
+    #[test]
+    fn the_close_at_exit_returns_with_the_queue_held_by_another_thread() {
+        let (held, is_held) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _guard = WAITING.lock();
+            held.send(()).unwrap();
+            let _ = released.recv();
+        });
+        is_held.recv().unwrap();
+        // A writing thread there was, which is what a launch at its exit has had.
+        WRITING.store(true, Ordering::Relaxed);
+        let (closed, is_closed) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            close_at_exit();
+            let _ = closed.send(());
+        });
+        let returned = is_closed
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_ok();
+        release.send(()).unwrap();
+        holder.join().unwrap();
+        WRITING.store(false, Ordering::Relaxed);
+        assert!(
+            returned,
+            "the close at exit waited on a queue another thread held"
+        );
+    }
 }

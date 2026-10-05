@@ -24,12 +24,12 @@
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use orb_config::Config;
 use orb_core::game::Game;
 use orb_core::game::th10::image::{
-    A_BLANK_NAME, Image, Pause, Player, STEP_BUILT, STEP_DECIDED, STEP_LEFT, STEP_READING,
+    A_BLANK_NAME, A_PLAY, Image, Pause, Player, STEP_BUILT, STEP_DECIDED, STEP_LEFT, STEP_READING,
     STEP_WAITING, Scene, Screen, THE_PAUSES_COMMAND, THE_RESUMES_COMMAND, TheTitlesEntry,
 };
 use orb_core::game::th10::{Th10, score_file};
@@ -59,9 +59,12 @@ pub const THE_FRAMES_OWN_ORDER: [&str; 8] = [
 ];
 
 /// **Which key is which bit of the word the read folds the keyboard into** — the `GetKeyboardState` half of
-/// 0x44a5f0 (0x44a63c through 0x44a74f): `Z` 0x1, `X` 0x2, Shift 0x4, Esc 0x8, the arrows 0x10 through 0x80,
-/// `Q` 0x200, Enter 0x1000 and `R` 0x4000 — the keys an e2e test here presses. Ctrl's 0x100 and the rest are out,
-/// no e2e test here pressing them.
+/// 0x44a5f0 (0x44a63c through 0x44a74f), the one the read takes where bit `0x200` of `[0x491ff4]` is clear
+/// (0x44a628): `Z` 0x1, `X` 0x2, Shift 0x4, Esc 0x8, the arrows 0x10 through 0x80, `Q` 0x200, Enter 0x1000 and
+/// `R` 0x4000 — the keys an e2e test here presses. Ctrl's 0x100, the numeric keypad, `S`, `D`, Home and `P` are
+/// out, no e2e test here pressing them. The game's defaults set that bit and read the keyboard through
+/// DirectInput's device at `[0x491c38]` instead (0x43baa4 through 0x43badd, 0x44a766), which this file does not
+/// play.
 const MAP: [(u8, u16); 11] = [
     (keys::Z, 0x0001),
     (keys::X, 0x0002),
@@ -105,6 +108,12 @@ const THE_PAUSES_TITLE: u16 = 0x0200;
 /// **How many frames a launch left to itself spends before its title is wanted**: the loading object's job that
 /// writes scene 4 once `th10.dat`'s files are in (0x41fdbc). This file's own number, as th08's is.
 const TITLE_COMES_UP_AFTER: u32 = 60;
+
+/// **And the frame the input's set-up has made its keyboard by**, a thread of the game's own (`_beginthreadex`
+/// at 0x420249, out of the supervisor job's added callback) racing the frames: a few in, so that the device comes
+/// after orb's first frame. This file's own number — how long that thread takes is not measured, and a set-up
+/// that finished before the first frame is the case the race does not bite.
+const THE_INPUT_IS_SET_UP_BY: u32 = 3;
 
 /// **The frames each screen of the title ignores a key for, and the frames a decide takes to act**: past ten on
 /// the screen that waits for a key (0x42d383) and the main menu (0x42d4ca), past six on the three selects
@@ -154,6 +163,8 @@ const THE_REPLAYS_RECORD: u32 = 0x0047_7710;
 const COMING_BACK_IN_FOR: i32 = 60;
 const A_HIT_WAITS_FOR: i32 = 8;
 const DYING_FOR: i32 = 30;
+/// And the frame of it the power is taken on, `cmp [player+0x478], 3` at 0x425aa9.
+const THE_DYING_TAKES_THE_POWER_ON: i32 = 3;
 
 /// **The pause object's frames**: its opening waits until the game object is thirty frames in (0x422406), opens
 /// over ten (0x422c9f), closes over twelve (0x423143); the end of a run reads a decide past ten (0x42371c), tallies
@@ -305,6 +316,8 @@ pub struct Fake {
     reads_the_keys: bool,
     /// How many frames this launch has run, for the title wanted on its own — see [`TITLE_COMES_UP_AFTER`].
     frames_since_launch: Cell<u32>,
+    /// And how many times its supervisor has walked, for the input's set-up — see [`THE_INPUT_IS_SET_UP_BY`].
+    walks_since_launch: Cell<u32>,
     /// **The frames the stage's build has left on its thread**, where one is running — see [`A_BUILD_RUNS_FOR`].
     building: Cell<Option<u32>>,
     /// **Whether the stage's own jobs are on the chain**, which the game object's frame 0 turns them on for
@@ -617,6 +630,7 @@ impl Fake {
             launch,
             reads_the_keys: the_game_this_is().hooks().input.is_some(),
             frames_since_launch: Cell::new(0),
+            walks_since_launch: Cell::new(0),
             building: Cell::new(None),
             the_stage_is_on: Cell::new(false),
             seeded_on: RefCell::new(Vec::new()),
@@ -941,8 +955,9 @@ impl Fake {
         }
     }
 
-    /// **The player hit**, which is what 0x426cf0 writes — the state and its timer (0x426cff) — for an e2e test
-    /// over what orb reads of a hit; this laid-out stage fires nothing of its own.
+    /// **The player hit**, the state and its timer 0x426cf0 writes (0x426cff, 0x426e44) — and not the six frames
+    /// nothing can hit it for that it writes as well (0x426ea5) — for an e2e test over what orb reads of a hit;
+    /// this laid-out stage fires nothing of its own.
     pub fn the_player_is_hit(&self) {
         self.image.the_player_is_in(Player::Hit);
     }
@@ -1115,7 +1130,9 @@ impl Fake {
     /// **The enemy manager's calc job** (0x40d810, priority `0x12`): every enemy's scripts a step on, and the
     /// stage's own script where this file plays one — its fight and its fire, and its end.
     fn its_enemy_manager(&self) {
-        self.image.the_enemies_scripts_step();
+        self.image
+            .the_enemies_scripts_step(matches!(self.fight.get(), Fight::Up { boss: true, .. }));
+        self.its_enemies_bodies_touch_the_player();
         // **The generator drawn from once a frame**, which the enemies' scripts do on every stage (0x40e770,
         // 0x412300): how often is this file's own, what it has to be is a word that moves with the stage.
         self.image.the_generator_draws();
@@ -1138,6 +1155,31 @@ impl Fake {
         }
         if frame == lasts {
             self.the_stage_ends();
+        }
+    }
+
+    /// **Each enemy's body tested against the player**, which every enemy's update makes through the player's own
+    /// test (0x40e2df into 0x4266b0) — the same boxes and the same states and frames nothing hits it in as a
+    /// bullet's, see [`Fake::its_bullets`].
+    fn its_enemies_bodies_touch_the_player(&self) {
+        let image = &self.image;
+        let (state, _) = image.what_the_player_is_doing();
+        let open = [Player::Playing as i32, Player::ComingBackIn as i32].contains(&state)
+            && image.the_frames_nothing_hits_the_player_for() <= 0;
+        if !open {
+            return;
+        }
+        let player = image.where_the_player_is();
+        let half = image.the_players_half_box();
+        let touches = image
+            .the_enemies_on_the_list()
+            .into_iter()
+            .filter_map(|enemy| image.the_body_of(enemy))
+            .any(|((x, y), (w, h))| {
+                (x - player.0).abs() < w / 2.0 + half && (y - player.1).abs() < h / 2.0 + half
+            });
+        if touches {
+            image.the_player_is_in(Player::Hit);
         }
     }
 
@@ -1174,7 +1216,8 @@ impl Fake {
                 the_attack(false, 0);
             }
             Fight::None | Fight::Beaten { boss: false } if frame == boss_from => {
-                image.the_stream_plays_the_track(THE_BOSSS_TRACK);
+                // Queued as the stage's own song is, by 0x416a9c through 0x420b10.
+                image.a_sound_command_is_queued_with(A_PLAY, THE_BOSSS_TRACK as u32);
                 image.a_fight_is_up(A_FIGHT_STANDS_AT, A_FIGHTS_LIFE);
                 the_attack(true, 0);
             }
@@ -1228,8 +1271,10 @@ impl Fake {
 
     /// **The bullets' calc job** (0x4065c0, priority `0x14`): each active one a step on, freed off the field, and
     /// tested against the player where the frame's own move put it — the two boxes, which 0x4266b0 takes nothing
-    /// of while the player is dying, hit or out of reach (0x426735 through 0x426750); a bullet that hits goes. And
-    /// the count of those left.
+    /// of while a conversation is on (0x42671e) or the player is dying, hit or in state 3 (0x426735 through
+    /// 0x426750); a bullet that hits goes. And the count of those left. **A bullet touching a player nothing can
+    /// hit is passed by here**, where the game's test still answers 1 and the bullet is cancelled all the same
+    /// (0x426756 through 0x426766, 0x4064ad).
     fn its_bullets(&self) {
         let image = &self.image;
         let mut left = 0;
@@ -1285,6 +1330,17 @@ impl Fake {
     fn its_supervisor(&self) {
         let frames = self.frames_since_launch.get() + 1;
         self.frames_since_launch.set(frames);
+        // Counted on its own and not on the frames since the launch, which an e2e test that puts the title up
+        // moves on past the start-up in one step.
+        let walks = self.walks_since_launch.get() + 1;
+        self.walks_since_launch.set(walks);
+        if walks == THE_INPUT_IS_SET_UP_BY {
+            self.image.the_input_set_up_makes_a_keyboard(
+                its_keyboard_is_acquired as *const () as usize,
+                its_keyboard_is_let_go_of as *const () as usize,
+            );
+            KEYBOARD_ACQUIRED.store(true, Ordering::Relaxed);
+        }
         // **The loading object's job**, which wants the title once the start-up's files are in (0x41fdbc) — the
         // score object among them, read out of `scoreth10.dat` (0x42af20 through 0x42af57). By the game's own name
         // and not through the fork: a read at startup landing in the game's own file is the bracket's to decide,
@@ -1312,14 +1368,33 @@ impl Fake {
         }
     }
 
-    /// **The keyboard folded into one word**, the `GetKeyboardState` half of 0x44a5f0 — see [`MAP`].
+    /// **The keyboard folded into one word**, the keyboard's half of 0x44a5f0 — see [`MAP`] — read only while
+    /// `[0x4924fc]`, the window's `WM_ACTIVATEAPP`, is set (`je` at 0x44a61d), which is the window in front.
+    ///
+    /// **Through the device the input's set-up made wherever bit `0x200` of its flags is set** (0x44a628), which
+    /// answers what the hand holds and nothing another program sent — see `keys_from_another_program_into_th10.rs`
+    /// for why the stricter answer — and `GetKeyboardState` (0x44a636) where it is clear.
+    ///
+    /// **And the device is the system's to take away**, held `DISCL_FOREGROUND` (0x43b8d0): gone while the window
+    /// is behind, so the first read in front again fails, and the read's answer to that is `Acquire` and nothing
+    /// for that frame (0x44a766, then 0x44a77a or 0x44a78e).
     fn the_keyboards_word(&self) -> u16 {
-        let state = self.sim().keyboard().state();
+        if self.sim().display().foreground() != WINDOW {
+            KEYBOARD_ACQUIRED.store(false, Ordering::Relaxed);
+            return 0;
+        }
+        let keyboard = self.sim().keyboard();
+        let state = keyboard.state();
+        let through_the_device = self.image.reads_its_keyboard_through_directinput();
+        if through_the_device && !KEYBOARD_ACQUIRED.swap(true, Ordering::Relaxed) {
+            return 0;
+        }
         MAP.iter()
-            .filter(|(key, _)| {
-                state
+            .filter(|(key, _)| match through_the_device {
+                true => keyboard.held(*key),
+                false => state
                     .as_ref()
-                    .is_some_and(|state| state[*key as usize] & 0x80 != 0)
+                    .is_some_and(|state| state[*key as usize] & 0x80 != 0),
             })
             .fold(0, |word, (_, bit)| word | bit)
     }
@@ -1491,7 +1566,9 @@ impl Fake {
         the_options_are_made(self.image.the_player_object());
         self.the_stage_is_on.set(true);
         self.fight.set(Fight::None);
-        self.image.the_stream_plays_the_track(THE_STAGES_TRACK);
+        // Asked for and not played: 0x420b10 queues it as a play, which the sound walks over runs of its own.
+        self.image
+            .a_sound_command_is_queued_with(A_PLAY, THE_STAGES_TRACK as u32);
     }
 
     /// **The pause object's calc job, 0x4223f0**, its states by the tables at 0x4224b0 and 0x42438c — see
@@ -1626,6 +1703,9 @@ impl Fake {
                     image.the_player_dies();
                 }
             }
+            s if s == Player::Dying as i32 && frames == THE_DYING_TAKES_THE_POWER_ON => {
+                image.the_dying_takes_the_power();
+            }
             s if s == Player::Dying as i32 && frames == DYING_FOR => {
                 let (_, _, lives) = image.the_runs_numbers();
                 match lives < 0 {
@@ -1641,14 +1721,28 @@ impl Fake {
         image.the_player_counts_a_frame();
     }
 
-    /// **The player moved by the run's copy of the word**, 0x4250b0: the direction out of its four bits — two of
-    /// them a diagonal (0x4250c0 through 0x425163) — the speed of that direction, focused where bit `0x4` is down,
-    /// and the step times the game's speed truncated to hundredths (0x425404 through 0x42541f).
+    /// **The player moved by the run's copy of the word**, 0x4250b0: the direction out of its four bits — the first
+    /// of the four diagonals, then down, up, left and right, that the word holds (0x4250c0 through 0x425163) — the
+    /// speed of that direction, focused where bit `0x4` is down, and the step times the game's speed truncated to
+    /// hundredths (0x425404 through 0x42541f). So opposite directions held together are the one checked first and
+    /// not nothing.
     fn moves_its_player(&self) {
         let image = &self.image;
         let word = image.the_run_word();
-        let across = i32::from(word & TO_THE_RIGHT != 0) - i32::from(word & TO_THE_LEFT != 0);
-        let down = i32::from(word & DOWN != 0) - i32::from(word & UP != 0);
+        let holds = |bits: u16| word & bits == bits;
+        let (across, down) = [
+            (UP | TO_THE_LEFT, (-1, -1)),
+            (DOWN | TO_THE_LEFT, (-1, 1)),
+            (UP | TO_THE_RIGHT, (1, -1)),
+            (DOWN | TO_THE_RIGHT, (1, 1)),
+            (DOWN, (0, 1)),
+            (UP, (0, -1)),
+            (TO_THE_LEFT, (-1, 0)),
+            (TO_THE_RIGHT, (1, 0)),
+        ]
+        .into_iter()
+        .find(|(bits, _)| holds(*bits))
+        .map_or((0, 0), |(_, direction)| direction);
         if across == 0 && down == 0 {
             return;
         }
@@ -1669,6 +1763,9 @@ impl Fake {
         let image = &self.image;
         let (screen, step, cursor, frames) = image.where_the_title_is();
         let pressed = image.the_buttons_gone_down();
+        // **And the directions a cursor moves on, which repeat where they are held** — see
+        // `Image::the_buttons_moving_the_cursor`.
+        let moving = image.the_buttons_moving_the_cursor();
         let (_, items) = image.the_titles_cursor();
         let left_out = image.the_items_the_title_leaves_out();
         let moved = |by: i32| moved(cursor, by, items, &left_out);
@@ -1704,10 +1801,10 @@ impl Fake {
                     image.the_titles_step_is(STEP_READING)
                 }
                 STEP_READING => {
-                    if pressed & UP != 0 {
+                    if moving & UP != 0 {
                         image.the_titles_cursor_is(moved(-1), items);
                     }
-                    if pressed & DOWN != 0 {
+                    if moving & DOWN != 0 {
                         image.the_titles_cursor_is(moved(1), items);
                     }
                     // A cancel on the last item takes it as a decide does (0x42d5a5 through 0x42d718).
@@ -1863,10 +1960,10 @@ impl Fake {
                     image.the_titles_step_is(STEP_READING)
                 }
                 STEP_READING => {
-                    if pressed & UP != 0 {
+                    if moving & UP != 0 {
                         image.the_titles_cursor_is(moved(-1), items);
                     }
-                    if pressed & DOWN != 0 {
+                    if moving & DOWN != 0 {
                         image.the_titles_cursor_is(moved(1), items);
                     }
                     let (cursor, _) = image.the_titles_cursor();
@@ -1914,10 +2011,10 @@ impl Fake {
                 // 0x43364d through 0x4336cc: the arrows over the slots, and a cancel to step 4. A decide's step 3,
                 // the replay's own name entry over the slot taken, is not played.
                 STEP_READING => {
-                    if pressed & UP != 0 {
+                    if moving & UP != 0 {
                         image.the_titles_cursor_is(moved(-1), items);
                     }
-                    if pressed & DOWN != 0 {
+                    if moving & DOWN != 0 {
                         image.the_titles_cursor_is(moved(1), items);
                     }
                     if pressed & CANCEL != 0 {
@@ -2113,10 +2210,11 @@ impl Fake {
     fn a_select_reads(&self, pressed: u16, back: u16, on: u16, moved: impl Fn(i32) -> i32) {
         let image = &self.image;
         let (_, items) = image.the_titles_cursor();
-        if pressed & back != 0 {
+        let moving = image.the_buttons_moving_the_cursor();
+        if moving & back != 0 {
             image.the_titles_cursor_is(moved(-1), items);
         }
-        if pressed & on != 0 {
+        if moving & on != 0 {
             image.the_titles_cursor_is(moved(1), items);
         }
         if pressed & DECIDE != 0 {
@@ -2548,6 +2646,22 @@ const DEVICE_ACQUIRE: usize = 7;
 const DEVICE_GET_STATE: usize = 9;
 const DEVICE_POLL: usize = 25;
 
+/// **Whether the keyboard device is acquired**, which the system takes away from a foreground device whose window
+/// goes behind — see [`Fake::the_keyboards_word`].
+static KEYBOARD_ACQUIRED: AtomicBool = AtomicBool::new(false);
+
+/// **The keyboard device's own `Acquire` and `Unacquire`**, the two of it orb calls: acquired again, and let go
+/// of — what stops the game reading it is the flag orb takes down beside the second.
+unsafe extern "system" fn its_keyboard_is_acquired(_device: usize) -> i32 {
+    KEYBOARD_ACQUIRED.store(true, Ordering::Relaxed);
+    0
+}
+
+unsafe extern "system" fn its_keyboard_is_let_go_of(_device: usize) -> i32 {
+    KEYBOARD_ACQUIRED.store(false, Ordering::Relaxed);
+    0
+}
+
 /// **The DirectInput pad this file holds**: acquired whenever asked, polled as a pad that is there, and its state
 /// what an e2e test last pushed — a held button's byte at `0x80`, its axes as given, its hat nowhere.
 unsafe extern "system" fn its_pad_acquires(_device: usize) -> i32 {
@@ -2582,7 +2696,9 @@ unsafe extern "fastcall" fn play_sounds(_manager: usize) {
     let fake = running();
     fake.launch.asked_for(SOUND);
     fake.sim().clock().advance_micros(fake.sound_this_frame());
-    fake.image.the_head_of_the_sound_queue_is_carried_out();
+    if let Some(track) = fake.image.the_head_of_the_sound_queue_is_carried_out() {
+        fake.image.the_stream_plays_the_track(track);
+    }
 }
 
 /// **The present, 0x4391f0**, which from here is the compositor's: where an e2e test counts a frame handed over.
@@ -2639,9 +2755,13 @@ extern "C" fn pad_buttons() -> *mut c_void {
     std::ptr::null_mut()
 }
 
-extern "C" fn create_game_window(_instance: *mut c_void) {}
+extern "C" fn create_game_window(_instance: *mut c_void) -> i32 {
+    0
+}
 
-extern "C" fn init_d3d_device() {}
+extern "C" fn init_d3d_device() -> i32 {
+    0
+}
 
 /// **Its `CreateFileA`**, which the score file's fork calls through: the name the call landed on written down, and a
 /// handle that is its place in that list — the bytes of a write being the caller's to put there, see

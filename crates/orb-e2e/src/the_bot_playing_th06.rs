@@ -399,9 +399,10 @@ fn the_bot_goes_for_th06s_item_worth_most() {
 /// **A laser that is firing is left**, which is the laser array arriving: its own slots, the word that says a
 /// slot holds one, and the geometry the player's test is given.
 ///
-/// **What the rules make of a warning line is not read back here**, and the frames until one fires are why: they go
-/// across as they are read — the phase's own length less the frames it has run — and a beam is left whether it
-/// is firing or about to, which is `the_bot_playing_th07`'s subject and the same rules over these numbers.
+/// **What the rules make of a warning line is not read back here**, and the frames until one hits are why: they go
+/// across as they are read — the frame of the warning it starts hitting on less the frames it has run — and a
+/// beam is left whether it is firing or about to, which is `the_bot_playing_th07`'s subject and the same rules
+/// over these numbers.
 #[test]
 fn the_bot_leaves_a_laser_of_th06_that_is_firing() {
     in_its_own_process(|| {

@@ -715,8 +715,8 @@ mod tests {
     /// other — so the number tells the two files apart not at all.
     ///
     /// What does is the fields. Both are `deny_unknown_fields`, and th07's numbers are th07's: `shown`,
-    /// `point_value_step`, `counted`, `border` and the rest are fields this struct has never heard of, and the
-    /// `rank` and the count of power items this one needs are fields that game does not keep. So neither half
+    /// `extends_given`, `counted`, `border` and the rest are fields this struct has never heard of, and the
+    /// count of power items this one needs is a field that game does not keep. So neither half
     /// of the check leans on the version, and a file put in the wrong game's directory is a line in the log
     /// rather than a run started with somebody else's numbers.
     #[test]

@@ -75,8 +75,9 @@ fn a_press_of_th07_on_a_frame_the_run_was_not_advanced_on_is_still_an_edge() {
         // before it — which is what makes a word written twice for one frame show.
         //
         // **What has to hold still is the word the run last acted on**, that being the half of the pair a press
-        // is an edge *against*: the word it acts on is the last thing the keyboard said before the update that
-        // advances the run, which is also the word that frame is written down as.
+        // is an edge *against*: on the update that advances the run past a skipped one, the player's job has to
+        // find beside the word it acts on the word the frame before the skip was played with — and not a word
+        // the skipped update's own read left.
         let mut before: Option<(u32, u16)> = None;
         let mut skipped = 0;
         for update in 0..SLOWED_EVERY * 4 {
@@ -85,22 +86,140 @@ fn a_press_of_th07_on_a_frame_the_run_was_not_advanced_on_is_still_an_edge() {
             // update leaves it at is the frame the *next* read belongs to.
             let frame = game.state().stage_frames;
             game.frame();
-            let acted_on = game.word_the_run_acted_on();
-            if let Some((was, held)) = before
+            if let Some((was, played)) = before
                 && was == frame
             {
-                // The same frame read twice is the update the game did not advance the run on.
+                // The same frame read twice is the update after the one the game did not advance the run on.
                 skipped += 1;
                 assert_eq!(
-                    acted_on, held,
+                    game.word_the_run_acted_on(),
+                    played,
                     "the word the run last acted on moved on an update that did not advance frame {frame}, \
                      so a press of {BOMB:#06x} on that frame is an edge or not by how many updates the game \
                      spent on it — and a playback drives them in a burst",
                 );
             }
-            before = Some((frame, acted_on));
+            before = Some((frame, game.the_player_read()));
         }
         assert!(skipped > 0, "the game advanced the run on every update");
+    });
+}
+
+/// **And a press the skipped update read is still in the word the update after it acts on**: with 0x62627d
+/// raised by the skip, the supervisor's next read is or-ed into the word the last one left (0x437c70's other
+/// branch) rather than shifted into the word before it — so a bomb pressed for the skipped update alone and let
+/// go on the next is a bomb the run fires.
+#[test]
+fn a_press_th07_read_on_an_update_it_skipped_is_acted_on_by_the_next() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-press-held-over-a-skipped-update",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+        game.slows_its_own_run_down();
+
+        // An update the game skipped, found by the clock it left where it was.
+        let mut frame = game.state().stage_frames;
+        for _ in 0..=SLOWED_EVERY {
+            game.frame();
+            let now = game.state().stage_frames;
+            if now == frame {
+                break;
+            }
+            frame = now;
+        }
+        assert_eq!(
+            game.state().stage_frames,
+            frame,
+            "the game advanced the run on every update",
+        );
+
+        // Up to the update before the next one it skips, then the bomb on that one alone.
+        game.frames(SLOWED_EVERY - 1);
+        let before = game.state().stage_frames;
+        game.keyboard().set(keys::X, true);
+        game.frame();
+        assert_eq!(
+            game.state().stage_frames,
+            before,
+            "the update the bomb was pressed on was not the one the game skips",
+        );
+        game.keyboard().set(keys::X, false);
+        game.frame();
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & BOMB,
+            0,
+            "the bomb pressed on the skipped update was gone from the word the next one acts on",
+        );
+    });
+}
+
+/// The live bullets at which the manager's update skips one update in three rather than five (the `cmp` against
+/// 0x140 at 0x42e122), and the updates counted to see it.
+const BULLETS_FOR_ONE_IN_THREE: i32 = 0x140;
+const COUNTED: u32 = 30;
+
+/// **And the more bullets there are, the more updates the game skips**: 0x42e122–0x42e186 take the manager's
+/// count modulo 5 under 0xe0 live bullets, 4 under 0x140 and 3 from there, so a screen full of them is a run played at
+/// two thirds of its frames.
+#[test]
+fn a_run_of_th07_full_of_bullets_skips_one_update_in_three() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-one-update-in-three",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+        game.slows_its_own_run_down();
+        game.image().bullets_alive(BULLETS_FOR_ONE_IN_THREE);
+
+        let from = game.state().stage_frames;
+        game.frames(COUNTED);
+        assert_eq!(
+            game.state().stage_frames - from,
+            COUNTED - COUNTED / 3,
+            "the run was not skipped one update in three with {BULLETS_FOR_ONE_IN_THREE:#x} bullets up",
+        );
+    });
+}
+
+/// **And the recorder moves the pair on itself**, at chain priority 0x10 below the player's job: 0x442cd0 puts
+/// the word the run acts on into last frame's of it and the read's word into the first (0x442cf2–0x442d07,
+/// under bit 2 of 0x62f648, a run with no menu up). So where orb has already handed the read to the run, the
+/// two words agree once the update is over — last frame's is this frame's — and what orb wrote as last frame's
+/// lasted only as far as the player's job.
+#[test]
+fn th07s_recorder_leaves_the_run_s_two_words_agreeing_after_an_update() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-recorder-moves-the-pair",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+        game.frames(APART);
+
+        game.keyboard().set(keys::X, true);
+        game.frame();
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & BOMB,
+            0,
+            "the bomb was not handed to the run, so this test is about nothing",
+        );
+        assert_eq!(
+            game.image().the_word_the_run_acted_on(),
+            game.image().the_word_the_run_acts_on(),
+            "the recorder left last frame's word behind the one the run acts on",
+        );
     });
 }
 

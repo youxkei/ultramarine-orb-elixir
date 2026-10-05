@@ -131,6 +131,75 @@ fn at_the_menu(name: &str, item: i32) -> Box<Fake> {
     game
 }
 
+/// **The menus cancel on `0x200`**, which Escape's `0x600` holds as well as the bomb's keys — so Escape at the
+/// main menu puts the cursor on its last item as the bomb's key does.
+#[test]
+fn escape_at_th06ncs_main_menu_cancels_as_the_bomb_does() {
+    in_its_own_process(|| {
+        let game = at_the_menu("th06nc-escape-cancels", 0);
+        game.frames(FRAMES_A_MENU_TAKES_NO_PRESS_FOR);
+        game.press(keys::ESCAPE);
+        assert_eq!(
+            game.image().the_item_the_cursor_is_on(),
+            THE_MENUS_LAST_ITEM,
+            "Escape did not cancel at the main menu",
+        );
+    });
+}
+
+/// **The difficulty select waits for a press**, going by on its own fifteenth frame only where the front end
+/// is skipping (`[front end + 0x168d0]`, the branch at `0x14004918c`), which nothing of a walk sets.
+#[test]
+fn the_difficulty_select_of_th06nc_waits_for_a_press_where_the_front_end_is_not_skipping() {
+    in_its_own_process(|| {
+        let game = at_the_menu("th06nc-the-select-waits", 0);
+        game.frames(FRAMES_A_MENU_TAKES_NO_PRESS_FOR);
+        game.press(keys::Z);
+        game.frames_until("the difficulty select", FRAMES, || {
+            game.image().the_screen_the_front_end_is_on() == SCREEN_DIFFICULTY
+        });
+        game.frames(FRAMES_A_MENU_TAKES_NO_PRESS_FOR);
+        assert_eq!(
+            game.image().the_screen_the_front_end_is_on(),
+            SCREEN_DIFFICULTY,
+            "the difficulty select went by with nothing pressed",
+        );
+    });
+}
+
+/// **The front end asked for straight out of a run** — the supervisor's 1, and not the 8 a run given up asks
+/// for: 0x14007b770 takes the stage out, writes `score.dat` (0x140076370) and builds the title.
+#[test]
+fn the_front_end_of_th06nc_asked_for_out_of_a_run_writes_the_score_file_and_comes_up_on_the_title()
+{
+    in_its_own_process(|| {
+        let game = launched("th06nc-the-front-end-out-of-a-run");
+        game.in_a_run_in_the_stage(0);
+        game.frames(10);
+        let image = game.image();
+        image.is_in_scene(image.scene_of_a_run(), image.scene_of_the_front_end());
+        game.frames_until("the front end back", FRAMES, || {
+            game.image().the_screen_the_front_end_is_on() != 0
+        });
+        assert_eq!(
+            game.image().the_screen_the_front_end_is_on(),
+            SCREEN_TITLE,
+            "the front end asked for out of a run came up somewhere other than its title",
+        );
+        // Read off orb's own line for the open: a run nothing of which could be counted is one orb refuses
+        // the write of, and says so.
+        assert!(
+            game.log().lines().iter().any(|line| line.contains("score:")
+                && (line.contains("nothing written") || line.contains(", write"))),
+            "the front end asked for out of a run asked for no write of the score file",
+        );
+    });
+}
+
+/// The main menu's last item, and frames enough for any screen's own deafness to have run out.
+const THE_MENUS_LAST_ITEM: i32 = 9;
+const FRAMES_A_MENU_TAKES_NO_PRESS_FOR: u32 = 0x40;
+
 /// The screens a walk out of the main menu goes through on its way into a stage, whichever of the three
 /// items that start a run it left the menu on.
 const SCREENS_INTO_A_RUN: [i32; 7] = [
@@ -297,8 +366,10 @@ fn the_front_end_of_th06nc_rebuilt_after_a_run_walks_its_attract_cycle() {
         walked(&game, Some(keys::Z), || in_a_stage(&game));
         assert!(in_a_stage(&game), "the walk never reached a run");
 
+        // Given up through the supervisor's 8, which is what orb's own `leave` asks for and what the
+        // measurement below was a launch of.
         game.image().is_in_scene(game.image().the_scene_now(), {
-            game.image().scene_of_the_front_end()
+            game.image().scene_of_a_run_over()
         });
         let seen = walked(&game, None, || {
             game.image().the_screen_the_front_end_is_on() == THE_REPLAY_LIST
@@ -341,7 +412,7 @@ fn the_cancel_over_th06ncs_attract_cycle_puts_its_main_menu_up() {
         let game = at_the_menu("th06nc-the-front-end-cancelled-back", MENU_ITEM_RUN);
         walked(&game, Some(keys::Z), || in_a_stage(&game));
         game.image().is_in_scene(game.image().the_scene_now(), {
-            game.image().scene_of_the_front_end()
+            game.image().scene_of_a_run_over()
         });
         walked(&game, None, || {
             game.image().the_screen_the_front_end_is_on() == THE_REPLAY_LIST

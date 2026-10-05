@@ -36,6 +36,11 @@ use orb_sim::{Sim, Space};
 /// every static below is inside it.
 const DATA: Range<usize> = 0x1_4036_d000..0x1_40c7_5884;
 
+/// **`th06.cfg`'s pad bindings at the game's defaults**, `0x140429210`: the shot `A` (12), the bomb `B` (13),
+/// the focus the right shoulder (9), the conversation skip `X` (14) and the pause `Start` (4), `wButtons` bit
+/// numbers in the file's first ten bytes — see `super::supervisor::CONFIG_PAD`.
+const PAD_BINDINGS: [i16; 5] = [12, 13, 9, 14, 4];
+
 /// Stands for the game's own code, so that a pointer into it reads as a live COM object's vtable and one
 /// anywhere else reads as the stale pointer left in a block the allocator did not scrub. The first page of
 /// `.text`, which the section table puts at `0x140001000`.
@@ -219,7 +224,8 @@ const CALC_RESULT_SCREEN: u16 = 13;
 /// run, three the stage after one, seven the screen a run that finished ends at and eight a run given up
 /// — `0x14007bdfc` writing one into the state wanted, and `super::STATE_RUN`,
 /// `super::STATE_THE_RUNS_OWN_END` and `super::STATE_RUN_OVER` where the other three are read. The
-/// remaining seven of the twelve its job dispatches on are not read.
+/// remaining seven of the twelve its job dispatches on are read too — `th06nc/asm.md`'s *The two tables
+/// whole* — and not laid out here.
 const SCENE_FRONT_END: i32 = 1;
 const SCENE_RUN: i32 = 2;
 const SCENE_REBUILDING: i32 = 3;
@@ -256,9 +262,9 @@ pub const MENU_ITEM_REPLAYS: i32 = super::front_end::ITEM_REPLAYS;
 
 /// **The result screen's states**, by the number `super::result_screen::STATE` holds: nine the name entry
 /// a played run opens in and seventeen the way out a run asked for no name takes, which `0x14007bdde`
-/// chooses between on `[0x14053d404]`; twelve the ranking, written at `0x14000cdc9` by the machine a run
-/// over puts up; and fifteen the offer to save a replay, which the name entry's own end item hands on to
-/// and which `Game::skip_replay_prompt` writes the way out over — a launch walked
+/// chooses between on `[0x14053d404]`; twelve the list of replay slots, written at `0x14000cdc9` by the
+/// menu a scene's end puts up; and fifteen the offer to save a replay, which the name entry's own end
+/// item hands on to and which `Game::skip_replay_prompt` writes the way out over — a launch walked
 /// `9, 15, 16, 10, 12, 14` with a decide each and photographed the question at fifteen.
 pub const RESULT_TYPING_A_NAME: i32 = 9;
 /// **And the item of the entry's own grid that ends it**, which reaching eight characters puts the cursor
@@ -266,7 +272,7 @@ pub const RESULT_TYPING_A_NAME: i32 = 9;
 pub const RESULT_THE_END_ITEM: i32 = super::result_screen::THE_END_ITEM;
 /// **How many characters the entry takes**, which is where it puts the cursor on the item above.
 pub const RESULT_NAME_BYTES: i32 = super::result_screen::NAME_BYTES as i32;
-pub const RESULT_RANKING: i32 = 12;
+pub const RESULT_REPLAY_SLOTS: i32 = 12;
 pub const RESULT_SAVE_REPLAY_QUESTION: i32 = super::result_screen::SAVE_REPLAY_QUESTION;
 pub const RESULT_LEAVING: i32 = super::result_screen::EXIT;
 
@@ -277,8 +283,8 @@ const STAGE_COUNTS_FROM: i32 = 1;
 /// invulnerability — `super::player`'s own being where each is read.
 ///
 /// **Playing is public because it is the one a hit lands in**, which a test that asks for a death has to
-/// wait for: `State::unsettled` is the hit and the walk-in, so it answers false through the two hundred
-/// and forty frames of invulnerability a stage's build hands the player — see
+/// wait for: `State::unsettled` is the hit and the coming back, so it answers false through the two
+/// hundred and forty frames of invulnerability a stage's build hands the player — see
 /// `a_confirmation_declined_of_th06nc`.
 pub const PLAYER_PLAYING: u8 = 0;
 const PLAYER_COMING_BACK: u8 = 1;
@@ -333,6 +339,17 @@ impl Image {
         Self::mapped(Arc::new(Sim::seeded(seed)))
     }
 
+    /// The `wButtons` bit numbers `th06.cfg` binds, in its order — the shot, the bomb, the focus, the skip and
+    /// the pause — and whether the decide and the cancel are swapped.
+    pub fn the_pad_bindings(&self) -> ([i16; 5], bool) {
+        let config = super::SUPERVISOR + super::supervisor::CONFIG_PAD;
+        let space = self.space();
+        (
+            std::array::from_fn(|field| space.read::<i16>(config + field * size_of::<i16>())),
+            space.read::<u8>(config + super::supervisor::DECIDE_SWAPPED) != 0,
+        )
+    }
+
     fn mapped(sim: Arc<Sim>) -> Self {
         let space = sim.space();
         space.map(DATA.start, DATA.len(), Kind::Private);
@@ -357,6 +374,17 @@ impl Image {
             entry += super::A_KEY_IN_THE_TABLE;
         }
         image.space().write::<u16>(entry, NO_MORE_KEYS);
+        // `th06.cfg`'s pad bound as the game's defaults bind it, `0x140429210`'s five with nothing swapped.
+        for (field, number) in PAD_BINDINGS.iter().enumerate() {
+            image.space().write::<i16>(
+                super::SUPERVISOR + super::supervisor::CONFIG_PAD + field * size_of::<i16>(),
+                *number,
+            );
+        }
+        image.space().write::<u8>(
+            super::SUPERVISOR + super::supervisor::CONFIG_PAD + super::supervisor::DECIDE_SWAPPED,
+            0,
+        );
         // The field's own size and the box the player is held to, as `.data` initialises the first and
         // the game fills the second: 384 by 448 at the origin.
         image.the_play_field_is(0.0, 0.0, 384.0, 448.0);
@@ -687,9 +715,16 @@ impl Image {
 
     // ---- the screen a run ends at ----
 
+    /// Whether the screen up is a run's own — see `super::result_screen::A_RUNS_OWN`.
+    pub fn is_the_screen_a_runs_own(&self) -> bool {
+        self.space()
+            .read::<u8>(RESULT_SCREEN.start + super::result_screen::A_RUNS_OWN)
+            != 0
+    }
+
     /// The screen a run ends at, up in `state` — its job registered on its own block, which is the one way
-    /// orb reaches it, and the byte that says the screen is a run's own rather than the ranking the title
-    /// opens.
+    /// orb reaches it, and the byte that says the screen is a run's own rather than the ranking the main
+    /// menu's item 5 opens.
     pub fn the_screen_a_run_ends_at_is_up(&self, state: i32) {
         self.space()
             .write::<u8>(RESULT_SCREEN.start + super::result_screen::A_RUNS_OWN, 1);
@@ -1009,6 +1044,12 @@ impl Image {
         );
     }
 
+    pub fn is_the_retry_menu_up(&self) -> bool {
+        self.space()
+            .read::<u8>(super::GAME_MANAGER + super::game_manager::IS_IN_RETRY_MENU)
+            != 0
+    }
+
     pub fn is_it_paused(&self) -> bool {
         let space = self.space();
         space.read::<u8>(super::GAME_MANAGER + super::game_manager::IS_IN_GAME_MENU) != 0
@@ -1056,6 +1097,43 @@ impl Image {
     pub fn the_mode_last_chosen_is_challenge(&self, challenge: bool) {
         self.space()
             .write::<u8>(super::THE_MODE_LAST_CHOSEN, u8::from(challenge));
+    }
+
+    /// The front end skipping, or not — see `super::front_end::IS_SKIPPING`.
+    pub fn the_front_end_is_skipping(&self, skipping: bool) {
+        self.space().write::<u8>(
+            FRONT_END.start + super::front_end::IS_SKIPPING,
+            u8::from(skipping),
+        );
+    }
+
+    pub fn is_the_front_end_skipping(&self) -> bool {
+        self.space()
+            .read::<u8>(FRONT_END.start + super::front_end::IS_SKIPPING)
+            != 0
+    }
+
+    pub fn is_the_mode_last_chosen_challenge(&self) -> bool {
+        self.space().read::<u8>(super::THE_MODE_LAST_CHOSEN) != 0
+    }
+
+    pub fn is_a_scene_being_played(&self) -> bool {
+        self.space().read::<u8>(super::A_SCENE_IS_BEING_PLAYED) != 0
+    }
+
+    /// The lives and the bombs `th06.cfg` gives a run — see `super::THE_CONFIGURED_LIVES`.
+    pub fn the_configuration_gives(&self, lives: i8, bombs: i8) {
+        let space = self.space();
+        space.write::<i8>(super::THE_CONFIGURED_LIVES, lives);
+        space.write::<i8>(super::THE_CONFIGURED_BOMBS, bombs);
+    }
+
+    pub fn the_configuration_now(&self) -> (i8, i8) {
+        let space = self.space();
+        (
+            space.read::<i8>(super::THE_CONFIGURED_LIVES),
+            space.read::<i8>(super::THE_CONFIGURED_BOMBS),
+        )
     }
 
     // ---- the player and what is on the field ----
@@ -1139,9 +1217,21 @@ impl Image {
             .write::<u8>(super::PLAYER + super::player::STATE, PLAYER_PLAYING);
     }
 
+    /// The hit landed, with the count put back to nought as the hit puts it (0x14006c208).
     pub fn the_player_has_been_hit(&self) {
+        let space = self.space();
+        space.write::<u8>(super::PLAYER + super::player::STATE, PLAYER_HIT);
+        space.write::<i32>(super::PLAYER + super::player::UNTOUCHABLE, 0);
+    }
+
+    /// The count under the player, in whatever state it stands.
+    pub fn the_players_count_is(&self, count: i32) {
         self.space()
-            .write::<u8>(super::PLAYER + super::player::STATE, PLAYER_HIT);
+            .write::<i32>(super::PLAYER + super::player::UNTOUCHABLE, count);
+    }
+
+    pub fn is_the_run_in_challenge_mode(&self) -> bool {
+        self.space().read::<u8>(super::A_RUN_IS_IN_CHALLENGE_MODE) != 0
     }
 
     pub fn the_players_state(&self) -> u8 {
@@ -1170,7 +1260,7 @@ impl Image {
         space.write::<i32>(super::PLAYER + super::player::UNTOUCHABLE, frames);
     }
 
-    /// And the invulnerability the walk-in hands over to, which counts itself down to nothing.
+    /// And the invulnerability the coming back hands over to, which counts itself down to nothing.
     pub fn the_player_is_invulnerable_for(&self, frames: i32) {
         let space = self.space();
         space.write::<u8>(super::PLAYER + super::player::STATE, PLAYER_INVULNERABLE);

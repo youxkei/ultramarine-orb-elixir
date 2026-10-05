@@ -162,9 +162,13 @@ pub extern "system" fn DllMain(_module: HANDLE, reason: u32, _reserved: *mut c_v
         // item: the trace ended ten frames past `step 12 of 16 done` and neither of the two steps after it
         // was in the file, where the log had this line to keep its own tail. And the trace first, because a
         // chunk that cannot be written says so through the log.
+        //
+        // **The ones that take a lock only where it is free**: by the process detach every other thread has
+        // been ended where it stood, so a lock one of them held is held for good and a close that waited on it
+        // would hold the process's exit — see `orb_core::trace::close_at_exit`.
         DLL_PROCESS_DETACH => {
-            trace::close();
-            log::close();
+            trace::close_at_exit();
+            log::close_at_exit();
         }
         _ => {}
     }
@@ -272,32 +276,26 @@ fn attach() {
     // hooked: that exe's `KERNEL32.dll` import list has no `HeapCreate` in it, so the install could not
     // find the entry it patched. Which entries a game's allocator and its threads go through is the
     // game's to say now — see `Game::rewinds`, `orb_core::game::Memory` and `orb_core::game::Threads`.
-    if config.track_memory && game.rewinds() {
-        let installed = match patches.takes_its_memory {
-            game::Memory::Kernel32Imports => unsafe { memtrack::install(exe) },
-            game::Memory::ProcessHeapImport => unsafe { memtrack::install_process_heap(exe) },
+    //
+    // **Asked about here and installed with the hooks**, every import of both lists before any is written and
+    // after every prologue the hooks below write over has been asked about too: installed here, a thread
+    // import or a prologue found missing afterwards returned with the memory hooks live under a line saying
+    // orb was doing nothing.
+    let watches_what_a_snapshot_puts_back = config.track_memory && game.rewinds();
+    let (takes_its_memory, makes_its_threads) =
+        (patches.takes_its_memory, patches.makes_its_threads);
+    if watches_what_a_snapshot_puts_back {
+        let memory = match takes_its_memory {
+            game::Memory::Kernel32Imports => &memtrack::KERNEL32_IMPORTS[..],
+            game::Memory::ProcessHeapImport => &memtrack::PROCESS_HEAP_IMPORTS[..],
         };
-        match installed {
-            Ok(()) => {
-                log!("memory hooks installed over {:?}", patches.takes_its_memory);
-                // **Whether the walk of the process heap answers at all**, which is what says whether
-                // anything orb decides off it means anything: `HeapWalk` refuses a heap with the
-                // low-fragmentation heap on, and the process heap has it on by default. A guard read off
-                // an empty answer is a guard that never fires, and `self_check`'s count of what changed
-                // in this heap is the same reading.
-                log!(
-                    "memory: the process heap walks to {} region(s)",
-                    orb_api::mem::process_heap_regions().len(),
-                );
+        for (what, imports) in [
+            ("memory hooks", memory),
+            ("thread hook", &threads::IMPORTS[..]),
+        ] {
+            if let Err(error) = unsafe { hook::can_install_imports(exe, "KERNEL32.dll", imports) } {
+                return log!("{what}: {error}; orb is doing nothing this run");
             }
-            Err(error) => return log!("memory hooks: {error}; orb is doing nothing this run"),
-        }
-        let installed = match patches.makes_its_threads {
-            game::Threads::CreateThread => unsafe { threads::install(exe) },
-        };
-        match installed {
-            Ok(()) => log!("thread hook installed over {:?}", patches.makes_its_threads),
-            Err(error) => return log!("thread hook: {error}; orb is doing nothing this run"),
         }
     }
 
@@ -580,14 +578,19 @@ fn attach() {
             let hooked = match building {
                 game::Building::Cdecl(patch) => Some((patch, hook::address(stage_building as _))),
                 #[cfg(target_arch = "x86")]
+                game::Building::InEcx(patch) => Some((
+                    patch,
+                    hook::address(orb_core::runtime::stage_building_in_ecx as _),
+                )),
+                #[cfg(target_arch = "x86")]
                 game::Building::StdcallOfTwo(patch) => Some((
                     patch,
                     hook::address(orb_core::runtime::stage_building_of_two as _),
                 )),
-                // No game of this width builds a stage that way, and a hook entered by the wrong ABI is a
+                // No game of this width builds a stage either way, and a hook entered by the wrong ABI is a
                 // crash rather than a wrong number.
                 #[cfg(not(target_arch = "x86"))]
-                game::Building::StdcallOfTwo(_) => None,
+                game::Building::InEcx(_) | game::Building::StdcallOfTwo(_) => None,
             };
             if let Some((patch, hook)) = hooked {
                 hooks.push(("stage build", patch, hook, &STAGE_BUILDING));
@@ -848,14 +851,30 @@ fn attach() {
              left as the game has it"
         );
     }
-    if let Some(patch) = patches.create_window {
-        FORCE_WINDOWED.store(true, Ordering::Relaxed);
-        hooks.push((
-            "window creation",
-            patch,
-            hook::address(create_game_window as _),
-            &CREATE_GAME_WINDOW,
-        ));
+    if let Some(entered) = patches.create_window {
+        let hook = match entered {
+            game::Entered::OnTheStack(_) => Some(hook::address(create_game_window as _)),
+            #[cfg(target_arch = "x86")]
+            game::Entered::InEcx(_) => Some(hook::address(
+                orb_core::runtime::create_game_window_in_ecx as _,
+            )),
+            // No game of this width makes its window that way, and a hook entered by the wrong ABI hands the
+            // game a register's leftover for its instance.
+            #[cfg(not(target_arch = "x86"))]
+            game::Entered::InEcx(_) => None,
+        };
+        if let Some(hook) = hook {
+            FORCE_WINDOWED.store(true, Ordering::Relaxed);
+            hooks.push((
+                "window creation",
+                game::Patch {
+                    target: entered.patch().target,
+                    prologue: entered.patch().prologue,
+                },
+                hook,
+                &CREATE_GAME_WINDOW,
+            ));
+        }
     }
     if let Some(patch) = patches.init_device {
         hooks.push((
@@ -875,6 +894,43 @@ fn attach() {
             hook::address(pad_buttons as _),
             &PAD_BUTTONS,
         ));
+    }
+    // **Every prologue asked about before any is written over**, so that one some other patcher has been at —
+    // a thcrap binhack, injected before orb is — leaves the game as it was found. Asked one at a time while
+    // installing, the hooks ahead of it were already live by the time it said no, under a log line saying
+    // orb was doing nothing.
+    for (name, patch, _, _) in &hooks {
+        if let Err(error) = unsafe { hook::can_install(patch.target, patch.prologue) } {
+            return log!("{name} hook: {error}; orb is doing nothing this run");
+        }
+    }
+    if watches_what_a_snapshot_puts_back {
+        let installed = match takes_its_memory {
+            game::Memory::Kernel32Imports => unsafe { memtrack::install(exe) },
+            game::Memory::ProcessHeapImport => unsafe { memtrack::install_process_heap(exe) },
+        };
+        match installed {
+            Ok(()) => {
+                log!("memory hooks installed over {takes_its_memory:?}");
+                // **Whether the walk of the process heap answers at all**, which is what says whether
+                // anything orb decides off it means anything: `HeapWalk` refuses a heap with the
+                // low-fragmentation heap on, and the process heap has it on by default. A guard read off
+                // an empty answer is a guard that never fires, and `self_check`'s count of what changed
+                // in this heap is the same reading.
+                log!(
+                    "memory: the process heap walks to {} region(s)",
+                    orb_api::mem::process_heap_regions().len(),
+                );
+            }
+            Err(error) => return log!("memory hooks: {error}; orb is doing nothing this run"),
+        }
+        let installed = match makes_its_threads {
+            game::Threads::CreateThread => unsafe { threads::install(exe) },
+        };
+        match installed {
+            Ok(()) => log!("thread hook installed over {makes_its_threads:?}"),
+            Err(error) => return log!("thread hook: {error}; orb is doing nothing this run"),
+        }
     }
     for (name, patch, replacement, original) in hooks {
         match unsafe { hook::install(patch.target, patch.prologue, replacement) } {

@@ -622,7 +622,7 @@ impl Chapters {
     /// **Which stage the chapters kept are of**, and `None` before a stage's start has settled into one.
     ///
     /// Which is not always `State::stage`: a game that leaves the gameplay scene to build its next stage
-    /// says no stage at all on the frames of the transition — th06c's stage word reads nought there — and
+    /// says no stage at all on the frames of the transition — th06c's rebuild asked for and not yet made — and
     /// what the chapters are still of is the stage just played.
     pub fn stage(&self) -> Option<i32> {
         self.stage
@@ -1043,8 +1043,8 @@ impl Chapters {
         }
 
         // **A frame between two stages is a frame of neither**, and this is not the frame to give one up on:
-        // th06 and th06c both leave the gameplay scene while the next stage is built, and this game's stage
-        // word reads nought there — `State::stage` being that word less one — so a frame of the rebuild
+        // th06 and th06c both leave the gameplay scene while the next stage is built, and `State::stage` is -1
+        // there — th06c's read off the rebuild asked for and not yet made — so a frame of the rebuild
         // announces a stage that is no stage. Left to the line below it, that frame dropped everything kept
         // of the stage just played: a `--judge` pass stepping forward off the last boundary of a th06c stage
         // came to rest there and then answered `cannot go back — no stage start kept`, which is the wall
