@@ -3,7 +3,7 @@
 # got through is each attack once and not the stage on its lives.
 #
 # **Item 1 of the main menu, the Extra, which the menu leaves out on records with no clear in them** (0x42d442
-# through 0x42d45c), and the records that light it are the case before this one's, in the same directory. Its
+# through 0x42d45c), and the records that light it are a Normal clear's (`orb_real::Start::TheExtraOffered`). Its
 # walk is the run's own three selects: the Extra's item puts the difficulty at 4 (0x42d790) and the shot select
 # writes the stage as 7 (0x430f16 through 0x430f4f).
 - press: [decide]

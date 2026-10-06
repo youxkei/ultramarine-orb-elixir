@@ -586,6 +586,24 @@ impl Judged {
 /// [`away_from_where_the_fall_lands`]: from keep\hits-u11-normal-pd-1\s4-c4-f4874 the way wanted `-60,368` behind a
 /// band sweeping right for 124 frames, and the run went the other way ahead of it from `42` to the right wall and was
 /// hit there at `184.0,432.0` (w4g, 2026-10-03).
+///
+/// **And while th11's `爆符「メガフレア」` is waited out between its flares**, the place wanted being one the flares come
+/// down on last and the way to it one none shuts first — see `crate::cards::between_the_flares`. Over forty frames a
+/// flare coming down beside the run reads as covering every move along the floor: from `hits/s6-c6-f14624` the place
+/// wanted stood at `-140,432` while the run went from `-138` to `-157` with `0 of the nine clear` and was hit there by
+/// the flare it had gone under at `-170` (2026-10-07).
+///
+/// **And while th11's `反応「妖怪ポリグラフ」` is swung and crossed**: a ray lays its rice at the distance the run was at a
+/// few frames before, 5 to 9 off the run's side as it comes, and over forty frames every move in, out or across beside
+/// it reads as hit — the run told in and across stood at `y = 394` and was carried along it ahead of the ray from `5`
+/// to the right wall at `184`, hit there four times at each of the chapters kept as `hits-extra/s7-c11-f26723`,
+/// `f26899` and `f27227` (2026-10-07).
+///
+/// **Not while th11's `恨霊「スプリーンイーター」` is gone round**, though its arms close on a ring's middle at no more
+/// than `1.0` a frame, some 12 apart along an arm, and read with `--log=verbose` at `hits5/s5-c7-f14293` the run had
+/// `0 of the nine clear` for tens of frames running as one passed over it: judged over these six frames, the six
+/// chapters of card 127 kept as `hits4` to `hits9` took 0, 3, 3, 7, 0 and 2 where over forty they took 0, 3, 0, 3, 1
+/// and 4 (2026-10-07).
 const A_CROSSINGS_LOOK_AHEAD: usize = 6;
 
 /// The nine one-frame moves, as the direction each goes in.
@@ -1033,6 +1051,188 @@ const A_STEP_OF_ITS_OWN: f32 = 0.5;
 /// stands, which is what a knot being laid is.
 const A_KNOT_IS_FEARED_FROM: i32 = 8;
 
+/// **How near a rose of th11's `「嫌われ者のフィロソフィ」` a row bullet is to be feared growing into one, and by how much
+/// a frame**: one step of its grid, the rows' bullets standing 30 apart and a rose taking the next along; and the
+/// rose's half of `8.4` less the bullet's `3.0` in two frames. Read off its red stage (the real case
+/// the_extra_played_to_its_clear_with_no_hit_and_no_bomb's `s7-c15-f46601`, orb-real 1791511885, and whole Extra 26's
+/// `s7-c15-f46212`, 2026-10-09): a row bullet `6` across beside a rose was `16.8` across the frame after, and the run
+/// `4.4` and `2.6` clear of it the frame before was hit by it — at `8.3,192.9` and `-27.9,264.5`. Feared so, 7 of the
+/// 7 chapters kept for the card took no hit, where 4 had (2026-10-09).
+///
+/// **And not within `16`**, the two halves and some frames of coming together, which was tried: Extra 31's
+/// `s7-c15-f47315` was still hit, at `6.0,192.3`, by a row bullet that was 30 off the rose the frame before it grew
+/// (2026-10-09).
+///
+/// **Feared growing and not read as a rose from the first**, which was tried with each bullet within 24 of a rose: the
+/// run had none of its nine moves clear beside them and was hit two and three times on the chapters kept as
+/// `hits-extra9/s7-c15-f43581`, `hits-extra8/s7-c15-f46365` and `hits-extra4/s7-c15-f43323` (2026-10-08).
+const A_ROSE_TAKES_WITHIN: f32 = 32.0;
+
+/// **How far from one of `花咲爺「華やかなる仁者への嫉妬」`'s big bullets going its flowers fall**, the wiki's
+/// `先頭の大弾に沿って、桜の形の弾は配置される` (wikiwiki.jp/thk/地/2): read off `--trace-the-field-in=15` over
+/// `hits-n28/s2-c6-f8134` (scratchpad petals15.py, 2026-10-10), a flower of five petals 4 across comes out every 8
+/// frames with its middle `-12` to `22` along the big bullet's way and up to `16` across it, its petals some 8 off that
+/// middle — and the run, standing 20 off a big bullet's way, had one come out round it at `106.8,304.7` with `-1.0 of
+/// room`, as on whole Normals 28 and 30 at `-63.7,342.5` (2026-10-10). Feared so, the eight chapters kept for the card
+/// took 1 0 0 1 0 0 0 0 at `--pace=16` where as they were 1 1 1 0 0 0 0 0, run 28's and 30's chapters through and the
+/// two hits left the run shut in against a wall, the left at `-183.9,213.9` and the top beside her at `33.4,32.0`.
+const ITS_FLOWERS_FALL_WITHIN: f32 = 32.0;
+/// **How big a bullet's half has to be to be one of card 15's big ones**: theirs is 14, the round ones' it throws
+/// with them 10 and the petals' 4.
+const A_JEALOUS_BIG_BULLET_IS_HALF_AT_LEAST: f32 = 12.0;
+
+/// **The word to press for th11's gap, where it is to be gone through**, and `None` where the rules' own word is the
+/// frame's: against a side wall with nothing open or, for card 127 the partner's way, a ring `closing` in (see
+/// `crate::cards::the_spleen_eaters_spirits_close_in`), the player able to warp across (`Frame::warps_across`), no beam
+/// up and the way through the gap clear of everything played on — see [`the_gap_is_clear`] — the direction let go
+/// and pressed back into the wall, the shot and the focus let go throughout ([`THE_GAPS_PRESSES`]); and the shot
+/// alone while the player is carried through, which no direction moves.
+///
+/// **The wiki's way for the partner, and for two of the cards still hit**: 「画面端でショットボタンと低速ボタンを離して
+/// 方向キーを二回連続で押す」 (wikiwiki.jp/thk/地/Player), card 15's 「霊夢Ａなら切り返さず画面端から端へのワープを使えば
+/// 回避は余裕」 and card 127's 「紫の場合は…怨霊が迫ってきたらスキマを使えば時間切れまで粘れる」 — the run hit on
+/// those two pinned against a side wall with nothing open, at `-183.9,213.9` and `182.6,148.3` (2026-10-10).
+fn through_the_gap(
+    frame: &Frame,
+    keys: &Keys,
+    hazards: Hazards,
+    nothing_open: bool,
+    closing: bool,
+) -> Option<u16> {
+    let mut pressed = GAP_PRESSED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if frame.warping {
+        *pressed = None;
+        return Some(keys.shot);
+    }
+    let (left, _, width, _) = frame.field;
+    let against = |wall: f32| (frame.at.0 - wall).abs() < AGAINST_A_WALL_WITHIN;
+    let side = match () {
+        _ if against(left) => -1.0,
+        _ if against(left + width) => 1.0,
+        _ => {
+            *pressed = None;
+            return None;
+        }
+    };
+    let step = match *pressed {
+        Some((was, step)) if was == side => step + 1,
+        _ if hazards == Hazards::Dodged
+            && frame.warps_across
+            && (nothing_open || closing)
+            && frame.beams.is_empty()
+            && the_gap_is_clear(frame, side) =>
+        {
+            detail!(
+                "autoplay: {} against the {} wall, and through the gap",
+                if nothing_open {
+                    "nothing open"
+                } else {
+                    "a ring closing in"
+                },
+                if side < 0.0 { "left" } else { "right" }
+            );
+            0
+        }
+        _ => {
+            *pressed = None;
+            return None;
+        }
+    };
+    let Some(&toward) = THE_GAPS_PRESSES.get(step) else {
+        *pressed = None;
+        return None;
+    };
+    *pressed = Some((side, step));
+    Some(match toward {
+        true if side < 0.0 => keys.left,
+        true => keys.right,
+        false => 0,
+    })
+}
+/// Where the gap was started from and how far into [`THE_GAPS_PRESSES`] it has been pressed.
+static GAP_PRESSED: std::sync::Mutex<Option<(f32, usize)>> = std::sync::Mutex::new(None);
+/// **The gap's presses, a frame each**: into the wall, let go, into the wall again — the game's own (`Th11`'s
+/// `GAP_STATE`, 0x430e50): the clamp puts the player against the wall in state 1, the direction let go there puts it
+/// in 2, and back into the wall within 8 frames carries it through. Into the wall first, so that a run that came
+/// along it is pressed against it, and nothing but the direction, the shot or the focus held putting it back at 0.
+const THE_GAPS_PRESSES: [bool; 3] = [true, false, true];
+/// How near a side wall the player is to be to be against it: the clamp holds it on the wall's own line.
+const AGAINST_A_WALL_WITHIN: f32 = 0.5;
+/// **How the gap carries the player** (0x43038b through 0x4303a8, 0x430fe7 through 0x43104d): `0x96` 128ths a
+/// frame out through the wall it was taken against, for 45 frames, and past `0x6800` 128ths beyond the middle across
+/// put `0xd000` back the other way.
+const THE_GAP_CARRIES_BY: f32 = 150.0 / 128.0;
+const THE_GAP_LASTS: usize = 45;
+const THE_GAP_COMES_OUT_PAST: f32 = 208.0;
+const THE_GAP_COMES_IN_BY: f32 = 416.0;
+/// **How much further than its box a body is kept from the gap's way**: nothing on a body is a step its script moves it
+/// by, so one played on standing still is wherever it has gone to since — card 127's spirits going round the run out
+/// past the wall it stood against, two of them hit at `-209.2,339.1` and `-221.2,313.3` on the way through
+/// (`hits-n19/s5-c7-f15914`, 2026-10-10).
+const THE_GAP_KEEPS_FROM_A_BODY_BY: f32 = 16.0;
+
+/// **Whether going through the gap from against the wall on `side` is clear of everything there is**, each hazard
+/// played on straight at its own step: the frames of [`THE_GAPS_PRESSES`] stood against the wall, and then the
+/// player's way through it, frame by frame, the field's middle across taken as nought.
+fn the_gap_is_clear(frame: &Frame, side: f32) -> bool {
+    let middle = frame.field.0 + frame.field.2 / 2.0;
+    let (mine_x, mine_y) = frame.half;
+    let presses = THE_GAPS_PRESSES.len();
+    let mut way = (0..presses + THE_GAP_LASTS).map(|ahead| {
+        let carried = ahead.saturating_sub(presses) as f32 * THE_GAP_CARRIES_BY * side;
+        let mut across = frame.at.0 - middle + carried;
+        if across * side > THE_GAP_COMES_OUT_PAST {
+            across -= THE_GAP_COMES_IN_BY * side;
+        }
+        (ahead as f32 + 1.0, (middle + across, frame.at.1))
+    });
+    way.all(|(frames, (x, y))| {
+        frame
+            .hazards
+            .iter()
+            .filter(|hazard| !matches!(hazard.kind, Kind::Body { solid: false }))
+            .all(|hazard| {
+                let step = hazard.step.unwrap_or((0.0, 0.0));
+                let (hx, hy) = (hazard.at.0 + step.0 * frames, hazard.at.1 + step.1 * frames);
+                let kept = match hazard.kind {
+                    Kind::Body { .. } => THE_GAP_KEEPS_FROM_A_BODY_BY,
+                    _ => 0.0,
+                };
+                (hx - x).abs() >= hazard.half.0 + mine_x + kept
+                    || (hy - y).abs() >= hazard.half.1 + mine_y + kept
+            })
+    })
+}
+
+/// **The half a bullet of card 15's is feared at**: one of its big ones going, out to [`ITS_FLOWERS_FALL_WITHIN`];
+/// every other as it is.
+fn out_to_where_its_flowers_fall(half: (f32, f32), going: (f32, f32)) -> (f32, f32) {
+    if half.0.max(half.1) >= A_JEALOUS_BIG_BULLET_IS_HALF_AT_LEAST
+        && going.0.hypot(going.1) > A_STEP_OF_ITS_OWN
+    {
+        (
+            half.0.max(ITS_FLOWERS_FALL_WITHIN),
+            half.1.max(ITS_FLOWERS_FALL_WITHIN),
+        )
+    } else {
+        half
+    }
+}
+const A_ROW_BULLET_TAKEN_GROWS_BY: f32 = 2.7;
+/// **How big a bullet's half has to be to be a rose**, the rows' being `3.0` and a rose's `8.4`.
+pub(crate) const A_ROSE_IS_HALF_AT_LEAST: f32 = 6.0;
+
+/// **Whether a bullet of half `half` at `place` is a row bullet one of `roses` is about to take** — see
+/// [`A_ROSE_TAKES_WITHIN`].
+fn a_rose_takes(half: (f32, f32), place: (f32, f32), roses: &[(f32, f32)]) -> bool {
+    half.0.max(half.1) < A_ROSE_IS_HALF_AT_LEAST
+        && roses
+            .iter()
+            .any(|rose| (rose.0 - place.0).hypot(rose.1 - place.1) < A_ROSE_TAKES_WITHIN)
+}
+
 /// **The move's own next frame, and then the [`LOOK_AHEAD`] after it.**
 ///
 /// **The player and the hazard are projected by the same count, because one frame moves both.** th06c
@@ -1170,6 +1370,17 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
         return 0;
     }
     orb_core::trace::the_player_at(frame.at);
+    // **And `反応「妖怪ポリグラフ」`'s grains still to be laid on the run handed to the rules**, which see only what is
+    // laid — see `crate::cards::the_polygraphs_grains_to_come`.
+    if the_dodge() == Some(Dodge::YoukaiPolygraph) {
+        let to_come = crate::cards::the_polygraphs_grains_to_come(frame);
+        frame.hazards.extend(to_come);
+    }
+    // **And `復燃「恋の埋火」`'s trails still to be laid** — see `crate::cards::the_embers_trails_to_come`.
+    if the_dodge() == Some(Dodge::EmbersOfLove) {
+        let to_come = crate::cards::the_embers_trails_to_come(frame);
+        frame.hazards.extend(to_come);
+    }
     // **And the hazards ignored while `「幻視調律」`'s lattice is where none of it can hit** — see
     // `crate::cards::visionary_tunings_lattice_cannot_hit`, which is the climb the rules dodging it never make.
     // All of them for those frames, and not the hidden bullets taken out of what the rules see: `th08::sight`
@@ -1188,7 +1399,7 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     let looked_ahead = hazards == Hazards::Dodged
         && matches!(
             the_dodge(),
-            Some(Dodge::JadeOfTheLoathsomeRiver | Dodge::TheRedFrogOfHoeiFour)
+            Some(Dodge::JadeOfTheLoathsomeRiver | Dodge::TheRedFrogOfHoeiFour | Dodge::SpleenEater)
         )
         && the_cards_frames().is_some();
     // **And for a player's own path a recipe has them go along, once the run is on it** — see [`FOLLOWING`]: the
@@ -1341,7 +1552,14 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // `crate::cards::the_clock`. **Nor for `「そして誰もいなくなるか？」`**, whose walk round the whole field has
     // to keep ahead of the fire piling up behind it. **Nor for `神具「洩矢の鉄の輪」`**, whose change from the
     // bottom of the field to the top is made as a ring is about to arrive and has to be over before the next one is
-    // sent — see `crate::cards::moriyas_iron_rings`.
+    // sent — see `crate::cards::moriyas_iron_rings`. **Nor for `反応「妖怪ポリグラフ」`**, whose rays lay their rice
+    // as far off the boss as the run is every 8 frames, so a swing from one distance to the other leaves a fence of
+    // it across the way the run comes round to — the strategy wiki's `大きく速く動くことで粒弾に隙間を作り`: at
+    // `hits-extra19/s7-c11-f26313` every swing from 130 to 190 off her and back went at the focused `2.00` a frame,
+    // laid its rice some 12 apart from 132 to 184 off her, and the run stood 144 off her against that fence with one of
+    // its nine moves clear till it was hit at `70.5,342.3` (2026-10-08). Kept at the whole step, the ten chapters kept
+    // for card 169 took no hit, where the focused swing took some seven over nine of them. **Nor for the boss's fire
+    // after it**, the wiki's `弾列が横に長いため、低速移動だけでは危険` — see `crate::cards::between_the_long_rows`.
     let the_whole_step_through = matches!(
         the_dodge(),
         Some(
@@ -1350,8 +1568,14 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
                 | Dodge::Clock
                 | Dodge::AndThenThereWereNone
                 | Dodge::MoriyasIronRings
+                | Dodge::YoukaiPolygraph
+                | Dodge::BetweenTheLongRows
         )
     );
+    // **And th11's `復燃「恋の埋火」` left to the rule below like any card, and not the focus held wherever the focused
+    // step has room** for the wiki's `速攻撃破が推奨`, which was tried — every hit of the card on the Extras of 2026-10-09
+    // having come late in it with the key not held: over the fourteen chapters kept for the card it took 6 hits on six
+    // of them, where this took 7 on five (2026-10-09).
     if !focused && !the_whole_step_through && holds_the_focus(frame, hazards, &steered) {
         let held = steer(frame, &keys, hazards, true, ASKED_AGAIN);
         if holds_the_focus(frame, hazards, &held) {
@@ -1645,6 +1869,27 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
         false => (frame.straight, frame.diagonal),
     };
     THE_STEP_WAS_STALE.store(steered.step != would_take, Ordering::Relaxed);
+    // **And for th11's card 127 the partner's way, as its ring's spirits close in** — see
+    // `crate::cards::against_the_nearer_side_wall`.
+    let closing = the_dodge() == Some(Dodge::ThroughTheGap)
+        && crate::cards::the_spleen_eaters_spirits_close_in(frame);
+    // **And only for the cards it has been measured on**, card 15 and card 127 the partner's way: gone through with
+    // nothing open for any card, whole Normal 31 at `--pace=16` (2026-10-10) went through from the right wall on card
+    // 135 nine attempts running and was hit coming in at the left, `-207.6,409.7`, by its bullets 6 across out past the
+    // wall — fire the 48 frames of the gap played on straight did not have where it went.
+    let gone_through_shut_in = matches!(
+        the_dodge(),
+        Some(Dodge::JealousyOfTheKind | Dodge::ThroughTheGap)
+    );
+    if let Some(gap) = through_the_gap(
+        frame,
+        &keys,
+        hazards,
+        gone_through_shut_in && steered.room.is_none(),
+        closing,
+    ) {
+        return gap;
+    }
     word | steered.word
 }
 
@@ -2474,6 +2719,7 @@ fn the_place_it_holds(dodge: Dodge, field: (f32, f32, f32, f32)) -> Option<Stand
         | Dodge::OldTiesBoundByCedars
         | Dodge::MoriyasIronRings
         | Dodge::TheRedFrogOfHoeiFour
+        | Dodge::SpleenEater
         | Dodge::TheSnakeEatsTheCroakingFrog
         | Dodge::OmiwatariThatGodWalked
         | Dodge::TheMiracleOfOtensui => return None,
@@ -2486,6 +2732,7 @@ fn the_place_it_holds(dodge: Dodge, field: (f32, f32, f32, f32)) -> Option<Stand
             Some(Across::At(field.0 + field.2 / 2.0 - LEFT_OF_THE_MIDDLE_BY)),
             None,
         ),
+        Dodge::AgainstTheLeftWall => (Some(Across::At(field.0)), None),
         Dodge::RightOfTheMiddle => (
             Some(Across::At(field.0 + field.2 / 2.0 + RIGHT_OF_THE_MIDDLE_BY)),
             None,
@@ -2505,6 +2752,10 @@ fn the_place_it_holds(dodge: Dodge, field: (f32, f32, f32, f32)) -> Option<Stand
             ))),
             Some(field.1 + field.3 - LOW_IN_THE_MIDDLE_ABOVE_THE_FLOOR),
         ),
+        // The place is the monster's own, worked out where the told place is — see
+        // `crate::cards::after_the_green_eyed_monster`. **And the nearer side wall's** — see
+        // `crate::cards::against_the_nearer_side_wall`.
+        Dodge::GreenEyedMonster | Dodge::ThroughTheGap => (None, None),
         Dodge::GreatSuwaWar => {
             let (x, y) = the_great_suwa_war(field, the_cards_frames());
             (Some(Across::At(x)), Some(y))
@@ -2514,10 +2765,166 @@ fn the_place_it_holds(dodge: Dodge, field: (f32, f32, f32, f32)) -> Option<Stand
             Some(tenaga_ashinagas_height(field, the_cards_frames())),
         ),
         Dodge::UnderTheBoss => (Some(Across::AwayFromTheBoss(0.0)), None),
+        // The x is the suns' own, worked out where the told x is — see `crate::cards::between_the_suns`.
+        Dodge::BetweenTheSuns => (
+            None,
+            Some(field.1 + field.3 - BETWEEN_THE_SUNS_ABOVE_THE_FLOOR),
+        ),
+        // The x is the flares' own as well — see `crate::cards::between_the_flares`.
+        Dodge::BetweenTheFlares => (None, Some(field.1 + field.3)),
+        // The place itself is the card's frame's, worked out where the told place is — see
+        // `crate::cards::between_the_polygraphs_rays`; with no card's frame read, under the boss.
+        Dodge::YoukaiPolygraph => (middle, Some(field.1 + UNDER_THE_POLYGRAPH_DOWN)),
+        // The place itself is the card's frame's, worked out where the told place is — see
+        // `crate::cards::away_from_the_hated`; with no boss read, the middle of her round.
+        Dodge::PhilosophyOfTheHated => (
+            middle,
+            Some(field.1 + crate::cards::THE_HATEDS_ROUND_MIDDLE_DOWN),
+        ),
+        // The place itself is the card's frame's, worked out where the told place is — see
+        // `crate::cards::out_of_the_subterranean_roses_way`; with no ring coming, half way down.
+        Dodge::SubterraneanRose => (
+            middle,
+            Some(field.1 + BETWEEN_THE_FLOOR_AND_THE_ROSES_BOSS_DOWN),
+        ),
+        // The place is in front of the boss, worked out where the told place is — see
+        // `crate::cards::in_front_of_the_embers`; with no heart out, the middle of the low line.
+        Dodge::EmbersOfLove => (middle, Some(field.1 + field.3 - ABOVE_THE_BOTTOM)),
+        // The place itself is the boss's, worked out where the told place is — see
+        // `crate::cards::across_from_the_genes`; with no boss read, the middle of the low line.
+        Dodge::GeneticsOfTheSubconscious => (middle, Some(field.1 + field.3 - ABOVE_THE_BOTTOM)),
+        // **Under the boss a third of the way up**, the strategy wiki's `画面下端だと辛い。ある程度ボスに近付くと粒弾が
+        // 薄くなる` and `大幣の下を中心として超細かく左右交互にチョンよけ` (wikiwiki.jp/thk/地/EX): left to the rules' own,
+        // the run was carried along the low line to the bottom left corner and hit there with nowhere open at
+        // `-180.8,432.0` 2,018 frames into the card on `hits-extra15/s7-c4-f10039` (2026-10-08).
+        Dodge::RiceShower => (
+            Some(Across::AwayFromTheBoss(0.0)),
+            Some(a_third_of_the_way_up(field)),
+        ),
+        // The place is the stage's frame's and the right wall's room, worked out where the told place is — see
+        // `crate::cards::from_the_left_wall_to_the_top_right`; with nothing told, the rules' own.
+        Dodge::FromTheLeftWallToTheTopRight => (None, None),
+        // The x is the rows' own, worked out where the told x is — see `crate::cards::between_the_long_rows`; with
+        // nothing in the field, left of the middle.
+        Dodge::BetweenTheLongRows => (
+            Some(Across::At(field.0 + field.2 / 2.0 - LEFT_OF_THE_MIDDLE_BY)),
+            Some(field.1 + field.3),
+        ),
+        // The x is the red fairies' own, worked out where the told x is — see `crate::cards::under_the_red_fairies`;
+        // with no body up yet, the middle.
+        Dodge::WhereTheRedFairiesComeOut => (middle, Some(field.1 + field.3)),
+        // The place is the rice's own, worked out where the told place is — see
+        // `crate::cards::under_the_miracle_fruit`; with nothing read, the floor.
+        Dodge::MiracleFruit => (None, Some(field.1 + field.3)),
+        // The x is the boss's own, worked out where the told place is — see `crate::cards::in_front_of_the_id`.
+        Dodge::ReleaseOfTheId => (
+            None,
+            Some(field.1 + crate::cards::THE_ID_IS_WAITED_OUT_DOWN),
+        ),
+        // The place is round the boss, worked out where the told place is — see `crate::cards::round_the_jealous_boss`.
+        Dodge::JealousyOfTheKind => (middle, None),
+        // The place is up or down from the bodies, worked out where the told place is — see
+        // `crate::cards::up_and_down_from_the_rekindled`.
+        Dodge::Rekindled => (middle, None),
+        // The places are worked out where the told place is — see `crate::cards::among_the_fixed_stars` and
+        // `crate::cards::under_the_artificial_sun`.
+        Dodge::FixedStar | Dodge::ArtificialSun => (middle, None),
+        // The x is worked out where the told x is — see `crate::cards::across_the_yin_yangs`.
+        Dodge::AcrossTheYinYangs => (middle, Some(field.1 + field.3)),
+        // The x is the spirits' own, worked out where the told x is — see `crate::cards::between_the_spinning_spirits`.
+        Dodge::BetweenTheSpinningSpirits => (None, Some(field.1 + field.3)),
+        // The place is worked out where the told place is — see `crate::cards::after_the_yin_yangs`.
+        Dodge::AfterTheYinYangs => (
+            middle,
+            Some(field.1 + crate::cards::AFTER_THE_YIN_YANGS_DOWN),
+        ),
     };
     Some(Standing { across, y })
 }
 
+/// **How far down [`Dodge::SubterraneanRose`] waits with no ring coming**: `280` on th11's field, half way between its floor at `432` and
+/// the boss at `0,128` she stands at through card 174, read off the trace at `hits-extra5/s7-c16-f45966` — the
+/// strategy wiki's `最下段とボスとの中間位置が、薔薇を気にする必要がなく一番避けやすい` (wikiwiki.jp/thk/地/EX).
+///
+/// **And not the rules' own height**, which was tried: they stood at the floor, `368` to `405` down, as her rings went
+/// out over it, and were hit there 350 to 415 frames in some eighteen times running on a whole Extra (2026-10-07).
+const BETWEEN_THE_FLOOR_AND_THE_ROSES_BOSS_DOWN: f32 = 248.0;
+
+/// **How far down [`Dodge::GeneticsOfTheSubconscious`] waits while the boss is along the bottom**: `200`, some 200 above
+/// where she goes along it and below the top part of the field the wiki keeps the run out of — `上には行かないこと`
+/// (wikiwiki.jp/thk/地/EX).
+const THE_GENES_UP_DOWN: f32 = 200.0;
+
+/// **How far below its place [`Dodge::PhilosophyOfTheHated`] has to be for a step up and to the left to be one it may
+/// take**: the blue stage's rows are bullets 6 across set 8 apart across and 13 down, falling 1 a frame, so a run
+/// below its place climbs to it through each row by stepping up and to the left as the row passes, the wiki's
+/// `右上でちょこちょこ` — and a run come into the card at the bottom right corner has to.
+///
+/// **And not every step left judged hit**, which it was: on `hits-extra8/s7-c15-f46365` the card began with the run in
+/// the bottom right corner, and at `111.6` against its place's `112,144` every step up and to the left was judged hit
+/// by the rule against going left and every one down and to the right by the one against going further than 40 from
+/// its place; with none of its nine moves clear it went straight down with each row at 1 a frame from `219` some 400
+/// frames in to the floor by 630 and was hit there twice at `114.1,432.0` (2026-10-08, at `--pace=1`). **Nor any
+/// step left within 24 of the place**, which was tried: the run went along the rows to 24 left of it and was hit
+/// there twice at `86.8,289.7` on f46365 and at `86.8,326.9` on each of the three `hits-extra4` chapters it had gone
+/// through with none.
+const THE_HATEDS_PLACE_IS_CLIMBED_TO_FROM: f32 = 40.0;
+
+/// **How far from the boss of [`Dodge::PhilosophyOfTheHated`] a move nearer her is judged hit**: her yellow stage's
+/// roses lie round her some 75 across each way in the trace's pictures (`hits-extra8/s7-c15-f46365`, 2026-10-08), and
+/// this is twice that.
+const THE_HATEDS_ROSES_ARE_KEPT_OFF_WITHIN: f32 = 150.0;
+
+/// **How far down [`Dodge::YoukaiPolygraph`] waits with no card's frame read**: `284` on th11's field, 60 under the
+/// boss at `0,224`, where `crate::cards::between_the_polygraphs_rays` starts.
+const UNDER_THE_POLYGRAPH_DOWN: f32 = 252.0;
+
+/// **How far above the floor [`Dodge::BetweenTheSuns`] waits**: `23`, where the line between two suns is furthest out
+/// from where they are born and their edges furthest apart, short of the floor the rules' own were pinned to.
+const BETWEEN_THE_SUNS_ABOVE_THE_FLOOR: f32 = 23.0;
+
+/// **How far across from the gap between the suns [`Dodge::BetweenTheSuns`] dodges**: `40`, as
+/// [`HELD_BY_THE_MIDDLE_WITHIN`] is from the middle.
+///
+/// **Held to the gap and not only told to go there**: the gap the run stood in pointed down at `x = 2` on every frame
+/// before the first hit of `hits/s6-c5-f10070`, read at the run's own height, and the rules' dodging of the card's
+/// bullets carried it along the floor from `52` to `123` in 21 frames with nothing open, on past the line of the sun
+/// coming down at `129` and into the corner at `184`, where the sun came through it — the same seven hits on the
+/// same frames before and after the gap was read where the run is (2026-10-07).
+const BETWEEN_THE_SUNS_HELD_WITHIN: f32 = 40.0;
+
+/// **How far from its place on the circle [`Dodge::SpleenEater`] dodges**: `40`, as [`BETWEEN_THE_SUNS_HELD_WITHIN`] is
+/// from its gap.
+///
+/// **Held to the circle and not only told to go round it**: told to, at `hits6/s5-c7-f14233` the run was where a ring
+/// came at `-15,431` and `99,389`, off the circle about `0,372`, and was carried along the floor into the corner at
+/// `184,432` and hit there some 291 frames after a ring, four times (2026-10-07). **And not within `70` with the circle
+/// 30 off the floor**, for more room through a gap in the arms as they pass over the run, which was tried: the six
+/// chapters `hits4` to `hits9` took 0, 3, 0, 2, 7 and 3 where held within `40` they took 0, 3, 0, 3, 1 and 4
+/// (2026-10-07).
+///
+/// **And th11's card 131 held so too**: told to go up as each wave of its spirits came and to wait in front of the
+/// boss, unheld, the run was carried by them down to the floor and along it, and hit there at `-141`, `-127` and `184`
+/// across over the chapters of the card kept as `hits2`, `hits5`, `hits7` and `hits9` (2026-10-07).
+const ROUND_THE_SPLEEN_EATERS_CIRCLE_HELD_WITHIN: f32 = 40.0;
+/// **How far above the floor [`Dodge::EmbersOfLove`] waits, between the two**: no nearer it than some of the run's steps,
+/// the hearts coming back up off it, and no higher than the low line and some 56 over it, the aimed hearts led down and
+/// come at the run from as far as may be — up at 160 over the floor, the run was hit at `-48.9,272.6` on whole Extra 41
+/// among the trails laid down from her (2026-10-09).
+///
+/// **Not on the floor itself**, which was tried for the wiki's `自機狙いの弾は極力真下最下段に向けて撃たせる`: the hearts
+/// come back up off the floor as off every wall, and the run there was hit at `51.8,432.0`, `37.6,418.5` and
+/// `19.4,432.0` on `hits-extra6/s7-c13-f35909` and at `-60.8,414.6` on `hits-extra7/s7-c13-f35551`, where on the low
+/// line those took none (2026-10-08).
+const THE_EMBERS_ABOVE_THE_FLOOR_AT_LEAST: f32 = 40.0;
+const THE_EMBERS_ABOVE_THE_FLOOR_AT_MOST: f32 = 120.0;
+/// **How far from its gap's place [`Dodge::BetweenTheSpinningSpirits`] dodges**: some steps, a gap between two of the
+/// spirits' ways being as narrow as 59 across.
+///
+/// **Not within the `40` the others are**: told the middle of that gap at `-99`, the run was let out to `-154.0,432.0`
+/// in the way coming down at `-207` across, and hit there by its spirits twice running (whole run 19,
+/// `hits-n19/s5-c8-f17396`, taken again with the same hits, 2026-10-09).
+const BETWEEN_THE_SPINNING_SPIRITS_HELD_WITHIN: f32 = 16.0;
 /// **Where [`Dodge::GreatSuwaWar`] waits on the card's frame**: at the left wall, down it from
 /// [`UP_AND_DOWN_THE_LEFT_WALL_BETWEEN`]'s top to its foot and back up, a sweep each
 /// [`UP_AND_DOWN_THE_LEFT_WALL_EACH`] frames, and from [`GREAT_SUWA_WAR_UP_THE_MIDDLE_FROM`] on up the middle at
@@ -2866,7 +3273,10 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 }
                 let ahead = (step + 1) as f32;
                 let read = (wx, wy);
-                let (wx, wy) = (wx + grows.0 * ahead, wy + grows.1 * ahead);
+                let (wx, wy) = (
+                    (wx + grows.0 * ahead).max(0.0),
+                    (wy + grows.1 * ahead).max(0.0),
+                );
                 // **And the step's own change carried with it, which a straight line is wrong by the whole
                 // of.** A hazard whose step is the same every frame is where its step says it will be; one
                 // whose step changes by a hair a frame is somewhere else entirely by the end of the frames
@@ -2931,6 +3341,19 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
             }
         }
     };
+    // The roses of th11's `「嫌われ者のフィロソフィ」`, which take the row bullets they reach — see [`A_ROSE_TAKES_WITHIN`].
+    let roses: Vec<(f32, f32)> = match the_dodge() == Some(Dodge::PhilosophyOfTheHated) {
+        true => frame
+            .hazards
+            .iter()
+            .filter(|hazard| {
+                matches!(hazard.kind, Kind::Bullet { .. })
+                    && hazard.half.0.max(hazard.half.1) >= A_ROSE_IS_HALF_AT_LEAST
+            })
+            .map(|hazard| hazard.at)
+            .collect(),
+        false => Vec::new(),
+    };
     for hazard in &frame.hazards {
         let Hazard {
             kind,
@@ -2939,6 +3362,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
             at: place,
             step,
             half,
+            grows: changes,
         } = *hazard;
         match kind {
             // **And one out of its hitting state left out where the game says it is harmless** — see
@@ -3086,7 +3510,21 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                         let pace = crate::cards::SNAKE_KNOTS_BURST_PACE;
                         (grows.0.max(pace), grows.1.max(pace))
                     }
+                    // **And a row bullet a rose is about to take, feared growing into one** — see
+                    // [`A_ROSE_TAKES_WITHIN`].
+                    _ if a_rose_takes(half, place, &roses) => (
+                        grows.0.max(A_ROW_BULLET_TAKEN_GROWS_BY),
+                        grows.1.max(A_ROW_BULLET_TAKEN_GROWS_BY),
+                    ),
                     _ => grows,
+                };
+                // **And a big bullet of th11's card 15 going, feared out to where its flowers fall** — see
+                // [`ITS_FLOWERS_FALL_WITHIN`].
+                let half = match the_dodge() {
+                    Some(Dodge::JealousyOfTheKind) => {
+                        out_to_where_its_flowers_fall(half, projected)
+                    }
+                    _ => half,
                 };
                 against("a bullet", slot, place, projected, half, grows, carried, 0);
             }
@@ -3160,16 +3598,12 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 // ranking has nothing to choose between them and the run stands where it is: eight attempts
                 // at one last stage's card died at `8.0,362.3`, the left wall, every one of them pressing
                 // down into it with `nowhere open to it`.
-                against(
-                    "an enemy",
-                    slot,
-                    place,
-                    went,
-                    half,
-                    (swung.0.abs(), swung.1.abs()),
-                    swung,
-                    0,
-                );
+                // **And grown or shrunk by what its size did last frame**, where the game says so — see
+                // `game::Hazard::grows`: th11's flares fall from a reach of 88 to some 25 at the floor, and carried
+                // down at the reach they had higher up the floor read as shut. Never below nought: a box is held at
+                // no reach rather than turned inside out.
+                let swelled = (swung.0.abs() + changes, swung.1.abs() + changes);
+                against("an enemy", slot, place, went, half, swelled, swung, 0);
             }
             // **And every place a body has been, each its own box, with [`CLEAR_OF_A_BEAM`] kept round it.** A
             // beam that follows a body is its trail, tested box by box against the player exactly as a bullet
@@ -3516,6 +3950,122 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
             }
         }
     }
+    // **And one that lands too far across from the gap between the suns, for th11's card 143** — see
+    // [`BETWEEN_THE_SUNS_HELD_WITHIN`].
+    // **And from its place on the right for th11's card 151**, the wiki's `上下移動メインで避ける` — see
+    // `crate::cards::among_the_fixed_stars`.
+    if matches!(the_dodge(), Some(Dodge::BetweenTheSuns | Dodge::FixedStar))
+        && settled == Settled::TheWayItWasToldToDodge
+    {
+        let off = |x: f32| (x - wanted.0).abs();
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let x = path[A_LANDING_NEAR_AN_EDGE_AT].0;
+            if off(x) > BETWEEN_THE_SUNS_HELD_WITHIN && off(x) > off(at.0) {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And one that lands too far from its place, for th11's cards 15, 127, 131, 164, 167, 169, 171, 172, 173 and 174,
+    // the Extra boss's fire after card 169, the stages either side of its midboss and stage 5 after its yin-yangs** — see
+    // [`ROUND_THE_SPLEEN_EATERS_CIRCLE_HELD_WITHIN`]; left unheld through that fire, the rules carried the run right of
+    // the middle to `115.7` (`crate::cards::between_the_long_rows`), and through card 167 to the left wall at half its
+    // height, away from the boss the wiki has it in front of (`hits-real8/s7-c9-f20431`, 2026-10-08); the stage after
+    // the midboss is held along the low line alone — see
+    // `crate::cards::the_stage_after_the_midboss_is_held_along_the_low_line`.
+    if the_dodge().is_some_and(|dodge| {
+        matches!(
+            dodge,
+            Dodge::SpleenEater
+                | Dodge::BetweenTheSpinningSpirits
+                | Dodge::AfterTheYinYangs
+                | Dodge::JealousyOfTheKind
+                | Dodge::YoukaiPolygraph
+                | Dodge::EmbersOfLove
+                | Dodge::GeneticsOfTheSubconscious
+                | Dodge::RiceShower
+                | Dodge::BetweenTheLongRows
+                | Dodge::WhereTheRedFairiesComeOut
+                | Dodge::ReleaseOfTheId
+                | Dodge::ArtificialSun
+                | Dodge::PhilosophyOfTheHated
+                | Dodge::SubterraneanRose
+        ) || dodge == Dodge::FromTheLeftWallToTheTopRight
+            && crate::cards::the_stage_after_the_midboss_is_held_along_the_low_line()
+    }) && settled == Settled::TheWayItWasToldToDodge
+    {
+        let off = |p: (f32, f32)| (p.0 - wanted.0).hypot(p.1 - wanted.1);
+        let within = match the_dodge() {
+            Some(Dodge::BetweenTheSpinningSpirits) => BETWEEN_THE_SPINNING_SPIRITS_HELD_WITHIN,
+            _ => ROUND_THE_SPLEEN_EATERS_CIRCLE_HELD_WITHIN,
+        };
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let landing = path[A_LANDING_NEAR_AN_EDGE_AT];
+            if off(landing) > within && off(landing) > off(at) {
+                judged.hit(A_LANDING_NEAR_AN_EDGE_AT);
+            }
+        }
+    }
+    // **And a move to the left from left of its place, for th11's card 173**, the strategy wiki's
+    // `左への移動は無意味で危険` (wikiwiki.jp/thk/地/EX): held within 40 of its place alone, the run was dodged along
+    // the yellow stage's rows to the left past it, 100 off it at `-159,272` with no move back clear, and hit there
+    // against the left wall at `-151.0,216.4` with none open (h9 at `hits-extra4/s7-c15-f43323`, 2026-10-07).
+    if the_dodge() == Some(Dodge::PhilosophyOfTheHated)
+        && settled == Settled::TheWayItWasToldToDodge
+        && at.0 < wanted.0
+    {
+        let climbing = at.1 > wanted.1 + THE_HATEDS_PLACE_IS_CLIMBED_TO_FROM;
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            let up = path[0].1 < at.1 - f32::EPSILON;
+            if path[0].0 < at.0 - f32::EPSILON && !(climbing && up) {
+                judged.hit(0);
+            }
+        }
+    }
+    // **And a move up nearer the boss from within [`THE_HATEDS_ROSES_ARE_KEPT_OFF_WITHIN`] of her, for th11's card
+    // 173**, her roses lying round her as wide as that through its yellow stage: on `hits-extra8/s7-c15-f46365` she
+    // came in from `99,182` to `15,162` some 1,440 frames into the card, and the run below her and to the left, stepping
+    // out of the way of the yellow stage's rows coming up from the floor, went up from `-51,287` to `-39,241` into the
+    // edge of her roses and was hit there twice, where on `hits-extra4/s7-c15-f43580` it stood at `-43,267` as she came
+    // and was not (2026-10-08).
+    //
+    // **And not every move nearer her**, which was tried: on the `hits-extra4` chapters she went on to the left and the
+    // place away from her over to the right of the field, and with every way past her judged hit the run stood at
+    // `-65,288` and was hit there at `-58.5,294.2` some 1,610 frames in.
+    if the_dodge() == Some(Dodge::PhilosophyOfTheHated)
+        && settled == Settled::TheWayItWasToldToDodge
+        && let Some((boss_x, boss_y)) = frame.boss
+    {
+        let from_her = |p: (f32, f32)| (p.0 - boss_x).hypot(p.1 - boss_y);
+        if from_her(at) < THE_HATEDS_ROSES_ARE_KEPT_OFF_WITHIN {
+            for (judged, path) in judged.iter_mut().zip(&lands) {
+                if from_her(path[0]) < from_her(at) - f32::EPSILON
+                    && path[0].1 < at.1 - f32::EPSILON
+                {
+                    judged.hit(0);
+                }
+            }
+        }
+    }
+    // **And a move further from the boss from further than its place, for th11's card 174**, so that the ring coming
+    // out over the run is gone through between its bullets at the place where its rose has just gone past, and not run
+    // ahead of out to the walls: held within 40 of the place alone, the run went out ahead of the rings to 230 from her
+    // and was hit there at `-171.1,281.6` and on the floor at `-38.2,408.4`, five times on each of the three chapters
+    // kept as `hits-extra5/s7-c16-f45966`, `f46033` and `f46037` (r6, 2026-10-07). Before the place was where the rose
+    // has just gone past, this rule had the run go through each ring where it stood and be hit eleven times on each
+    // (r4).
+    if the_dodge() == Some(Dodge::SubterraneanRose)
+        && settled == Settled::TheWayItWasToldToDodge
+        && let Some((boss_x, boss_y)) = frame.boss
+    {
+        let from_her = |p: (f32, f32)| (p.0 - boss_x).hypot(p.1 - boss_y);
+        if from_her(at) > from_her(wanted) {
+            for (judged, path) in judged.iter_mut().zip(&lands) {
+                if from_her(path[0]) > from_her(at) + f32::EPSILON {
+                    judged.hit(0);
+                }
+            }
+        }
+    }
     // **And a move that lands lower than a step below a third of the way up, for the way that holds that height** —
     // see [`NO_LOWER_THAN_A_THIRD_OF_THE_WAY_UP_BY`].
     if the_dodge() == Some(Dodge::AThirdOfTheWayUpAndNoLower) {
@@ -3588,9 +4138,26 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
     let crossing = settled == Settled::TheWayItWasToldToDodge
         && match the_dodge() {
             Some(
-                Dodge::Laevateinn | Dodge::TheMiracleOfOtensui | Dodge::AwayFromWhereTheFallLands,
+                Dodge::Laevateinn
+                | Dodge::TheMiracleOfOtensui
+                | Dodge::AwayFromWhereTheFallLands
+                | Dodge::BetweenTheFlares,
             ) => (wanted.0 - at.0).abs() > the_straight.0,
-            Some(Dodge::AndThenThereWereNone) => true,
+            // **And th11's card 174, whose rings are gone through between their bullets some 17 apart**: played over
+            // the field traced without the game (scratchpad sim174.py, 2026-10-08), a run walked to each of its places
+            // took no rose on three attempts the game's own run was hit on 515 to 830 frames in — that run stood with
+            // one of its nine moves clear while a ring came over it, held off going through.
+            Some(
+                Dodge::AndThenThereWereNone | Dodge::YoukaiPolygraph | Dodge::SubterraneanRose,
+            ) => true,
+            // **And th11's card 173 through its yellow stage alone**, whose zigzag rows come up from the floor at 1 a
+            // frame: left to step out of each one's way, the run at the middle of her round was carried up with them from
+            // `0,244` some 1,830 frames into the card to the top wall by 2,430 and hit there at `3.0,32.0`, eight times
+            // running on a whole Extra and twice from `hits-extra11/s7-c15-f49928` (2026-10-08). Not through its blue
+            // stage — see `crate::cards::away_from_the_hated`.
+            Some(Dodge::PhilosophyOfTheHated) => {
+                crate::cards::the_hateds_yellow_stage_is_up(STAGE_FRAMES.load(Ordering::Relaxed))
+            }
             _ => false,
         };
     for ((judged, land), which) in judged.into_iter().zip(lands).zip(0..) {
@@ -4242,7 +4809,10 @@ fn away_from_where_the_fall_lands(frame: &Frame) -> (f32, f32) {
 /// bottom corner with nothing open: with the edges warned of, keep\hits-x16-pd\s7-c11-f15707 took the card on its
 /// first attempt where it had been hit 1,851 frames in, but keep\chain100c was hit on all ten attempts of all seven
 /// ways and keep\at-100b on its first six, 1,374 to 1,600 frames in — both chapters the card had been taken from
-/// without the warning.
+/// without the warning. **Nor for side to side and in the middle**, though nearly every hit of th11's stage 5 cards
+/// was at the floor or a wall with nothing open: with them warned, from the chapters kept on 2026-10-07, card 131 in
+/// the middle went from two hits to none at `hits2/s5-c8-f17311` and from none to six at `hits5/s5-c8-f17902`, side to
+/// side from six to three at the second, and card 127 side to side from two to three at `hits4/s5-c7-f14437`.
 fn keeps_off_the_edges(dodge: Dodge) -> bool {
     matches!(
         dodge,
@@ -4874,12 +5444,155 @@ fn where_to_be(
         }),
         None => None,
     };
+    // **Between the rays round the boss for th11's card 169**, both across and down — see
+    // `crate::cards::between_the_polygraphs_rays`.
+    let (told_x, told_y) = match settled_there {
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::YoukaiPolygraph) => {
+            crate::cards::between_the_polygraphs_rays(frame, STAGE_FRAMES.load(Ordering::Relaxed))
+                .map_or((told_x, told_y), |(x, y)| (Some(x), Some(y)))
+        }
+        // **And after the monster for th11's card 11** — see `crate::cards::after_the_green_eyed_monster`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::GreenEyedMonster) => {
+            crate::cards::after_the_green_eyed_monster(frame, STAGE_FRAMES.load(Ordering::Relaxed))
+                .map_or((told_x, told_y), |(x, y)| (Some(x), Some(y)))
+        }
+        // **And out of the way of the rose on the ring coming for th11's card 174** — see
+        // `crate::cards::out_of_the_subterranean_roses_way`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::SubterraneanRose) => {
+            crate::cards::out_of_the_subterranean_roses_way(frame)
+                .map_or((told_x, told_y), |(x, y)| (Some(x), Some(y)))
+        }
+        // **And across the field from the boss for th11's card 172** — see `crate::cards::across_from_the_genes`.
+        Settled::TheWayItWasToldToDodge
+            if the_dodge() == Some(Dodge::GeneticsOfTheSubconscious) =>
+        {
+            crate::cards::across_from_the_genes(
+                frame,
+                field.1 + field.3 - ABOVE_THE_BOTTOM,
+                field.1 + THE_GENES_UP_DOWN,
+                the_cards_frames(),
+            )
+            .map_or((told_x, told_y), |(x, y)| (Some(x), Some(y)))
+        }
+        // **And from the left wall to the right one and up it for the stage after th11's Extra midboss** — see
+        // `crate::cards::from_the_left_wall_to_the_top_right`.
+        Settled::TheWayItWasToldToDodge
+            if the_dodge() == Some(Dodge::FromTheLeftWallToTheTopRight) =>
+        {
+            crate::cards::from_the_left_wall_to_the_top_right(
+                frame,
+                STAGE_FRAMES.load(Ordering::Relaxed),
+            )
+            .map_or((told_x, told_y), |(x, y)| (Some(x), Some(y)))
+        }
+        // **And a little above the floor for th11's card 163, down to it as rice comes** — see
+        // `crate::cards::under_the_miracle_fruit`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::MiracleFruit) => {
+            let (x, y) = crate::cards::under_the_miracle_fruit(frame);
+            (Some(x), Some(y))
+        }
+        // **And in front of the boss a little below the middle for th11's card 167** — see
+        // `crate::cards::in_front_of_the_id`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::ReleaseOfTheId) => {
+            let (x, y) = crate::cards::in_front_of_the_id(frame);
+            (Some(x), Some(y))
+        }
+        // **And on the right between the rings for th11's card 151, and under the sun for card 159** — see
+        // `crate::cards::among_the_fixed_stars` and `crate::cards::under_the_artificial_sun`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::FixedStar) => {
+            let (x, y) = crate::cards::among_the_fixed_stars(frame);
+            (Some(x), Some(y))
+        }
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::ArtificialSun) => {
+            let (x, y) = crate::cards::under_the_artificial_sun(frame);
+            (Some(x), Some(y))
+        }
+        // **And up and down from the bodies for th11's card 135** — see `crate::cards::up_and_down_from_the_rekindled`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::Rekindled) => {
+            let (x, y) = crate::cards::up_and_down_from_the_rekindled(
+                frame,
+                STAGE_FRAMES.load(Ordering::Relaxed),
+            );
+            (Some(x), Some(y))
+        }
+        // **And against the nearer side wall for th11's card 127 the partner's way** — see
+        // `crate::cards::against_the_nearer_side_wall`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::ThroughTheGap) => {
+            let (x, y) = crate::cards::against_the_nearer_side_wall(frame);
+            (Some(x), Some(y))
+        }
+        // **And round the boss for th11's card 15** — see `crate::cards::round_the_jealous_boss`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::JealousyOfTheKind) => {
+            crate::cards::round_the_jealous_boss(frame, STAGE_FRAMES.load(Ordering::Relaxed))
+                .map_or((told_x, told_y), |(x, y)| (Some(x), Some(y)))
+        }
+        // **And a little below the middle for th11's stage 5 after its yin-yangs** — see
+        // `crate::cards::after_the_yin_yangs`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::AfterTheYinYangs) => {
+            let (x, y) = crate::cards::after_the_yin_yangs(frame);
+            (Some(x), Some(y))
+        }
+        // **And in front of the boss for th11's card 171, up and down out of the hearts' way** — see
+        // `crate::cards::in_front_of_the_embers`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::EmbersOfLove) => {
+            let floor = field.1 + field.3;
+            match crate::cards::in_front_of_the_embers(
+                frame,
+                floor - THE_EMBERS_ABOVE_THE_FLOOR_AT_MOST,
+                floor - THE_EMBERS_ABOVE_THE_FLOOR_AT_LEAST,
+            ) {
+                Some(Some((x, y))) => (Some(x), Some(y)),
+                Some(None) => (None, None),
+                None => (told_x, told_y),
+            }
+        }
+        // **And between the spinning spirits' ways for th11's card 131** — see
+        // `crate::cards::between_the_spinning_spirits`.
+        Settled::TheWayItWasToldToDodge
+            if the_dodge() == Some(Dodge::BetweenTheSpinningSpirits) =>
+        {
+            crate::cards::between_the_spinning_spirits(frame, STAGE_FRAMES.load(Ordering::Relaxed))
+                .map_or((told_x, told_y), |(x, y)| (Some(x), Some(y)))
+        }
+        // **And away from the boss for th11's card 173** — see `crate::cards::away_from_the_hated`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::PhilosophyOfTheHated) => {
+            crate::cards::away_from_the_hated(frame, STAGE_FRAMES.load(Ordering::Relaxed))
+                .map_or((told_x, told_y), |(x, y)| (Some(x), Some(y)))
+        }
+        _ => (told_x, told_y),
+    };
     // **Under the gap the slow ring leaves above the run, for card 101 as the ring comes down on it** — see
     // `crate::cards::through_tenaga_ashinagas_ring`.
     let told_x = match settled_there {
         Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::TenagaAshinaga) => {
             crate::cards::through_tenaga_ashinagas_ring(frame).or(told_x)
         }
+        // **And on the line between two suns for th11's card 143** — see `crate::cards::between_the_suns`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::BetweenTheSuns) => told_y
+            .and_then(|y| crate::cards::between_the_suns(frame, y))
+            .or(told_x),
+        // **And on the floor away from where the flares land for th11's card 147** — see
+        // `crate::cards::between_the_flares`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::BetweenTheFlares) => told_y
+            .and_then(|y| crate::cards::between_the_flares(frame, y))
+            .or(told_x),
+        // **And under the red fairies before th11's Extra midboss** — see `crate::cards::under_the_red_fairies`.
+        Settled::TheWayItWasToldToDodge
+            if the_dodge() == Some(Dodge::WhereTheRedFairiesComeOut) =>
+        {
+            crate::cards::under_the_red_fairies(frame, STAGE_FRAMES.load(Ordering::Relaxed))
+                .or(told_x)
+        }
+        // **And under the gap between the boss's long rows after th11's card 169** — see
+        // `crate::cards::between_the_long_rows`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::BetweenTheLongRows) => told_y
+            .and_then(|y| crate::cards::between_the_long_rows(frame, y))
+            .or(told_x),
+        // **And across the floor and never back for th11's stage 5 after its midboss** — see
+        // `crate::cards::across_the_yin_yangs`.
+        Settled::TheWayItWasToldToDodge if the_dodge() == Some(Dodge::AcrossTheYinYangs) => Some(
+            crate::cards::across_the_yin_yangs(frame, STAGE_FRAMES.load(Ordering::Relaxed)),
+        ),
         _ => told_x,
     };
     if let Some(x) = told_x {
@@ -4990,6 +5703,17 @@ fn where_to_be(
     if the_dodge() == Some(Dodge::JadeOfTheLoathsomeRiver) {
         return (
             crate::cards::jade_of_the_loathsome_river(
+                frame,
+                the_cards_frames(),
+                aside_on(ATTEMPT.load(Ordering::Relaxed)),
+            ),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or on at the pace th11's card 127's fire played on leaves unhit** — see `crate::cards::the_spleen_eaters_rice`.
+    if the_dodge() == Some(Dodge::SpleenEater) {
+        return (
+            crate::cards::the_spleen_eaters_rice(
                 frame,
                 the_cards_frames(),
                 aside_on(ATTEMPT.load(Ordering::Relaxed)),
@@ -5754,6 +6478,151 @@ mod tests {
         assert_eq!(tenaga_ashinagas_height(field, None), 357.0);
     }
 
+    /// **The gap is gone through from against a side wall with nothing open, or a ring closing in, and its way clear**:
+    /// into the wall, let go and into it again, nothing else pressed; the shot alone while carried; and not where a
+    /// bullet stands on the way in at the other side.
+    #[test]
+    fn the_gap_is_gone_through_from_against_a_side_wall_with_nothing_open_or_a_ring_closing_in_and_its_way_clear()
+     {
+        let keys = super::Keys {
+            shot: 1,
+            bomb: 2,
+            focus: 8,
+            skip: 0x100,
+            up: 0x10,
+            down: 0x20,
+            left: 0x40,
+            right: 0x80,
+        };
+        let at_the_left_wall = Frame {
+            field: (-184.0, 32.0, 368.0, 400.0),
+            at: (-184.0, 300.0),
+            half: (1.0, 1.0),
+            warps_across: true,
+            ..Frame::default()
+        };
+        let pressed: Vec<_> = (0..4)
+            .map(|_| {
+                super::through_the_gap(
+                    &at_the_left_wall,
+                    &keys,
+                    super::Hazards::Dodged,
+                    true,
+                    false,
+                )
+            })
+            .collect();
+        assert_eq!(
+            pressed,
+            [Some(0x40), Some(0), Some(0x40), None],
+            "the gap was not pressed into, let go and into"
+        );
+        let carried = Frame {
+            warping: true,
+            ..Frame::default()
+        };
+        assert_eq!(
+            super::through_the_gap(&carried, &keys, super::Hazards::Dodged, true, false),
+            Some(1),
+            "not the shot alone"
+        );
+        let with_room = super::through_the_gap(
+            &at_the_left_wall,
+            &keys,
+            super::Hazards::Dodged,
+            false,
+            false,
+        );
+        assert_eq!(with_room, None, "gone through with a move open");
+        let closing = super::through_the_gap(
+            &at_the_left_wall,
+            &keys,
+            super::Hazards::Dodged,
+            false,
+            true,
+        );
+        assert_eq!(
+            closing,
+            Some(0x40),
+            "not gone through with a ring closing in"
+        );
+
+        assert!(super::the_gap_is_clear(&at_the_left_wall, -1.0));
+        let on_the_way_in = Frame {
+            hazards: vec![Hazard {
+                kind: Kind::Bullet {
+                    hitting: true,
+                    state: 1,
+                    next_change: None,
+                },
+                slot: 1,
+                frames: Some(0),
+                at: (180.0, 300.0),
+                step: Some((0.0, 0.0)),
+                half: (4.0, 4.0),
+                grows: 0.0,
+            }],
+            ..at_the_left_wall
+        };
+        assert!(
+            !super::the_gap_is_clear(&on_the_way_in, -1.0),
+            "a bullet on the way in at the other side"
+        );
+    }
+
+    /// **A big bullet of card 15 going is feared out to where its flowers fall**, and one at rest, or a smaller bullet
+    /// going, as it is.
+    #[test]
+    fn a_big_bullet_of_card_15_going_is_feared_out_to_where_its_flowers_fall() {
+        let fall = super::ITS_FLOWERS_FALL_WITHIN;
+        assert_eq!(
+            super::out_to_where_its_flowers_fall((14.0, 7.0), (-2.1, 3.4)),
+            (fall, fall)
+        );
+        assert_eq!(
+            super::out_to_where_its_flowers_fall((14.0, 14.0), (0.0, 0.0)),
+            (14.0, 14.0),
+            "at rest"
+        );
+        assert_eq!(
+            super::out_to_where_its_flowers_fall((10.0, 10.0), (0.7, 0.7)),
+            (10.0, 10.0),
+            "a round one"
+        );
+        assert_eq!(
+            super::out_to_where_its_flowers_fall((4.0, 4.0), (0.0, 0.0)),
+            (4.0, 4.0),
+            "a petal"
+        );
+    }
+
+    /// **A row bullet of card 173 within one step of its grid of a rose is about to be taken by it**, and a rose, or a row
+    /// bullet further off, is not.
+    #[test]
+    fn a_row_bullet_of_card_173_within_a_step_of_its_grid_of_a_rose_is_about_to_be_taken() {
+        let roses = [(0.0, 200.0)];
+        assert!(
+            a_rose_takes((3.0, 3.0), (30.0, 200.0), &roses),
+            "the next along the row"
+        );
+        assert!(
+            a_rose_takes((3.0, 3.0), (0.0, 175.0), &roses),
+            "or the column"
+        );
+        assert!(
+            !a_rose_takes((3.0, 3.0), (40.0, 200.0), &roses),
+            "but not one further off"
+        );
+        assert!(
+            !a_rose_takes((8.4, 8.4), (10.0, 200.0), &roses),
+            "nor a rose"
+        );
+        assert!(
+            !a_rose_takes((3.0, 3.0), (10.0, 200.0), &[]),
+            "nor any with no rose up"
+        );
+    }
+
     /// **Low in the middle the run sways `16` either side of it by the stage's frames**: left for 30 frames, right for
     /// the next 30, and the middle itself off a run.
     #[test]
@@ -5832,6 +6701,7 @@ mod tests {
                         at: bullet.at,
                         step: bullet.step,
                         half: (bullet.size.0.abs() / 2.0, bullet.size.1.abs() / 2.0),
+                        grows: 0.0,
                     })
                     .collect(),
                 beams: field

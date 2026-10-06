@@ -79,6 +79,12 @@
   frames: 6
   until: { screen: 2 }
   give_up_after: 3600
+# **And the cursor walked onto the Extra's item**, which the main menu leaves out on records with no clear in them
+# (0x42d442 through 0x42d45c) — so this step reaches item 1 only where the clear lit the Extra, and gives up otherwise.
+- press: [down]
+  frames: 10
+  until: { screen: 2, cursor: 1 }
+  give_up_after: 900
 # The way out that writes the clear: a cancel puts the cursor on the menu's last item (0x42d5c0 through
 # 0x42d5dc), a cancel on that item takes it (0x42d5a5), and twenty frames on the title's screen 3 asks for the
 # game's leaving, whose teardown writes the score object and ends the process. The `quit` after it is for a game

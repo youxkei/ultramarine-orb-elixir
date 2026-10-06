@@ -1,0 +1,44 @@
+# **The no-hit Extra played to the boss and left there**, th06nc's `measured/` recipe for this game: chapters 7 and
+# 8 measured by `cargo xtask real --again` without the 20 chapters of the boss after them on every launch. Not a
+# case: no check reads it. Its walk the_extra_played_to_its_clear_with_no_hit_and_no_bomb's, up to the stage.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 2, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- bombs: false
+- press: [decide]
+  frames: 6
+  until: { stage: 7, chapter: 1 }
+  give_up_after: 3600
+# The boss's first nonspell is chapter 10: reaching it is chapters 7 and 8 passed.
+- play_until: { stage: 7, chapter: 10 }
+  give_up_after: 86000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

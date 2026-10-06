@@ -4,7 +4,7 @@
 #
 # **Item 1 of the title, the Extra, which the title steps over on records with no Kaguya clear in them**
 # (0x46799c) — a copy that had cleared nothing read the cursor going 0, 3, 4 … 8 — and the records that
-# light it are the case before this one's, in the same directory.
+# light it are Eirin's and Kaguya's clears (`orb_real::Start::TheExtraOffered`).
 #
 # **Its walk is screens 0xc and 0xd**, the difficulty select's handler and then the team select's on the
 # Extra's own numbers: the first settles `cursor + 4` (0x46a48d) and the second makes the stage the Extra's

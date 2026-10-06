@@ -9,11 +9,10 @@
 //! check looked for a `left the band` line, which orb writes on a hit and not per frame, so the first run
 //! of it failed after seven minutes of play on a question the recipe had never asked.
 //!
-//! **Every chain is gated here**, which [`CHAINS`] names and
-//! [`every_chain_of_th08s_cases_has_a_test_of_its_own`] holds to `orb-real`'s own list — thirteen of them, one
-//! case apiece but for four: the run that died and was retried is started over with its replay kept and the
-//! attempt it was rewound from watched, the run left in a chapter is picked up, the run left in stage 2 is
-//! picked up there, and Eirin's clear is followed by Kaguya's and the Extra.
+//! **Every case is gated here, each by a test of its own**, which [`CASES`] names and
+//! [`every_case_of_th08_has_a_test_of_its_own`] holds to `orb-real`'s own list — a case depending on no other, so
+//! each is played the way `xtask real` plays it alone: its own launches first, `Case::before`, from the records it
+//! starts from, `Case::starts_from`.
 //!
 //! **What the laid-out game can say about them and what it cannot.** It can say the recipe runs out: the
 //! front end walked by this game's own screen numbers, the run entered, the rules given a field to play
@@ -51,22 +50,29 @@ const FRAMES: u32 = 100_000;
 /// laid-out game only where the stage lasts that long, the laid-out stage having no midboss for it to be.
 const A_STAGE: u32 = 4_500;
 
-/// **The case each chain gated here starts at** — see `Case::continues`, and [`the_chain_from`].
-const CHAINS: [&str; 15] = [
+/// **Every case of th08's, each the test of its own below** — see [`every_case_of_th08_has_a_test_of_its_own`].
+const CASES: [&str; 22] = [
     "a_run_started_and_given_up",
     "a_normal_mode_run_played_without_a_bomb",
     "a_death_answered_by_the_chapter_again",
+    "the_run_started_over_and_its_replay_kept",
+    "an_attempt_of_the_kept_replay_watched",
     "a_chapter_taken_again_without_a_death",
     "a_run_left_in_its_second_chapter",
+    "the_run_picked_up_where_it_was_left",
     "a_chapter_of_the_stage_after_the_first",
+    "the_run_picked_up_in_the_stage_it_walked_into",
+    "a_normal_mode_run_nothing_is_kept_of",
+    "a_run_played_to_its_clear_without_a_bomb",
+    "a_normal_mode_run_played_to_its_clear",
+    "a_normal_mode_run_played_to_kaguyas_clear",
+    "the_extra_played_to_its_clear",
+    "a_chapter_of_the_extra_taken_again",
     "the_stage_taken_again_from_its_start",
     "the_run_given_up_at_the_retry",
     "a_chapter_further_back_taken_again",
     "a_death_answered_by_a_chapter_further_back",
     "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
-    "a_normal_mode_run_nothing_is_kept_of",
-    "a_run_played_to_its_clear_without_a_bomb",
-    "a_normal_mode_run_played_to_its_clear",
     "a_stage_practised_on_its_own",
 ];
 
@@ -119,32 +125,17 @@ fn played_out(game: &Fake, dir: &Path, case: &Case) {
     }
 }
 
-/// The cases of the chain that starts at `head` — see `orb_real::chains_of`.
-///
-/// # Panics
-/// If no chain starts there, which is a chain this file names and `orb-real` does not have.
-fn the_chain_from(head: &str) -> Vec<Case> {
-    orb_real::chains_of(Game::Th08)
-        .into_iter()
-        .find(|chain| chain[0].name == head)
-        .unwrap_or_else(|| panic!("th08 has no chain starting at {head}"))
-}
-
-/// **Every chain [`CHAINS`] names is a chain `orb-real` has, and every chain it has is named** — which is
-/// what makes a case added there reach a test here.
+/// **Every case `orb-real` has is named in [`CASES`], and every name there is a case** — which is what makes a
+/// case added there reach a test here.
 #[test]
-fn every_chain_of_th08s_cases_has_a_test_of_its_own() {
-    let heads: Vec<&str> = orb_real::chains_of(Game::Th08)
+fn every_case_of_th08_has_a_test_of_its_own() {
+    let names: Vec<&str> = orb_real::cases_of(Game::Th08)
         .iter()
-        .map(|chain| chain[0].name)
+        .map(|case| case.name)
         .collect();
-    let mut sorted = heads.clone();
-    sorted.sort_unstable();
-    let mut wanted = CHAINS;
-    wanted.sort_unstable();
     assert_eq!(
-        sorted, wanted,
-        "the chains th08's cases make are not the ones this file names: {heads:?}",
+        names, CASES,
+        "th08's cases are not the ones this file names"
     );
 }
 
@@ -165,157 +156,80 @@ fn left_by(game: &Fake, dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
         .collect()
 }
 
-/// One chain played out on the laid-out game, in its own order — **each case in a directory of its own, with
-/// what the case before left put into it where the case continues that one**, which is `Case::continues`
-/// and what `xtask real` does with the copy's directory. Without it a case that picks a run up finds nothing
-/// to pick up: the first launch of this game's pick-up here read `resume: nothing was left of
-/// normal-0-ply00a` where the case before had just left it.
-fn the_chain_passes(head: &str) {
+/// **One case played out on the laid-out game as `xtask real` plays it alone**: the records it starts from in
+/// this laid-out game's own `score.dat` — see [`Fake::the_score_file_a_case_starts_from`] — then each case it
+/// plays first and itself last, each launch finding what the one before left. Without that a case that picks
+/// a run up finds nothing to pick up: the first launch of this game's pick-up here read `resume: nothing was
+/// left of normal-0-ply00a` where the launch before had just left it.
+fn the_case_passes(name: &str) {
     in_its_own_process(|| {
-        let mut left: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-        for case in the_chain_from(head) {
-            let name = format!("th08-real-{}", case.name);
+        let case = orb_real::case_of(Game::Th08, name)
+            .unwrap_or_else(|| panic!("th08 has no case called {name}"));
+        let mut left: Vec<(PathBuf, Vec<u8>)> =
+            Fake::the_score_file_a_case_starts_from(case.starts_from)
+                .map(|bytes| (PathBuf::from("score.dat"), bytes))
+                .into_iter()
+                .collect();
+        let launches = case.before.iter().map(|before| {
+            orb_real::case_of(Game::Th08, before).unwrap_or_else(|| {
+                panic!("{name} plays {before} first, which is no case of th08's")
+            })
+        });
+        for launch in launches.chain(std::iter::once(case)) {
             let game = Fake::attach_configured(
                 Display::agreed(120),
-                &name,
+                &format!("th08-real-{name}-{}", launch.name),
                 Work::wandering(WORK_US),
-                settings(&case),
+                settings(&launch),
             );
             let dir = game.launch().dir().to_path_buf();
-            if case.continues {
-                for (inside, bytes) in &left {
-                    game.sim().files().put(dir.join(inside), bytes);
-                }
+            for (inside, bytes) in &left {
+                game.sim().files().put(dir.join(inside), bytes);
             }
-            // **The rules given a stage to play in**, which is what both of these cases are about past
-            // the walk: a run whose stage never ran would be a recipe's `play_until` waiting on a clock
-            // that stood still, and a field with nothing on it would be a launch with nothing for the
-            // word to be about.
+            // **The rules given a stage to play in**, which is what these cases are about past the walk: a run
+            // whose stage never ran would be a recipe's `play_until` waiting on a clock that stood still, and a
+            // field with nothing on it would be a launch with nothing for the word to be about.
             game.plays_its_own_stage();
             game.stages_last(A_STAGE);
-            played_out(&game, &dir, &case);
+            played_out(&game, &dir, &launch);
             left = left_by(&game, &dir);
         }
     });
 }
 
-/// **A run started by the recipe and handed back to the game's own title**, which is what
-/// `Th08::leave_run` writes and what the first attempt at it faulted on: the scene the run asks for, the
-/// two bits of its kind, and the decide the hand-over waits for.
-///
-/// What this says over `the_front_end_of_th08_walked` is the way *out* of a run — that the two writes
-/// reach the manager's own ending section, that the press it waits for is the one orb's retry already
-/// makes, and that the front end comes back up after it.
-#[test]
-fn a_run_of_th08_started_and_given_up() {
-    the_chain_passes("a_run_started_and_given_up");
+/// One `#[test]` per case.
+macro_rules! a_test_per_case {
+    ($($test:ident => $name:literal,)*) => {
+        $(
+            #[test]
+            fn $test() {
+                the_case_passes($name);
+            }
+        )*
+    };
 }
 
-/// **And a Normal run played out by the rules with the bomb forbidden**, which is the launch that says the
-/// arrays a bot of this game is told of are arrays it can play against: the enemies, the bullets with the
-/// step their own kind takes, the lasers, the items and the boss.
-///
-/// **What the laid-out game asks of it is the walk, the word and the bomb** — the difficulty the select
-/// was left on, a stage clock past two thousand frames, a direction in the word inside the run and no
-/// bomb bit anywhere in it. How far into a run of the *real* game the rules get is the real game's to
-/// say, and `checks::a_normal_mode_run_of_th08_played_without_a_bomb` asks nothing of it for the reason
-/// written there: one launch cleared stage 1 with no death and the next lost three lives in it.
-///
-/// **And the recipe's own wait for the last stage is answered here by the stage walk**, which is what
-/// `A_RUNS_STAGES` is for: a laid-out run stepping 0, 1, 2, 4, 5, 6 reaches the `stage: 7` that step waits
-/// for, where one counting 0 through 5 never would.
-#[test]
-fn a_normal_mode_run_of_th08_played_without_a_bomb() {
-    the_chain_passes("a_normal_mode_run_played_without_a_bomb");
-}
-
-/// **And the mode's own case: a chapter of this game taken, died in and put back** — then the run started
-/// over with its replay kept, and the attempt of that replay the death rewound the run from watched off
-/// orb's own list behind the title's fifth item.
-///
-/// What the laid-out game can say about it is the whole path bar the addresses — orb's own mode question
-/// answered over the title, the run entered, the chapter taken, the death counted, the retry answered
-/// with the chapter again, the clock back and the run playing on, and a stretch of the run no retry kept
-/// played back into a run built out of the file. What it cannot say is that a restore of the *real*
-/// game's twenty-one megabytes and five heap regions leaves it running, which is what the launch in
-/// `checks::a_death_of_th08_answered_by_the_chapter_again`'s own note measured.
-#[test]
-fn a_death_of_th08_answered_by_the_chapter_again_and_the_attempt_it_ended_watched() {
-    the_chain_passes("a_death_answered_by_the_chapter_again");
-}
-
-// And one test for each of the other chains, so that they are played at once rather than one after another —
-// see [`CHAINS`]. Named after the case each starts at, so a failure names the chain in the harness's own
-// output.
-
-#[test]
-fn a_chapter_of_th08_taken_again_without_a_death() {
-    the_chain_passes("a_chapter_taken_again_without_a_death");
-}
-
-/// **The run left in its second chapter, and picked up where it was left.**
-#[test]
-fn a_run_of_th08_left_in_its_second_chapter_and_picked_up() {
-    the_chain_passes("a_run_left_in_its_second_chapter");
-}
-
-#[test]
-fn a_chapter_of_th08s_stage_after_the_first_and_the_run_picked_up_in_it() {
-    the_chain_passes("a_chapter_of_the_stage_after_the_first");
-}
-
-#[test]
-fn the_stage_of_th08_taken_again_from_its_start() {
-    the_chain_passes("the_stage_taken_again_from_its_start");
-}
-
-#[test]
-fn the_run_of_th08_given_up_at_the_retry() {
-    the_chain_passes("the_run_given_up_at_the_retry");
-}
-
-#[test]
-fn a_chapter_of_th08_further_back_taken_again() {
-    the_chain_passes("a_chapter_further_back_taken_again");
-}
-
-/// And the same list over a death, the question the hit raised answered by the recipe and not the rules.
-#[test]
-fn a_death_of_th08_answered_by_a_chapter_further_back() {
-    the_chain_passes("a_death_answered_by_a_chapter_further_back");
-}
-
-/// And a death in the nonspell after a card, answered by that nonspell again.
-#[test]
-fn a_death_in_the_nonspell_after_a_card_of_th08_answered_by_that_nonspell() {
-    the_chain_passes("a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell");
-}
-
-#[test]
-fn a_normal_mode_run_of_th08_nothing_is_kept_of() {
-    the_chain_passes("a_normal_mode_run_nothing_is_kept_of");
-}
-
-/// **And the whole game played to its clear**, which asks of the laid-out game what the real one's clear
-/// has: the six stages walked, the last one ending on its Last Spell — see `fake::th08`'s `THE_LAST_SPELL` —
-/// and the ending after it, with no bomb pressed on the way.
-#[test]
-fn a_run_of_th08_played_to_its_clear_without_a_bomb() {
-    the_chain_passes("a_run_played_to_its_clear_without_a_bomb");
-}
-
-/// **And the Extra, behind the two Normal runs of the game's own mode that light it** — Eirin's clear, the
-/// next run routed to Kaguya by the records that one left, and the Extra on the title item Kaguya's ending
-/// lit: which asks of the laid-out game the records its title and its chooser read — see `fake::th08`'s
-/// `Records` — carried from one case to the next in the directory they share.
-#[test]
-fn a_normal_mode_run_of_th08_played_to_its_clear_and_the_extra_the_two_unlocked() {
-    the_chain_passes("a_normal_mode_run_played_to_its_clear");
-}
-
-/// **And one stage practised on its own** — the title's fourth item and its three screens, the run reading
-/// as a practice, orb keeping nothing of it, and a chapter of it taken again all the same.
-#[test]
-fn a_stage_of_th08_practised_on_its_own() {
-    the_chain_passes("a_stage_practised_on_its_own");
-}
+a_test_per_case!(
+    a_run_of_th08_started_and_given_up => "a_run_started_and_given_up",
+    a_normal_mode_run_of_th08_played_without_a_bomb => "a_normal_mode_run_played_without_a_bomb",
+    a_death_of_th08_answered_by_the_chapter_again => "a_death_answered_by_the_chapter_again",
+    the_run_of_th08_started_over_and_its_replay_kept => "the_run_started_over_and_its_replay_kept",
+    an_attempt_of_th08s_kept_replay_watched => "an_attempt_of_the_kept_replay_watched",
+    a_chapter_of_th08_taken_again_without_a_death => "a_chapter_taken_again_without_a_death",
+    a_run_of_th08_left_in_its_second_chapter => "a_run_left_in_its_second_chapter",
+    the_run_of_th08_picked_up_where_it_was_left => "the_run_picked_up_where_it_was_left",
+    a_chapter_of_th08s_stage_after_the_first => "a_chapter_of_the_stage_after_the_first",
+    the_run_of_th08_picked_up_in_the_stage_it_walked_into => "the_run_picked_up_in_the_stage_it_walked_into",
+    a_normal_mode_run_of_th08_nothing_is_kept_of => "a_normal_mode_run_nothing_is_kept_of",
+    a_run_of_th08_played_to_its_clear_without_a_bomb => "a_run_played_to_its_clear_without_a_bomb",
+    a_normal_mode_run_of_th08_played_to_its_clear => "a_normal_mode_run_played_to_its_clear",
+    a_normal_mode_run_of_th08_played_to_kaguyas_clear => "a_normal_mode_run_played_to_kaguyas_clear",
+    the_extra_of_th08_played_to_its_clear => "the_extra_played_to_its_clear",
+    a_chapter_of_th08s_extra_taken_again => "a_chapter_of_the_extra_taken_again",
+    the_stage_of_th08_taken_again_from_its_start => "the_stage_taken_again_from_its_start",
+    the_run_of_th08_given_up_at_the_retry => "the_run_given_up_at_the_retry",
+    a_chapter_of_th08_further_back_taken_again => "a_chapter_further_back_taken_again",
+    a_death_of_th08_answered_by_a_chapter_further_back => "a_death_answered_by_a_chapter_further_back",
+    a_death_in_the_nonspell_after_a_card_of_th08_answered_by_that_nonspell => "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
+    a_stage_of_th08_practised_on_its_own => "a_stage_practised_on_its_own",
+);

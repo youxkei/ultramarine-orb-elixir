@@ -83,6 +83,10 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 
+/// **Where the trampolines of a game's other frames go** — see `orb_core::game::Hooks::renders_too` — which
+/// nothing calls and an install wants somewhere to put. Four, th11 having two besides its own.
+static THE_OTHER_FRAMES: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
+
 /// **The three entry points a game whose walks and frame take their argument on the stack is patched
 /// with**, each with the slot its trampoline goes in and the call that reaches that trampoline the game's
 /// way — see `orb_core::game::FrameEntered` and `orb_core::runtime::run_calc_chain_on_the_stack`.
@@ -122,6 +126,33 @@ fn on_the_stack() -> Option<OnTheStack> {
 /// None on a 64-bit target, which has one convention and no game that pushes: `stdcall` is x86's.
 #[cfg(not(target_arch = "x86"))]
 fn on_the_stack() -> Option<OnTheStack> {
+    None
+}
+
+/// **The same three for th11**, whose frame is pushed as th10's is and whose walks are not — see
+/// `orb_core::game::FrameEntered::ChainInEbx`: the frame's entries are [`on_the_stack`]'s, and the walks' are
+/// the calc walk's chain in `ebx` and the draw walk's nothing.
+#[cfg(target_arch = "x86")]
+fn chain_in_ebx() -> Option<OnTheStack> {
+    use orb_core::runtime::{
+        RUN_CALC_CHAIN_IN_EBX, RUN_DRAW_CHAIN_TAKING_NOTHING, calls_the_calc_chain_in_ebx,
+        calls_the_draw_chain_taking_nothing, run_calc_chain_in_ebx, run_draw_chain_taking_nothing,
+    };
+    let frame = on_the_stack()?;
+    Some(OnTheStack {
+        update: hook::address(run_calc_chain_in_ebx as _),
+        update_slot: &RUN_CALC_CHAIN_IN_EBX,
+        calls_the_update: hook::address(calls_the_calc_chain_in_ebx as _),
+        draw: hook::address(run_draw_chain_taking_nothing as _),
+        draw_slot: &RUN_DRAW_CHAIN_TAKING_NOTHING,
+        calls_the_draw: hook::address(calls_the_draw_chain_taking_nothing as _),
+        ..frame
+    })
+}
+
+/// None on a 64-bit target, for [`on_the_stack`]'s reason.
+#[cfg(not(target_arch = "x86"))]
+fn chain_in_ebx() -> Option<OnTheStack> {
     None
 }
 
@@ -344,6 +375,15 @@ fn attach() {
                 );
             }
         },
+        game::FrameEntered::ChainInEbx => match chain_in_ebx() {
+            Some(entries) => Some(entries),
+            None => {
+                return log!(
+                    "frame: this game's calc walk takes its chain in ebx and no entry point here does; orb is \
+                     doing nothing this run"
+                );
+            }
+        },
     };
     match (&patches.walks, &on_the_stack) {
         (Some(walks), _) => {
@@ -430,6 +470,15 @@ fn attach() {
                 }
             };
             hooks.push(("frame loop", patch, entry, slot));
+            // **And every other frame the game's pump may pick, over the same entry** — see
+            // `orb_core::game::Hooks::renders_too`. Their trampolines go in slots nothing calls.
+            for (other, slot) in patches.renders_too.iter().zip(&THE_OTHER_FRAMES) {
+                let other = game::Patch {
+                    target: other.target,
+                    prologue: other.prologue,
+                };
+                hooks.push(("another frame", other, entry, slot));
+            }
         }
         _ => {}
     }
@@ -453,6 +502,18 @@ fn attach() {
                 "input",
                 patch,
                 hook::address(get_input_with_the_keys as _),
+                &GET_INPUT,
+            ));
+        }
+        // **And th11's, entered with the keyboard's word in `ecx` alone** — see
+        // `orb_core::game::Read::PadHalfInEcx`.
+        #[cfg(target_arch = "x86")]
+        Some(game::Read::PadHalfInEcx(patch)) if config.frame_hooks => {
+            use orb_core::runtime::get_input_with_the_keys_in_ecx;
+            hooks.push((
+                "input",
+                patch,
+                hook::address(get_input_with_the_keys_in_ecx as _),
                 &GET_INPUT,
             ));
         }
@@ -587,16 +648,54 @@ fn attach() {
                     patch,
                     hook::address(orb_core::runtime::stage_building_of_two as _),
                 )),
+                #[cfg(target_arch = "x86")]
+                game::Building::StdcallOfOne(patch) => Some((
+                    patch,
+                    hook::address(orb_core::runtime::stage_building_of_one as _),
+                )),
                 // No game of this width builds a stage either way, and a hook entered by the wrong ABI is a
                 // crash rather than a wrong number.
                 #[cfg(not(target_arch = "x86"))]
-                game::Building::InEcx(_) | game::Building::StdcallOfTwo(_) => None,
+                game::Building::InEcx(_)
+                | game::Building::StdcallOfTwo(_)
+                | game::Building::StdcallOfOne(_) => None,
             };
             if let Some((patch, hook)) = hooked {
                 hooks.push(("stage build", patch, hook, &STAGE_BUILDING));
             }
         }
         _ => {}
+    }
+    // **Only beside orb's own frame**, which is what the unload waits for: a launch on the game's own loop has no
+    // frame of orb's to keep it apart from.
+    #[cfg(target_arch = "x86")]
+    if let Some(patch) = patches.unloads_beside_its_frame
+        && config.frame_hooks
+        && config.own_frame_loop
+    {
+        hooks.push((
+            "unload",
+            patch,
+            hook::address(orb_core::runtime::unloads_in_edi as _),
+            &orb_core::runtime::UNLOADS_IN_EDI,
+        ));
+    }
+    // **Installed whatever the launch is for**: what the window being shared costs is a file decoded wrong, which
+    // the game's own loop is as open to as orb's.
+    #[cfg(target_arch = "x86")]
+    if let Some(window) = patches.decodes_through_one_window {
+        hooks.push((
+            "decode",
+            window.decode,
+            hook::address(orb_core::runtime::decodes_alone as _),
+            &orb_core::runtime::DECODE_ALONE,
+        ));
+        hooks.push((
+            "encode",
+            window.encode,
+            hook::address(orb_core::runtime::encodes_alone as _),
+            &orb_core::runtime::ENCODE_ALONE,
+        ));
     }
     // **Installed whatever the launch is for**, unlike the two above: what it says is what the game is
     // feeding its music buffer, which is as much a question of a launch with no chapters in it — and the

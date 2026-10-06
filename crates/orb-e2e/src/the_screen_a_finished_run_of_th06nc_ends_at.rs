@@ -26,7 +26,7 @@
 
 use orb_config::LogLevel;
 use orb_core::game::th06nc::image::{
-    RESULT_LEAVING, RESULT_SAVE_REPLAY_QUESTION, RESULT_TYPING_A_NAME, SCREEN_TITLE,
+    RESULT_LEAVING, RESULT_SAVE_REPLAY_QUESTION, RESULT_TYPING_A_NAME, SCREEN_MENU, SCREEN_TITLE,
 };
 use orb_sim::keys;
 
@@ -223,3 +223,30 @@ fn the_front_end_a_finished_run_of_th06nc_comes_back_to_is_its_title() {
         );
     });
 }
+
+/// **And that title passes on to the main menu with nothing pressed**, on the front end's next update.
+///
+/// **Read off the game's own front end**: the build `0x1400575a0` writes `[front end + 0x16874]` from
+/// `[0x140c6de24]`, which is what a launch's first front end has set and a run's end has not; its state 0
+/// then hands a front end with that byte clear to `0x14004ead0`, which runs the title's own animation
+/// through in one go and leaves `[+0x16875]` at 1 — and state 2, the title, with that byte set goes on to
+/// state 3 before it reads a key at all. **And measured**: orb-real 1791690328 (th06nc's
+/// `a_run_played_to_its_clear_without_a_bomb`) read `front end: screen 2` and `screen 3` a frame apart with
+/// the word `0x0000` across both, after the screen a cleared run ends at.
+#[test]
+fn the_title_a_finished_run_of_th06nc_comes_back_to_passes_to_its_main_menu_unpressed() {
+    in_its_own_process(|| {
+        let game = a_cleared_run("th06nc-the-screen-back-past-the-title");
+        walked(&game);
+        game.keyboard().set(keys::Z, false);
+        game.frames_until("the front end back", THE_SCREENS, || {
+            game.image().the_screen_the_front_end_is_on() != 0
+        });
+        game.frames_until("the main menu", FRAMES_THE_TITLE_PASSES_IN, || {
+            game.image().the_screen_the_front_end_is_on() == SCREEN_MENU
+        });
+    });
+}
+
+/// Frames enough for the front end to update twice: the frame it is built on, and the title's own.
+const FRAMES_THE_TITLE_PASSES_IN: u32 = 4;

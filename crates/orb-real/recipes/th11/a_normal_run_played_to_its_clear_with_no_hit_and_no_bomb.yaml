@@ -1,0 +1,64 @@
+# **A Normal run of th11 played to its clear with no hit and no bomb, in Pointdevice mode** — th10's case of this
+# name over this game, the goal its ways were written for: `normalの1〜6面とextraを無被弾ボムなしでクリアする`. The
+# rules and the ways `orb_bot`'s own table for th11's Normal names — `orb_bot::ways` — play it, so nothing here
+# names one; a death the mode answers is still a hit, and the case fails on it.
+#
+# **The front end is `a_run_played_to_its_clear_without_a_bomb.yaml`'s**, with orb's own mode question over the
+# main menu's first item answered with the pointdevice mode: Normal, Reimu and Yukari.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 1, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 5 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 5, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 5, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 6 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **The whole run in one step**, which a `play` ends the frame the run is over.
+- play_until: { frames: 400000 }
+  give_up_after: 420000
+# **And the screen the run ends at**, as `a_run_played_to_its_clear_without_a_bomb.yaml` walks it.
+- name: ORB
+  give_up_after: 9000
+- press: [decide]
+  frames: 6
+  until: { question: keep_replay }
+  give_up_after: 7200
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

@@ -338,6 +338,11 @@ pub struct Fake {
     /// The updates the ending's script and the roll after it have left, where one is running.
     ending_updates: Cell<i32>,
     roll_updates: Cell<i32>,
+    /// **The shot — `character * 2 + shot` — and the difficulty of a run that reached the ending**, which the
+    /// file written after it holds as a clear: the stage callback raises both of the shot's `CLRD` arrays to the
+    /// stage just cleared, the first only for a run with no retry (`0x140024d3c` through `0x140024da9`), and the
+    /// last stage's is [`CLEARED`].
+    cleared: Cell<Option<(u8, usize)>>,
     /// Every open of the score file, by the name it landed in and whether it was for writing — see
     /// [`create_file_w`].
     opens: RefCell<Vec<(String, bool)>>,
@@ -551,6 +556,7 @@ impl Fake {
             hit: Cell::new(false),
             ending_updates: Cell::new(0),
             roll_updates: Cell::new(0),
+            cleared: Cell::new(None),
             opens: RefCell::new(Vec::new()),
             viewports: RefCell::new(Vec::new()),
             seeks: RefCell::new(Vec::new()),
@@ -1561,6 +1567,10 @@ impl Fake {
     /// The ending a cleared run hands over to: the stage's jobs gone, the ending's own in their place, with
     /// the supervisor's state still a stage's — see `orb_core::game::th06c::ENDING_UPDATE`.
     fn enters_the_ending(&self) {
+        self.cleared.set(Some((
+            self.image.the_character_chosen() * 2 + self.image.the_shot_chosen(),
+            self.image.the_difficulty_now() as usize,
+        )));
         self.tears_the_stage_down();
         self.image.an_ending_is_running();
         self.ending_updates.set(ENDING_UPDATES);
@@ -1850,6 +1860,9 @@ impl Fake {
         if records.is_empty() {
             records.push(score_file::th6k());
         }
+        if let Some((shot, difficulty)) = self.cleared.take() {
+            records = with_the_clear(records, shot, difficulty);
+        }
         records.push(score_file::record(
             b"HSCR",
             &self.image.the_score().to_le_bytes(),
@@ -1860,6 +1873,29 @@ impl Fake {
             self.puts_the_file(&name, &file);
         }
     }
+}
+
+/// **`records` with `shot`'s `CLRD` holding a clear of `difficulty` in both arrays**, the record made where there is
+/// none — the four the game makes with no file hold `1` in every byte.
+fn with_the_clear(mut records: Vec<Record>, shot: u8, difficulty: usize) -> Vec<Record> {
+    const NO_RETRY: usize = 0xc;
+    const AT_ALL: usize = 0x11;
+    const SHOT: usize = 0x16;
+    match records
+        .iter_mut()
+        .find(|record| record.magic() == b"CLRD" && record.bytes.get(SHOT) == Some(&shot))
+    {
+        Some(record) => {
+            record.bytes[NO_RETRY + difficulty] = CLEARED;
+            record.bytes[AT_ALL + difficulty] = CLEARED;
+        }
+        None => {
+            let mut reached = [1; 5];
+            reached[difficulty] = CLEARED;
+            records.push(score_file::clrd(shot, reached, reached));
+        }
+    }
+    records
 }
 
 /// The game's own records as an installation somebody has played leaves them: the header, and Reimu's

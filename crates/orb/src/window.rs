@@ -143,6 +143,21 @@ pub unsafe fn install(
     {
         unsafe { orb_core::window::answers_the_window_activated(previous) };
     }
+    // **And `SendMessageA`, for the same launch**, whose answer is `orb-core`'s: th11 minimises its new window and
+    // puts it back (0x446cfa, 0x446d16), which activates it. **Not refused where the game does not import it**, for
+    // `SetForegroundWindow`'s reason.
+    if out_of_the_way
+        && let Ok(previous) = unsafe {
+            hook::install_import(
+                module,
+                "USER32.dll",
+                "SendMessageA",
+                hook::address(orb_core::window::send_message_a as _),
+            )
+        }
+    {
+        unsafe { orb_core::window::answers_the_message_sent(previous) };
+    }
     // And the window's own arguments, whose rewrite is `orb-core`'s: what was in the entry is handed over
     // the way a laid-out game hands its own function over, and that handover is what settles the window
     // this game is to get.

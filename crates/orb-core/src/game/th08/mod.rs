@@ -37,6 +37,9 @@ pub mod chapters;
 /// The numbers a stage of this game is started again from, and the file they go into — read out of this
 /// game's own replay record, which is what `CLAUDE.md` asks a resume be shaped from.
 pub mod resume;
+/// The score file as bytes, which orb itself never reads — only `orb-real`, making the records a case starts from.
+#[cfg(any(test, feature = "score-files"))]
+pub mod score_file;
 /// What a bot playing this game is told of it, which is this game's own arrays read — see
 /// `Game::what_a_bot_sees`.
 mod sight;
@@ -2685,6 +2688,7 @@ impl Game for Th08 {
                 target: RENDER,
                 prologue: RENDER_PROLOGUE,
             }),
+            renders_too: &[],
             // Nothing of this game's replay write or its recorder has been read, so neither is suppressed:
             // what keeps a rewound run's replay of the game's own from being offered is the screen it is
             // offered on, which `Th08::skip_replay_prompt` takes off.
@@ -2763,6 +2767,8 @@ impl Game for Th08 {
             takes_its_memory: Memory::Kernel32Imports,
             // `CreateThread` at 0x4b40b8 of the same table, which is the one this game makes threads with.
             makes_its_threads: Threads::CreateThread,
+            unloads_beside_its_frame: None,
+            decodes_through_one_window: None,
             // `CreateFileA` of the same table, which is how it opens what it reads.
             opens_its_files: FileOpen::CreateFileA,
         }

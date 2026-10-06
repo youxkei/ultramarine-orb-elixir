@@ -60,6 +60,20 @@
   frames: 6
   until: { screen: 0, cursor: 0 }
   give_up_after: 36000
+# **And the cursor tapped onto Extra Start, item 1, and back to item 0**: the title will not rest its cursor on an
+# item it is not offering, so the first of these reaches item 1 only where the clear lit the Extra — which is this
+# case's to say, the Extra's own starting from records of a clear (`orb_real::Start::TheExtraOffered`) — and the
+# second puts the cursor back where the tap below takes the last item from.
+- wait_until: { frames: 20 }
+- press: [down]
+  frames: 6
+  until: { screen: 0, cursor: 1 }
+  give_up_after: 600
+- wait_until: { frames: 30 }
+- press: [up]
+  frames: 6
+  until: { screen: 0, cursor: 0 }
+  give_up_after: 600
 # **And the game left through the item on its own title that ends it**, which is how a player leaves one:
 # `quit` below is `runtime::close_the_game`, a `process::exit` that gives the game no shutdown of its own.
 #

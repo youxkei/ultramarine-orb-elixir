@@ -2,7 +2,8 @@
 //!
 //! `DialogBoxIndirectParamW`, which is how th06c asks which window it is to make before it makes one —
 //! a template built in memory rather than a resource, and a dialog that comes up every launch whatever
-//! is in the `th06.cfg` beside the exe.
+//! is in the `th06.cfg` beside the exe. Or `DialogBoxParamA` where the exe imports no such entry, which is
+//! th11's: the same question out of the exe's own resources, put up wherever `th11.cfg` asks for it.
 //!
 //! **What the rewrite does is hand the game's own dialog procedure a wrapper**, and the wrapper clicks
 //! the controls a person would once the dialog is up. Which controls is
@@ -18,6 +19,9 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows_sys::Win32::System::LibraryLoader::{
+    FindResourceA, LoadResource, LockResource, SizeofResource,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_CLICK, CreateDialogIndirectParamW, DestroyWindow, DispatchMessageW, GetDlgItem, GetMessageW,
     IsDialogMessageW, MSG, PostMessageW, PostQuitMessage, SW_SHOW, SWP_NOACTIVATE, SWP_NOSIZE,
@@ -57,15 +61,31 @@ pub unsafe fn install(module: usize, clicks: &'static [i32]) -> Result<(), hook:
     *CLICKS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = clicks;
-    let previous = unsafe {
+    let indirect = unsafe {
         hook::install_import(
             module,
             "USER32.dll",
             "DialogBoxIndirectParamW",
             hook::address(dialog_box_indirect_param_w as _),
-        )?
+        )
     };
-    DIALOG_BOX_INDIRECT_PARAM_W.store(previous, Ordering::Relaxed);
+    match indirect {
+        Ok(previous) => DIALOG_BOX_INDIRECT_PARAM_W.store(previous, Ordering::Relaxed),
+        // **Or th11's, a dialog out of the exe's own resources** — `DialogBoxParamA(hInstance, 0xcb, …)` at
+        // 0x445626 — for an exe that imports no `DialogBoxIndirectParamW` at all.
+        Err(hook::Error::ImportNotFound { .. }) => {
+            let previous = unsafe {
+                hook::install_import(
+                    module,
+                    "USER32.dll",
+                    "DialogBoxParamA",
+                    hook::address(dialog_box_param_a as _),
+                )?
+            };
+            DIALOG_BOX_PARAM_A.store(previous, Ordering::Relaxed);
+        }
+        Err(error) => return Err(error),
+    }
     let previous = unsafe {
         hook::install_import(
             module,
@@ -96,25 +116,92 @@ unsafe extern "system" fn dialog_box_indirect_param_w(
         // has anything to add to either.
         return unsafe { original(instance, template, parent, None, param) };
     };
+    // **Written in the game's own template**, which it builds in memory rather than loads.
+    match unsafe { hidden_until_it_ends(instance, template.cast_mut(), parent, procedure, param) } {
+        Some(ended_with) => ended_with,
+        None => unsafe { original(instance, template, parent, Some(answered), param) },
+    }
+}
+
+/// The original of the exe's `DialogBoxParamA` entry, for a game that puts its dialog up through that one.
+static DIALOG_BOX_PARAM_A: AtomicUsize = AtomicUsize::new(0);
+
+type DialogBoxParamA =
+    unsafe extern "system" fn(*mut c_void, *const u8, HWND, Option<DialogProc>, LPARAM) -> isize;
+
+/// **The game's own dialog out of its resources, put up as [`dialog_box_indirect_param_w`] puts one up**: its
+/// template copied out of the exe — a resource is read-only — and handed over the same way, so the dialog is made
+/// hidden and modeless and its controls clicked.
+unsafe extern "system" fn dialog_box_param_a(
+    instance: *mut c_void,
+    name: *const u8,
+    parent: HWND,
+    procedure: Option<DialogProc>,
+    param: LPARAM,
+) -> isize {
+    let original: DialogBoxParamA =
+        unsafe { std::mem::transmute(DIALOG_BOX_PARAM_A.load(Ordering::Relaxed)) };
+    let Some(procedure) = procedure else {
+        return unsafe { original(instance, name, parent, None, param) };
+    };
+    // `RT_DIALOG`, 5, which the `A` spelling takes as a byte string's pointer.
+    let resource = unsafe { FindResourceA(instance, name, 5 as *const u8) };
+    let loaded = match resource.is_null() {
+        true => std::ptr::null_mut(),
+        false => unsafe { LoadResource(instance, resource) },
+    };
+    let bytes = match loaded.is_null() {
+        true => std::ptr::null(),
+        false => unsafe { LockResource(loaded) }.cast::<u8>().cast_const(),
+    };
+    if bytes.is_null() {
+        return unsafe { original(instance, name, parent, Some(answered), param) };
+    }
+    let size = unsafe { SizeofResource(instance, resource) } as usize;
+    let mut template = unsafe { std::slice::from_raw_parts(bytes, size) }.to_vec();
+    match unsafe {
+        hidden_until_it_ends(
+            instance,
+            template.as_mut_ptr().cast(),
+            parent,
+            procedure,
+            param,
+        )
+    } {
+        Some(ended_with) => ended_with,
+        None => unsafe { original(instance, name, parent, Some(answered), param) },
+    }
+}
+
+/// **The dialog of `template` made hidden and modeless, and run here until the game's procedure ends it**, answering
+/// what it was ended with — or `None` where it could not be made, for the caller to put the game's own up instead.
+///
+/// So that it is never shown and never activated: shown, it was the one window of a launch that came to the front,
+/// th06c's taking the focus off the user's own program for 154 milliseconds (2026-10-04 04:27) once the window it
+/// asks about had been dealt with. **Not the modal dialog with `WS_VISIBLE` taken off its template**, which was
+/// tried: `DialogBox` activates the dialog all the same, 161 milliseconds in front (04:30).
+///
+/// # Safety
+/// `template` must be a dialog template this may write, or null.
+unsafe fn hidden_until_it_ends(
+    instance: *mut c_void,
+    template: *mut c_void,
+    parent: HWND,
+    procedure: DialogProc,
+    param: LPARAM,
+) -> Option<isize> {
     THE_GAMES_OWN.store(procedure as usize, Ordering::Relaxed);
-    // **Made hidden and modeless, and run here until the game's procedure ends it**, so that it is never shown and
-    // never activated: shown, it was the one window of a launch that came to the front, th06c's taking the focus off
-    // the user's own program for 154 milliseconds (2026-10-04 04:27) once the window it asks about had been dealt
-    // with. **Not the modal dialog with `WS_VISIBLE` taken off its template**, which was tried: `DialogBox` activates
-    // the dialog all the same, 161 milliseconds in front (04:30). **Written in the game's own template**, which it
-    // builds in memory rather than loads.
     if !template.is_null() {
         let extended = unsafe { std::ptr::read_unaligned(template.cast::<u16>().add(1)) } == 0xffff;
-        let style = unsafe { template.cast::<u8>().add(if extended { 12 } else { 0 }) }
-            .cast::<u32>()
-            .cast_mut();
+        let style =
+            unsafe { template.cast::<u8>().add(if extended { 12 } else { 0 }) }.cast::<u32>();
         unsafe { std::ptr::write_unaligned(style, std::ptr::read_unaligned(style) & !WS_VISIBLE) };
     }
     let dialog = unsafe {
         CreateDialogIndirectParamW(instance, template.cast(), parent, Some(answered), param)
     };
     if dialog.is_null() {
-        return unsafe { original(instance, template, parent, Some(answered), param) };
+        return None;
     }
     THE_DIALOG.store(dialog as usize, Ordering::Relaxed);
     let mut message = unsafe { std::mem::zeroed::<MSG>() };
@@ -136,7 +223,7 @@ unsafe extern "system" fn dialog_box_indirect_param_w(
             }
         }
     }
-    ENDED_WITH.load(Ordering::Relaxed)
+    Some(ENDED_WITH.load(Ordering::Relaxed))
 }
 
 /// The dialog orb made in the game's place, until the game's procedure ends it — see [`end_dialog`].

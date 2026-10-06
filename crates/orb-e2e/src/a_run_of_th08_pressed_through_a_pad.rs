@@ -114,9 +114,10 @@ fn a_recipes_press_is_handed_to_th08s_read_where_the_launch_presses_through_no_p
 }
 
 /// **Where the game holds a DirectInput pad, the virtual one reaches it through that device**, orb standing in
-/// front of its `GetDeviceState` — and the real pad's own buttons still reach the game beside it.
+/// front of its `GetDeviceState` — and the real pad's own buttons do not, a run pressed through the virtual pad
+/// being orb's: see `a_run_of_th10_pressed_through_a_pad`.
 #[test]
-fn a_recipes_press_reaches_th08s_directinput_read_beside_the_real_pad() {
+fn a_recipes_press_reaches_th08s_directinput_read_in_place_of_the_real_pad() {
     in_its_own_process(|| {
         let game = launched(
             "th08-through-a-pad-on-directinput",
@@ -142,9 +143,9 @@ fn a_recipes_press_reaches_th08s_directinput_read_beside_the_real_pad() {
         });
         game.frames(2);
         assert_eq!(
-            game.the_pads_share_of_the_read(),
-            DOWN | BOMB,
-            "the real pad's bomb did not reach the game beside the virtual pad's down",
+            game.the_pads_share_of_the_read() & (DOWN | BOMB),
+            DOWN,
+            "the real pad's bomb reached a run pressed through the virtual pad",
         );
     });
 }

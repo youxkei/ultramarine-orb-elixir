@@ -25,12 +25,14 @@
 //! minutes to refuse. th10's are in `the_cases_of_th10_the_real_game_is_tested_with`, one test a chain the
 //! same way.
 //!
-//! **One case can carry on from the one before it.** A pick-up needs a run left unfinished, and the launch
-//! that leaves one is a case of its own; [`Case::continues`] says the two share the directory orb keeps its
-//! files in **and the game's own records**, so the second finds both what the first left for it and what the
-//! game says that run unlocked. Everything else starts from neither — a directory of its own, and the
-//! records taken aside — so that which difficulty a select comes up on and which item a title menu is on are
-//! the same every time a case is played. Nothing in the copy is deleted for it; see `cargo xtask real`.
+//! **No case depends on another.** Every case starts from a directory of its own and the copy's records taken
+//! aside, so that which difficulty a select comes up on, which item a title menu is on and what the game says has
+//! been unlocked are the same every time it is played, whichever cases were played before it or none. A case that
+//! needs a run left unfinished or a replay kept plays the launches that leave one as its own first, [`Case::before`];
+//! a case that needs the Extra or a stage's practice offered starts from a score file the game's own logic makes for
+//! the clears that offer them, [`Case::starts_from`] — and whether a clear does unlock them is the case that plays
+//! one.
+//! Nothing in the copy is deleted for it; see `cargo xtask real`.
 //!
 //! **A case plays the game the way somebody does**, which is `orb_bot`'s own rule and not this list's: the
 //! word goes in where a run's own recorded words go, the game's screens are pressed at rather than written
@@ -64,6 +66,9 @@ pub enum Game {
     /// **And 東方風神録, Mountain of Faith**, which `orb_core::game::th10` rewinds, its first stage holding no row
     /// of its midstage table: its cases are th08's, under this game's own recipes — see [`cases_of`].
     Th10,
+    /// **And 東方地霊殿, Subterranean Animism**, which `orb_core::game::th11` rewinds: its cases are th10's under this
+    /// game's own recipes, less the one its fights cut no chapter for — see [`the_cases_of_th11`].
+    Th11,
 }
 
 impl Game {
@@ -76,6 +81,7 @@ impl Game {
             Game::Th06nc => "th06nc",
             Game::Th08 => "th08",
             Game::Th10 => "th10",
+            Game::Th11 => "th11",
         }
     }
 
@@ -90,6 +96,7 @@ impl Game {
             Game::Th06nc => "th06nc.exe",
             Game::Th08 => "th08.exe",
             Game::Th10 => "th10.exe",
+            Game::Th11 => "th11.exe",
         }
     }
 
@@ -117,6 +124,10 @@ impl Game {
             Game::Th06c | Game::Th06nc => &["score.dat", "th06.cfg", "pointdevice_score.dat"],
             Game::Th08 => &["score.dat", "th08.cfg", "pointdevice_score.dat"],
             Game::Th10 => &["scoreth10.dat", "pointdevice_scoreth10.dat"],
+            // **And th11's configuration left in the copy for th10's reason**: without it the game's defaults put
+            // up the startup dialog (0x420d8c), which orb answers, but with them come the defaults' pad mapping and
+            // window size rather than the copy's own.
+            Game::Th11 => &["scoreth11.dat", "pointdevice_scoreth11.dat"],
         }
     }
 
@@ -132,18 +143,101 @@ impl Game {
     /// [`Game::exe`] is: this crate is the one place which games there are is written down.
     pub fn target(self) -> &'static str {
         match self {
-            Game::Th06 | Game::Th07 | Game::Th08 | Game::Th10 => "i686-pc-windows-gnu",
+            Game::Th06 | Game::Th07 | Game::Th08 | Game::Th10 | Game::Th11 => "i686-pc-windows-gnu",
             Game::Th06c | Game::Th06nc => "x86_64-pc-windows-gnu",
         }
     }
 
-    pub const ALL: [Game; 6] = [
+    /// **The game's records a case starts from**, by the names [`Game::records`] gives them, made with the game's own
+    /// logic: the records it makes with no file of its own, each stage won and each ending seen marked as the game
+    /// marks them, written as the game writes its file. Nothing for [`Start::Nothing`].
+    ///
+    /// **Made and not copied from a launch that played one**, so that a case starting from them depends on nothing
+    /// but the exe they were read off: whether a clear does light them is the clear's own case.
+    pub fn the_records_of(self, start: Start) -> Vec<(&'static str, Vec<u8>)> {
+        match (self, start) {
+            (_, Start::Nothing) => Vec::new(),
+            (Game::Th11, Start::ANormalClear | Start::TheExtraOffered) => {
+                use orb_core::game::th11::score_file;
+                // Reimu and Yukari, the first character and partner, which every Extra recipe here picks.
+                let (character, partner, normal) = (0, 0, 1);
+                let mut records = score_file::the_records_of_a_fresh_install(0);
+                for stage in 1..=6 {
+                    score_file::a_stage_won(&mut records, character, partner, normal, stage);
+                }
+                score_file::an_ending_seen(&mut records, character, partner, 0, normal as u32);
+                vec![("scoreth11.dat", score_file::encode(&records))]
+            }
+            (Game::Th10, Start::ANormalClear | Start::TheExtraOffered) => {
+                use orb_core::game::th10::score_file;
+                // Reimu A, the first character and shot, which every Extra recipe here picks.
+                let (character, shot, normal) = (0, 0, 1);
+                let mut records = score_file::the_records_of_a_fresh_install(0);
+                for stage in 1..=6 {
+                    score_file::a_stage_cleared(&mut records, character, shot, normal, stage);
+                }
+                score_file::an_ending_seen(&mut records, character, shot, 0, normal as u32);
+                vec![("scoreth10.dat", score_file::encode(&records))]
+            }
+            (Game::Th08, Start::ANormalClear | Start::TheExtraOffered) => {
+                use orb_core::game::th08::score_file;
+                // Reimu and Yukari, the first team, on Normal with no continue: Eirin's route, its stage words
+                // 0, 1, 2, 4, 5 and 6 passed and her clear, and for the Extra Kaguya's stage word 7 and hers.
+                let (team, normal) = (0, 1);
+                let mut clears = score_file::the_clears_of_a_fresh_install();
+                for stage in [0, 1, 2, 4, 5, 6] {
+                    score_file::a_stage_passed(&mut clears, team, normal, stage, false);
+                }
+                score_file::a_clear(&mut clears, team, normal, false, false);
+                if start == Start::TheExtraOffered {
+                    score_file::a_stage_passed(&mut clears, team, normal, 7, false);
+                    score_file::a_clear(&mut clears, team, normal, true, false);
+                }
+                vec![("score.dat", score_file::encode(&clears))]
+            }
+            (Game::Th07, Start::ANormalClear | Start::TheExtraOffered) => {
+                use orb_core::game::th07::score_file;
+                // Reimu A, the first shot, on Normal with no continue.
+                let mut clears = score_file::the_clears_of_a_fresh_install();
+                score_file::a_clear(&mut clears, 0, 1, false);
+                vec![("score.dat", score_file::encode(&clears))]
+            }
+            // **th06's file is th06c's**, header for header and record for record — the Steam release keeps the
+            // 1.02h's format, its `TH6K` and its four `CLRD`s of version `0x10`, and its read checks a clear the same
+            // way: `0x63` in Normal, Hard or Lunatic of a shot's no-retry array (th06's 0x43a736, th06c's
+            // `0x14002d526`). The four `CLRD`s are what each game makes with no file, `1` in every byte of both
+            // arrays (th06's 0x42b502), and a Normal clear of Reimu A with no retry raises Normal to `0x63` in both.
+            (Game::Th06 | Game::Th06c, Start::ANormalClear | Start::TheExtraOffered) => {
+                use orb_core::game::th06c::score_file;
+                let normal_cleared = [1, score_file::CLEARED, 1, 1, 1];
+                let mut records = vec![
+                    score_file::th6k(),
+                    score_file::clrd(0, normal_cleared, normal_cleared),
+                ];
+                records.extend((1..4).map(|shot| score_file::clrd(shot, [1; 5], [1; 5])));
+                vec![("score.dat", score_file::encode(&records, 0))]
+            }
+            (Game::Th06nc, Start::ANormalClear | Start::TheExtraOffered) => {
+                use orb_core::game::th06nc::score_file;
+                let normal_cleared = [1, score_file::CLEARED, 1, 1, 1];
+                let mut records = vec![
+                    score_file::th6k(),
+                    score_file::clrd(0, normal_cleared, normal_cleared),
+                ];
+                records.extend((1..4).map(|shot| score_file::clrd(shot, [1; 5], [1; 5])));
+                vec![("score.dat", score_file::encode(&records, 0))]
+            }
+        }
+    }
+
+    pub const ALL: [Game; 7] = [
         Game::Th06,
         Game::Th07,
         Game::Th06c,
         Game::Th06nc,
         Game::Th08,
         Game::Th10,
+        Game::Th11,
     ];
 }
 
@@ -159,6 +253,18 @@ pub const WITHIN: u32 = 20 * 60;
 /// said so.
 pub const A_WHOLE_GAME: u32 = 90 * 60;
 
+/// **What a case's first launch finds of the game's own records in the copy** — see [`Game::the_records_of`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Start {
+    /// None, as a fresh install has.
+    Nothing,
+    /// A run of the game's own mode played to the clear on Normal with no continue: every stage of the main game
+    /// offered by the practice, and in th08 Eirin's stage passed, which a run has to have to go to Kaguya.
+    ANormalClear,
+    /// The clears the main menu offers the Extra out of: [`Start::ANormalClear`]'s, and in th08 Kaguya's as well.
+    TheExtraOffered,
+}
+
 /// One launch of the real game and what its trace has to show.
 pub struct Case {
     pub game: Game,
@@ -166,9 +272,12 @@ pub struct Case {
     pub name: &'static str,
     /// The recipe itself, `orb-config`'s grammar.
     pub recipe: &'static str,
-    /// Whether this launch picks up in the directory the case before it left orb's files in — the run it
-    /// left, the score file the mode forked — rather than starting in an empty one.
-    pub continues: bool,
+    /// **The cases whose recipes are played first, as launches of this case's own**, in its directory and with the
+    /// records they leave: the run left for a pick-up, the replay kept for one to be watched. Only this case's own
+    /// launch is checked; theirs are checked as the cases they are.
+    pub before: &'static [&'static str],
+    /// What the first of its launches finds of the game's own records.
+    pub starts_from: Start,
     /// How long this launch may take, in seconds — [`WITHIN`] for every case but the one that plays a whole
     /// game.
     pub within: u32,
@@ -177,27 +286,6 @@ pub struct Case {
 }
 
 impl Case {
-    /// **Whether this case's own run leaves a clear in the game's own records**, which is what the front end
-    /// lights its Extra out of: a run of the game's own mode played to the end does, and a run of orb's does
-    /// not — a pointdevice clear goes to the mode's own file, see `orb_core::score`.
-    ///
-    /// **What reads it is the order of the cases and not a case on its own.** `xtask real` takes the game's
-    /// records aside before every case that does not continue the one before it, so a clear reaches a later
-    /// case only through the cases that continue: whether *this* launch starts from records with a clear in
-    /// them is therefore a fold over the chain, which is what `orb-e2e`'s readers do with it and what a
-    /// laid-out game has to be told, having no records carried across launches of its own.
-    ///
-    /// **And it is what th06nc's Extra case failed on for a session**: the clear was two cases earlier with
-    /// a pointdevice clear between them, so the records the Extra continued held no unlock and the front end
-    /// offered no Extra at all. Moving that case to sit immediately before it is the whole of the fix, and a
-    /// fold is what says so where a list of names by hand did not.
-    pub fn leaves_a_clear(&self) -> bool {
-        matches!(
-            self.name,
-            "a_normal_mode_run_played_to_its_clear" | "a_run_played_to_its_clear_without_a_bomb"
-        )
-    }
-
     /// **How many updates a frame this case is played at**, which is four for a case that plays a whole game
     /// and the game's own one for every other.
     ///
@@ -223,17 +311,45 @@ impl Case {
     /// `a_run_played_to_its_clear_without_a_bomb` aimed at the difficulty select's item 1 and reached the
     /// character select reading `diff=2`, and each `wait_until` for a screen gave up its whole bound
     /// because the screens went by between two of its own checks. So this game pays the wall clock.
+    ///
+    /// **And th11 plays its whole games at one too, paced to sixteen instead** — see [`Case::pace`].
     pub fn speed(&self) -> u32 {
         match (self.within == A_WHOLE_GAME, self.game) {
             (true, Game::Th06nc) => 1,
+            (true, Game::Th11) if self.pace() > 1 => 1,
             (true, _) => 4,
             (false, _) => 1,
         }
     }
+
+    /// **How many times its own rate this case is paced to**, `--pace`: sixteen for a case of th11's that plays a
+    /// whole game, and one for every other — where [`Case::speed`] is the fast-forward instead.
+    ///
+    /// **Paced and not sped up, for a game whose frames orb is inside**, which th11's are: at four updates a
+    /// frame orb steered the run once every four, and wrote the chapter it reached down only where the chapter's
+    /// first frame was a drawn one — so a hit was retried from a chapter further back, and the hitless Extra
+    /// was hit two to four times on each of four launches (real1 to real4, 2026-10-08) in cards that took no hit
+    /// on the chapters kept for them, which were picked up at `--pace=4` with orb at every frame.
+    ///
+    /// **The normal mode run that unlocks the Extra as well**, which was left at four updates a frame once: its
+    /// recipe's answer of item 1 to orb's own mode question gave up its whole bound at `--pace=4` with the game
+    /// held on frame 274 (real5, 2026-10-08) — and the same answer through the pad came off at `--pace=4` and at
+    /// one, 91 and 368 milliseconds after the question came up (`tune-mode-paced.yaml`, 2026-10-08 21:24 and 21:30).
+    ///
+    /// **Sixteen and not four**, which it was: card 171's nineteen kept chapters were hit the same at 16 as at 4 (0 0 1
+    /// 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0), and whole Pointdevice Extra 50 went through at 16 with no hit in 113 seconds
+    /// where at 4 the Extras before it took some 320 (2026-10-09). A frame came every 1.3 to 3.1 ms through its cards
+    /// rather than the 1.04 sixteen asks for, the rules' steering 2 ms of it through cards 173 and 174 — so the pace is
+    /// a ceiling the steering sets the frame under, and nothing a hit depends on.
+    pub fn pace(&self) -> u32 {
+        match (self.within == A_WHOLE_GAME, self.game) {
+            (true, Game::Th11) => 16,
+            _ => 1,
+        }
+    }
 }
 
-/// Every case, in the order they are played: a case that continues comes straight after the one it
-/// continues.
+/// Every case, in the order they are played.
 pub fn cases() -> Vec<Case> {
     let mut all = Vec::new();
     for game in Game::ALL {
@@ -242,25 +358,10 @@ pub fn cases() -> Vec<Case> {
     all
 }
 
-/// **The cases of one game in chains**: each chain a case that continues nothing, followed by every case
-/// after it that continues — see [`Case::continues`], which is the field that makes one.
-///
-/// **A chain is the unit a session or a test can play on its own**, which is why this exists: the cases in
-/// one have to be played in their own order, a case that continues being handed the files the one before it
-/// left, and two different chains share nothing at all. So an `orb-e2e` test per chain plays the eleven of
-/// them at once where one test for all sixteen played them one after another — 181s of a 181s run was that
-/// one test.
-pub fn chains_of(game: Game) -> Vec<Vec<Case>> {
-    let mut chains: Vec<Vec<Case>> = Vec::new();
-    for case in cases_of(game) {
-        match (case.continues, chains.last_mut()) {
-            (true, Some(chain)) => chain.push(case),
-            // A case that continues with nothing before it is a list whose first says it continues, which
-            // is a chain of its own rather than a case dropped.
-            _ => chains.push(vec![case]),
-        }
-    }
-    chains
+/// **The case of `game` named `name`**, which is how [`Case::before`] names the cases whose recipes a case plays
+/// first.
+pub fn case_of(game: Game, name: &str) -> Option<Case> {
+    cases_of(game).into_iter().find(|case| case.name == name)
 }
 
 /// The cases of one game, in order.
@@ -292,7 +393,286 @@ pub fn cases_of(game: Game) -> Vec<Case> {
         Game::Th06nc => the_cases_of_th06nc(),
         Game::Th08 => the_cases_of_th08(),
         Game::Th10 => the_cases_of_th10(),
+        Game::Th11 => the_cases_of_th11(),
     }
+}
+
+/// **The cases th11 has**, one per recipe in `recipes/th11/` — `ls crates/orb-real/recipes/th11 | wc -l` counts
+/// them — which are th10's under this game's own recipes, in th10's order and with th10's starts: the two about
+/// the seam, then the mode's over this game's first and second stages, the whole game played to its clear in the
+/// mode, the Extra behind a clear of the game's own mode, the card counted and kept, and the Normal run with no
+/// hit and no bomb last.
+///
+/// **The chapters they are over are the first stage's start, its one midstage row and its fight's**: a stage is cut
+/// where it begins, at the rows of its midstage table (`orb_core::game::th11::chapters`), and where a boss arrives,
+/// declares a card, or is beaten. Stage 1's chapter 2 is its row at frame 1005, chapter 3 the midboss's arrival at
+/// 2111, chapter 4 the stage after she is beaten — 3947 on one launch of the real game and 3361 on another, the
+/// frame being how quickly she went down — and chapter 5 the boss's arrival, 6086 and 5749 on those two; stage 2's
+/// chapter 2 is its row at 957, chapter 3 its midboss's arrival at 2521 and chapter 4 her card, 11, at 3052
+/// (2026-10-07, the rows 2026-10-10). Stage 1's boss's first card began chapter 6 at frame 6463 and her second at
+/// 8223 on the launch that played the stage through, 2026-10-07, when the nonspell between them was no chapter —
+/// `Th11::read_state` reads the boss's own attack clock between cards now, which makes it chapter 7.
+fn the_cases_of_th11() -> Vec<Case> {
+    vec![
+        Case {
+            game: Game::Th11,
+            name: "a_run_started_and_given_up",
+            recipe: include_str!("../recipes/th11/a_run_started_and_given_up.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_run_of_th11_started_and_given_up,
+        },
+        Case {
+            game: Game::Th11,
+            name: "a_normal_mode_run_played_without_a_bomb",
+            recipe: include_str!("../recipes/th11/a_normal_mode_run_played_without_a_bomb.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_normal_mode_run_of_th11_played_without_a_bomb,
+        },
+        // **And one stage practised on its own**, the main menu's item 2 — **from records of a Normal clear**, for
+        // th10's reason: the practice's stage select takes a decide only for a stage the score file marks offered
+        // (0x43d80a), the mark is made where a run not replayed wins that stage (0x41eb61, 0x41eb92), and the mode's
+        // question reads the marks out of the game's own file, which only a run of the game's own mode writes.
+        Case {
+            game: Game::Th11,
+            name: "a_stage_practised_on_its_own",
+            recipe: include_str!("../recipes/th11/a_stage_practised_on_its_own.yaml"),
+            before: &[],
+            starts_from: Start::ANormalClear,
+            within: WITHIN,
+            check: checks::a_stage_practised_on_its_own,
+        },
+        // **And the mode's own case**, which a launch of this walk by hand played, 2026-10-07: hit in chapter 1 at
+        // frame 199, `restore` putting back 14 regions, the run back on frame 9 of the chapter that began on 8, and on
+        // into chapter 2 at frame 2111.
+        Case {
+            game: Game::Th11,
+            name: "a_death_answered_by_the_chapter_again",
+            recipe: include_str!("../recipes/th11/a_death_answered_by_the_chapter_again.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_death_of_th11_answered_by_the_chapter_again,
+        },
+        // **And the run that case left, started over from its own beginning with its replay kept**, and the attempt
+        // of that replay the death rewound the run from watched, off orb's own list behind the main menu's item 3 —
+        // the first chapter's first of two, which nothing but orb's replay keeps.
+        Case {
+            game: Game::Th11,
+            name: "the_run_started_over_and_its_replay_kept",
+            recipe: include_str!("../recipes/th11/the_run_started_over_and_its_replay_kept.yaml"),
+            before: &["a_death_answered_by_the_chapter_again"],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_run_started_over_and_its_replay_kept_without_asking,
+        },
+        Case {
+            game: Game::Th11,
+            name: "an_attempt_of_the_kept_replay_watched",
+            recipe: include_str!("../recipes/th11/an_attempt_of_the_kept_replay_watched.yaml"),
+            before: &[
+                "a_death_answered_by_the_chapter_again",
+                "the_run_started_over_and_its_replay_kept",
+            ],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::an_attempt_a_retry_rewound_away_watched,
+        },
+        // **And the same chapter asked for without dying for it**, the game's own pause menu item orb takes off —
+        // the rewinding games' check, whose lines are the log's own.
+        Case {
+            game: Game::Th11,
+            name: "a_chapter_taken_again_without_a_death",
+            recipe: include_str!("../recipes/th11/a_chapter_taken_again_without_a_death.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_chapter_taken_again_without_a_death,
+        },
+        // **And a run left in a chapter for a resume to be offered out of, and that run picked up**, which a launch
+        // of the real game measured before these cases were written: a run left in stage 1's third chapter, picked
+        // up, read `the landing is the frame that was written down, field for field`, 2026-10-07.
+        Case {
+            game: Game::Th11,
+            name: "a_run_left_in_its_second_chapter",
+            recipe: include_str!("../recipes/th11/a_run_left_in_its_second_chapter.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_run_left_in_its_second_chapter,
+        },
+        Case {
+            game: Game::Th11,
+            name: "the_run_picked_up_where_it_was_left",
+            recipe: include_str!("../recipes/th11/the_run_picked_up_where_it_was_left.yaml"),
+            before: &["a_run_left_in_its_second_chapter"],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_run_picked_up_where_it_was_left,
+        },
+        // **And a chapter of the stage after the first, taken again and played past**, and the run left there picked
+        // up in that stage — which for this game is a stage begun out of the fade the stage before it ends on, a
+        // pick-up of it putting that back too (`resume::Numbers::began_out_of_a_fade`).
+        Case {
+            game: Game::Th11,
+            name: "a_chapter_of_the_stage_after_the_first",
+            recipe: include_str!("../recipes/th11/a_chapter_of_the_stage_after_the_first.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_chapter_of_the_stage_after_the_first,
+        },
+        Case {
+            game: Game::Th11,
+            name: "the_run_picked_up_in_the_stage_it_walked_into",
+            recipe: include_str!(
+                "../recipes/th11/the_run_picked_up_in_the_stage_it_walked_into.yaml"
+            ),
+            before: &["a_chapter_of_the_stage_after_the_first"],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_run_picked_up_in_the_stage_it_walked_into,
+        },
+        // **And a run of the other mode, which orb keeps nothing of** — the check the rewinding games use, the lines
+        // it reads being orb's own.
+        Case {
+            game: Game::Th11,
+            name: "a_normal_mode_run_nothing_is_kept_of",
+            recipe: include_str!("../recipes/th11/a_normal_mode_run_nothing_is_kept_of.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_normal_mode_run_nothing_is_kept_of,
+        },
+        // **And the other three ways the question offers**, whose items are `retry_ui::RetryMenu::new`'s own order —
+        // see `the_cases_of_th08`, whose recipes ask at the same depths.
+        Case {
+            game: Game::Th11,
+            name: "the_stage_taken_again_from_its_start",
+            recipe: include_str!("../recipes/th11/the_stage_taken_again_from_its_start.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_stage_taken_again_from_its_start,
+        },
+        Case {
+            game: Game::Th11,
+            name: "the_run_given_up_at_the_retry",
+            recipe: include_str!("../recipes/th11/the_run_given_up_at_the_retry.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_run_given_up_at_the_retry,
+        },
+        Case {
+            game: Game::Th11,
+            name: "a_chapter_further_back_taken_again",
+            recipe: include_str!("../recipes/th11/a_chapter_further_back_taken_again.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_chapter_further_back_taken_again,
+        },
+        // **And the same list over a death**, and a death in the nonspell after a card — the cases the rewinding
+        // games have of these names, with their checks.
+        Case {
+            game: Game::Th11,
+            name: "a_death_answered_by_a_chapter_further_back",
+            recipe: include_str!("../recipes/th11/a_death_answered_by_a_chapter_further_back.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_death_answered_by_a_chapter_further_back,
+        },
+        Case {
+            game: Game::Th11,
+            name: "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
+            recipe: include_str!(
+                "../recipes/th11/a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell.yaml"
+            ),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
+        },
+        // **And the whole game played to its clear in the mode orb exists for**, with no bomb pressed.
+        Case {
+            game: Game::Th11,
+            name: "a_run_played_to_its_clear_without_a_bomb",
+            recipe: include_str!("../recipes/th11/a_run_played_to_its_clear_without_a_bomb.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: A_WHOLE_GAME,
+            check: checks::a_run_of_th11_played_to_its_clear_without_a_bomb,
+        },
+        // **And the Normal clear of the game's own mode, and the Extra it lights** — the main menu offers the Extra
+        // off the endings the score object has seen (0x439350 at 0x43a0c3), and only a run of the game's own mode
+        // writes the game's own file. The Extra's cases start from records of that clear and not from the clear's
+        // launch: whether the clear lights the Extra is the clear's own check.
+        Case {
+            game: Game::Th11,
+            name: "a_normal_mode_run_played_to_its_clear",
+            recipe: include_str!("../recipes/th11/a_normal_mode_run_played_to_its_clear.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: A_WHOLE_GAME,
+            check: checks::a_normal_mode_run_of_th11_played_to_its_clear,
+        },
+        Case {
+            game: Game::Th11,
+            name: "the_extra_played_to_its_clear",
+            recipe: include_str!("../recipes/th11/the_extra_played_to_its_clear.yaml"),
+            before: &[],
+            starts_from: Start::TheExtraOffered,
+            within: A_WHOLE_GAME,
+            check: checks::the_extra_of_th11_played_to_its_clear,
+        },
+        Case {
+            game: Game::Th11,
+            name: "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
+            recipe: include_str!(
+                "../recipes/th11/the_extra_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
+            ),
+            before: &[],
+            starts_from: Start::TheExtraOffered,
+            within: A_WHOLE_GAME,
+            check: checks::the_extra_of_th11_played_to_its_clear_with_no_hit_and_no_bomb,
+        },
+        Case {
+            game: Game::Th11,
+            name: "a_chapter_of_the_extra_taken_again",
+            recipe: include_str!("../recipes/th11/a_chapter_of_the_extra_taken_again.yaml"),
+            before: &[],
+            starts_from: Start::TheExtraOffered,
+            within: WITHIN,
+            check: checks::the_extra_a_cleared_run_unlocked,
+        },
+        // **An attempt at a card counted and kept**, th10's case over this game's score object.
+        Case {
+            game: Game::Th11,
+            name: "an_attempt_at_a_card_counted_and_kept",
+            recipe: include_str!("../recipes/th11/an_attempt_at_a_card_counted_and_kept.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::an_attempt_at_a_card_of_th11_counted_and_kept,
+        },
+        // **And the Normal run cleared with no hit and no bomb.**
+        Case {
+            game: Game::Th11,
+            name: "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
+            recipe: include_str!(
+                "../recipes/th11/a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
+            ),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: A_WHOLE_GAME,
+            check: checks::a_normal_run_of_th11_played_to_its_clear_with_no_hit_and_no_bomb,
+        },
+    ]
 }
 
 /// **The cases th08 has**, one per recipe in `recipes/th08/` — `ls crates/orb-real/recipes/th08 | wc -l`
@@ -323,18 +703,17 @@ pub fn cases_of(game: Game) -> Vec<Case> {
 /// the table's one boundary of stage 1 is script 1352, so a case asking for stage 1's second chapter asks for
 /// a chapter of the midsection, and its third is the midboss's arrival at 2935.
 ///
-/// **Four chains and the rest start from records taken aside** — see [`Case::continues`]: the run that
-/// died and was retried is started over with its replay kept and the attempt it was rewound from watched,
-/// one directory throughout; the run left in its second chapter is picked up; the run left in stage 2's
-/// fight is picked up there; and Eirin's clear is followed by Kaguya's and the Extra. Every other case is
-/// its own.
+/// **Each case its own** — see [`Case::before`] and [`Case::starts_from`]: the run started over with its replay
+/// kept plays the death that leaves one first, and the attempt watched plays both; each pick-up plays the launch
+/// that leaves its run; Kaguya's clear starts from records holding Eirin's, and the Extra from records holding both.
 fn the_cases_of_th08() -> Vec<Case> {
     vec![
         Case {
             game: Game::Th08,
             name: "a_run_started_and_given_up",
             recipe: include_str!("../recipes/th08/a_run_started_and_given_up.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_run_of_th08_started_and_given_up,
         },
@@ -342,7 +721,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_normal_mode_run_played_without_a_bomb",
             recipe: include_str!("../recipes/th08/a_normal_mode_run_played_without_a_bomb.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_normal_mode_run_of_th08_played_without_a_bomb,
         },
@@ -355,7 +735,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_death_answered_by_the_chapter_again",
             recipe: include_str!("../recipes/th08/a_death_answered_by_the_chapter_again.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_of_th08_answered_by_the_chapter_again,
         },
@@ -366,7 +747,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "the_run_started_over_and_its_replay_kept",
             recipe: include_str!("../recipes/th08/the_run_started_over_and_its_replay_kept.yaml"),
-            continues: true,
+            before: &["a_death_answered_by_the_chapter_again"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_started_over_and_its_replay_kept_without_asking,
         },
@@ -378,7 +760,11 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "an_attempt_of_the_kept_replay_watched",
             recipe: include_str!("../recipes/th08/an_attempt_of_the_kept_replay_watched.yaml"),
-            continues: true,
+            before: &[
+                "a_death_answered_by_the_chapter_again",
+                "the_run_started_over_and_its_replay_kept",
+            ],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::an_attempt_a_retry_rewound_away_watched,
         },
@@ -390,7 +776,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_chapter_taken_again_without_a_death",
             recipe: include_str!("../recipes/th08/a_chapter_taken_again_without_a_death.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_taken_again_without_a_death,
         },
@@ -400,7 +787,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_run_left_in_its_second_chapter",
             recipe: include_str!("../recipes/th08/a_run_left_in_its_second_chapter.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_run_left_in_its_second_chapter,
         },
@@ -411,7 +799,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "the_run_picked_up_where_it_was_left",
             recipe: include_str!("../recipes/th08/the_run_picked_up_where_it_was_left.yaml"),
-            continues: true,
+            before: &["a_run_left_in_its_second_chapter"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_picked_up_where_it_was_left,
         },
@@ -423,7 +812,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_chapter_of_the_stage_after_the_first",
             recipe: include_str!("../recipes/th08/a_chapter_of_the_stage_after_the_first.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_of_the_stage_after_the_first,
         },
@@ -435,7 +825,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th08/the_run_picked_up_in_the_stage_it_walked_into.yaml"
             ),
-            continues: true,
+            before: &["a_chapter_of_the_stage_after_the_first"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_picked_up_in_the_stage_it_walked_into,
         },
@@ -445,7 +836,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_normal_mode_run_nothing_is_kept_of",
             recipe: include_str!("../recipes/th08/a_normal_mode_run_nothing_is_kept_of.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_normal_mode_run_nothing_is_kept_of,
         },
@@ -455,20 +847,22 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_run_played_to_its_clear_without_a_bomb",
             recipe: include_str!("../recipes/th08/a_run_played_to_its_clear_without_a_bomb.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_run_of_th08_played_to_its_clear_without_a_bomb,
         },
-        // **And the Extra, played to its clear with the bomb allowed, behind the two runs that light it** —
-        // one chain, in one directory: this game lights Extra Start only out of Kaguya's clear, a run goes to
-        // Kaguya only where the records hold Eirin's stage passed, and both have to be the game's own mode,
-        // a pointdevice run's records going to the mode's own file. See `asm.md`'s *What a clear writes into
-        // a `CLRD` record*.
+        // **And the two clears that light the Extra, and the Extra played to its clear with the bomb allowed** —
+        // this game lights Extra Start only out of Kaguya's clear, a run goes to Kaguya only where the records hold
+        // Eirin's stage passed, and both have to be the game's own mode, a pointdevice run's records going to the
+        // mode's own file. See `asm.md`'s *What a clear writes into a `CLRD` record*. Kaguya's starts from records
+        // of Eirin's, and the Extra's from records of both.
         Case {
             game: Game::Th08,
             name: "a_normal_mode_run_played_to_its_clear",
             recipe: include_str!("../recipes/th08/a_normal_mode_run_played_to_its_clear.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_normal_mode_run_of_th08_played_to_its_clear,
         },
@@ -476,7 +870,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_normal_mode_run_played_to_kaguyas_clear",
             recipe: include_str!("../recipes/th08/a_normal_mode_run_played_to_kaguyas_clear.yaml"),
-            continues: true,
+            before: &[],
+            starts_from: Start::ANormalClear,
             within: A_WHOLE_GAME,
             check: checks::a_normal_mode_run_of_th08_played_to_kaguyas_clear,
         },
@@ -484,19 +879,20 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "the_extra_played_to_its_clear",
             recipe: include_str!("../recipes/th08/the_extra_played_to_its_clear.yaml"),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: A_WHOLE_GAME,
             check: checks::the_extra_of_th08_played_to_its_clear,
         },
         // **And a chapter of the Extra taken again**, which is what the rewinding games' Extra case holds
-        // and the whole-run one above does not: continuing it, in the directory whose records hold the
-        // unlock, and a case of its own rather than an ask inside that run — whose check is the clear, and
-        // an ask there would be one more thing between the run and its end.
+        // and the whole-run one above does not: a case of its own rather than an ask inside that run — whose
+        // check is the clear, and an ask there would be one more thing between the run and its end.
         Case {
             game: Game::Th08,
             name: "a_chapter_of_the_extra_taken_again",
             recipe: include_str!("../recipes/th08/a_chapter_of_the_extra_taken_again.yaml"),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: WITHIN,
             check: checks::a_chapter_of_th08s_extra_taken_again,
         },
@@ -510,7 +906,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "the_stage_taken_again_from_its_start",
             recipe: include_str!("../recipes/th08/the_stage_taken_again_from_its_start.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_stage_taken_again_from_its_start,
         },
@@ -518,7 +915,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "the_run_given_up_at_the_retry",
             recipe: include_str!("../recipes/th08/the_run_given_up_at_the_retry.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_given_up_at_the_retry,
         },
@@ -526,7 +924,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_chapter_further_back_taken_again",
             recipe: include_str!("../recipes/th08/a_chapter_further_back_taken_again.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_further_back_taken_again,
         },
@@ -536,7 +935,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_death_answered_by_a_chapter_further_back",
             recipe: include_str!("../recipes/th08/a_death_answered_by_a_chapter_further_back.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_answered_by_a_chapter_further_back,
         },
@@ -546,7 +946,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th08/a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell.yaml"
             ),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
         },
@@ -556,7 +957,8 @@ fn the_cases_of_th08() -> Vec<Case> {
             game: Game::Th08,
             name: "a_stage_practised_on_its_own",
             recipe: include_str!("../recipes/th08/a_stage_practised_on_its_own.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_stage_practised_on_its_own,
         },
@@ -573,19 +975,18 @@ fn the_cases_of_th08() -> Vec<Case> {
 /// fought. Stage 1's chapter 2 is the midboss's first attack and chapter 3 the attack after it, which launches
 /// of the real game read at frames 2521 and 3247 of the stage (scripts 2201 and 2927), 2026-10-01.
 ///
-/// **Five chains and the rest start from records taken aside** — see [`Case::continues`]: the stage practised
-/// after the run of the game's own mode that cleared it; the run that died and was retried, started over with
-/// its replay kept and the attempt it was rewound from watched, one directory throughout; the run left in its
-/// second chapter picked up; the run left in stage 2's fight picked up there; and the whole Normal run of the
-/// game's own mode, followed by the Extra it lights, cleared and then cleared with no hit and no bomb, and a
-/// chapter of that Extra taken again.
+/// **Each case its own** — see [`Case::before`] and [`Case::starts_from`]: the stage practised starts from records
+/// of a Normal clear, which offer it; the run started over with its replay kept plays the death that leaves one
+/// first, and the attempt watched plays both; each pick-up plays the launch that leaves its run; and the Extra's
+/// cases start from records of the clear that offers it.
 fn the_cases_of_th10() -> Vec<Case> {
     vec![
         Case {
             game: Game::Th10,
             name: "a_run_started_and_given_up",
             recipe: include_str!("../recipes/th10/a_run_started_and_given_up.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_run_of_th10_started_and_given_up,
         },
@@ -593,23 +994,24 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_normal_mode_run_played_without_a_bomb",
             recipe: include_str!("../recipes/th10/a_normal_mode_run_played_without_a_bomb.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_normal_mode_run_of_th10_played_without_a_bomb,
         },
-        // **And one stage practised on its own**, the main menu's item 2 — **continuing the case before it**,
+        // **And one stage practised on its own**, the main menu's item 2 — **from records of a Normal clear**,
         // because th10 offers a stage to practise only once a run of that shot type and difficulty has cleared
         // it: the stage's end marks it (0x416c08) and the practice select draws nothing it has not marked
         // (0x4314be). From the score files taken aside the stage screen stood with nothing to choose, `decide`
         // doing nothing for the 900 frames its step waits (2026-10-02, `no run was started after the mode
         // question`), and so it did after a run in the mode quit in stage 1 — the mode's question taking the
-        // offers out of the game's own file, which only a run of the game's own mode writes. The case before
-        // plays Reimu A's Normal in that mode through two stages.
+        // offers out of the game's own file, which only a run of the game's own mode writes.
         Case {
             game: Game::Th10,
             name: "a_stage_practised_on_its_own",
             recipe: include_str!("../recipes/th10/a_stage_practised_on_its_own.yaml"),
-            continues: true,
+            before: &[],
+            starts_from: Start::ANormalClear,
             within: WITHIN,
             check: checks::a_stage_practised_on_its_own,
         },
@@ -620,7 +1022,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_death_answered_by_the_chapter_again",
             recipe: include_str!("../recipes/th10/a_death_answered_by_the_chapter_again.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_of_th10_answered_by_the_chapter_again,
         },
@@ -633,7 +1036,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "the_run_started_over_and_its_replay_kept",
             recipe: include_str!("../recipes/th10/the_run_started_over_and_its_replay_kept.yaml"),
-            continues: true,
+            before: &["a_death_answered_by_the_chapter_again"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_started_over_and_its_replay_kept_without_asking,
         },
@@ -641,7 +1045,11 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "an_attempt_of_the_kept_replay_watched",
             recipe: include_str!("../recipes/th10/an_attempt_of_the_kept_replay_watched.yaml"),
-            continues: true,
+            before: &[
+                "a_death_answered_by_the_chapter_again",
+                "the_run_started_over_and_its_replay_kept",
+            ],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::an_attempt_a_retry_rewound_away_watched,
         },
@@ -652,7 +1060,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_chapter_taken_again_without_a_death",
             recipe: include_str!("../recipes/th10/a_chapter_taken_again_without_a_death.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_taken_again_without_a_death,
         },
@@ -663,7 +1072,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_run_left_in_its_second_chapter",
             recipe: include_str!("../recipes/th10/a_run_left_in_its_second_chapter.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_run_left_in_its_second_chapter,
         },
@@ -671,7 +1081,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "the_run_picked_up_where_it_was_left",
             recipe: include_str!("../recipes/th10/the_run_picked_up_where_it_was_left.yaml"),
-            continues: true,
+            before: &["a_run_left_in_its_second_chapter"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_picked_up_where_it_was_left,
         },
@@ -683,7 +1094,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_chapter_of_the_stage_after_the_first",
             recipe: include_str!("../recipes/th10/a_chapter_of_the_stage_after_the_first.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_of_the_stage_after_the_first,
         },
@@ -693,7 +1105,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th10/the_run_picked_up_in_the_stage_it_walked_into.yaml"
             ),
-            continues: true,
+            before: &["a_chapter_of_the_stage_after_the_first"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_picked_up_in_the_stage_it_walked_into,
         },
@@ -703,7 +1116,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_normal_mode_run_nothing_is_kept_of",
             recipe: include_str!("../recipes/th10/a_normal_mode_run_nothing_is_kept_of.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_normal_mode_run_nothing_is_kept_of,
         },
@@ -713,7 +1127,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "the_stage_taken_again_from_its_start",
             recipe: include_str!("../recipes/th10/the_stage_taken_again_from_its_start.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_stage_taken_again_from_its_start,
         },
@@ -721,7 +1136,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "the_run_given_up_at_the_retry",
             recipe: include_str!("../recipes/th10/the_run_given_up_at_the_retry.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_given_up_at_the_retry,
         },
@@ -729,7 +1145,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_chapter_further_back_taken_again",
             recipe: include_str!("../recipes/th10/a_chapter_further_back_taken_again.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_further_back_taken_again,
         },
@@ -739,7 +1156,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_death_answered_by_a_chapter_further_back",
             recipe: include_str!("../recipes/th10/a_death_answered_by_a_chapter_further_back.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_answered_by_a_chapter_further_back,
         },
@@ -749,7 +1167,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th10/a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell.yaml"
             ),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
         },
@@ -759,19 +1178,20 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_run_played_to_its_clear_without_a_bomb",
             recipe: include_str!("../recipes/th10/a_run_played_to_its_clear_without_a_bomb.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_run_of_th10_played_to_its_clear_without_a_bomb,
         },
-        // **And the Extra, played to its clear behind the run of the game's own mode that lights it** — one
-        // chain, in one directory: the main menu takes its Extra off the score object's clears (0x42c850 at
-        // 0x42d442), and only a run of the game's own mode writes the game's own file. Then a chapter of the
-        // Extra taken again, continuing it, in the directory whose records hold the unlock.
+        // **And the Normal clear of the game's own mode, and the Extra it lights** — the main menu takes its Extra
+        // off the score object's clears (0x42c850 at 0x42d442), and only a run of the game's own mode writes the
+        // game's own file. The Extra's cases start from records of that clear.
         Case {
             game: Game::Th10,
             name: "a_normal_mode_run_played_to_its_clear",
             recipe: include_str!("../recipes/th10/a_normal_mode_run_played_to_its_clear.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_normal_mode_run_of_th10_played_to_its_clear,
         },
@@ -779,7 +1199,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "the_extra_played_to_its_clear",
             recipe: include_str!("../recipes/th10/the_extra_played_to_its_clear.yaml"),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: A_WHOLE_GAME,
             check: checks::the_extra_of_th10_played_to_its_clear,
         },
@@ -792,7 +1213,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th10/the_extra_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
             ),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: A_WHOLE_GAME,
             check: checks::the_extra_of_th10_played_to_its_clear_with_no_hit_and_no_bomb,
         },
@@ -800,7 +1222,8 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "a_chapter_of_the_extra_taken_again",
             recipe: include_str!("../recipes/th10/a_chapter_of_the_extra_taken_again.yaml"),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: WITHIN,
             check: checks::the_extra_a_cleared_run_unlocked,
         },
@@ -809,19 +1232,20 @@ fn the_cases_of_th10() -> Vec<Case> {
             game: Game::Th10,
             name: "an_attempt_at_a_card_counted_and_kept",
             recipe: include_str!("../recipes/th10/an_attempt_at_a_card_counted_and_kept.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::an_attempt_at_a_card_of_th10_counted_and_kept,
         },
-        // **And the Normal run cleared with no hit and no bomb**, as th06c's and th06nc's is, which needs nothing
-        // of the chain above.
+        // **And the Normal run cleared with no hit and no bomb**, as th06c's and th06nc's is.
         Case {
             game: Game::Th10,
             name: "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
             recipe: include_str!(
                 "../recipes/th10/a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
             ),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_normal_run_of_th10_played_to_its_clear_with_no_hit_and_no_bomb,
         },
@@ -841,9 +1265,8 @@ fn the_cases_of_th10() -> Vec<Case> {
 /// **And a list of its own rather than the rewinding games'**, for this game's own front end and records
 /// — see [`cases_of`], which also has why six of its checks were once shorter than th06c's.
 ///
-/// **The Extra continues the clear**, in the directory the clear's launch left its records in: this game
-/// offers its Extra only once a run has been cleared, and the records that say so are the score file the
-/// first launch pressed through to the title to have written.
+/// **The Extra's cases start from records of a clear** ([`Start::TheExtraOffered`]): this game offers its Extra only
+/// once a run has been cleared, and the records that say so are its score file.
 fn the_cases_of_th06nc() -> Vec<Case> {
     vec![
         // **The mode's own case**: a death answered by the chapter again, and the run played on into the
@@ -852,7 +1275,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "a_death_answered_by_the_chapter_again",
             recipe: include_str!("../recipes/th06nc/a_death_answered_by_the_chapter_again.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_answered_by_the_chapter_again,
         },
@@ -863,7 +1287,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "the_run_started_over_and_its_replay_kept",
             recipe: include_str!("../recipes/th06nc/the_run_started_over_and_its_replay_kept.yaml"),
-            continues: true,
+            before: &["a_death_answered_by_the_chapter_again"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_started_over_and_its_replay_kept,
         },
@@ -875,7 +1300,11 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "an_attempt_of_the_kept_replay_watched",
             recipe: include_str!("../recipes/th06nc/an_attempt_of_the_kept_replay_watched.yaml"),
-            continues: true,
+            before: &[
+                "a_death_answered_by_the_chapter_again",
+                "the_run_started_over_and_its_replay_kept",
+            ],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::an_attempt_of_the_kept_replay_watched,
         },
@@ -887,7 +1316,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th06nc/a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell.yaml"
             ),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
         },
@@ -899,7 +1329,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "a_chapter_taken_again_without_a_death",
             recipe: include_str!("../recipes/th06nc/a_chapter_taken_again_without_a_death.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_taken_again_without_a_death,
         },
@@ -907,7 +1338,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "the_stage_taken_again_from_its_start",
             recipe: include_str!("../recipes/th06nc/the_stage_taken_again_from_its_start.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_stage_taken_again_from_its_start,
         },
@@ -915,7 +1347,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "the_run_given_up_at_the_retry",
             recipe: include_str!("../recipes/th06nc/the_run_given_up_at_the_retry.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             // **th06c's own check, unchanged**: nothing in it asks about a chapter after the one the run
             // was in, so there is nothing of this game's for it to be wrong about.
@@ -927,7 +1360,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "a_chapter_further_back_taken_again",
             recipe: include_str!("../recipes/th06nc/a_chapter_further_back_taken_again.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_further_back_taken_again,
         },
@@ -939,7 +1373,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th06nc/a_death_answered_by_a_chapter_further_back.yaml"
             ),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_answered_by_a_chapter_further_back,
         },
@@ -951,7 +1386,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "a_run_left_in_its_second_chapter",
             recipe: include_str!("../recipes/th06nc/a_run_left_in_its_second_chapter.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_run_left_in_its_second_chapter,
         },
@@ -959,7 +1395,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "the_run_picked_up_where_it_was_left",
             recipe: include_str!("../recipes/th06nc/the_run_picked_up_where_it_was_left.yaml"),
-            continues: true,
+            before: &["a_run_left_in_its_second_chapter"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_picked_up_where_it_was_left,
         },
@@ -971,7 +1408,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "a_chapter_of_the_stage_after_the_first",
             recipe: include_str!("../recipes/th06nc/a_chapter_of_the_stage_after_the_first.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_of_the_stage_after_the_first,
         },
@@ -981,7 +1419,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th06nc/the_run_picked_up_in_the_stage_it_walked_into.yaml"
             ),
-            continues: true,
+            before: &["a_chapter_of_the_stage_after_the_first"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_picked_up_in_the_stage_it_walked_into,
         },
@@ -993,7 +1432,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "an_attempt_at_a_card_counted_and_kept",
             recipe: include_str!("../recipes/th06nc/an_attempt_at_a_card_counted_and_kept.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::an_attempt_at_a_card_of_th06nc_counted_and_kept,
         },
@@ -1004,7 +1444,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "a_normal_mode_run_nothing_is_kept_of",
             recipe: include_str!("../recipes/th06nc/a_normal_mode_run_nothing_is_kept_of.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_normal_mode_run_nothing_is_kept_of,
         },
@@ -1017,7 +1458,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "a_stage_practised_on_its_own",
             recipe: include_str!("../recipes/th06nc/a_stage_practised_on_its_own.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_stage_practised_on_its_own,
         },
@@ -1028,7 +1470,8 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "a_run_played_to_its_clear",
             recipe: include_str!("../recipes/th06nc/a_run_played_to_its_clear.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_run_of_th06nc_played_to_its_clear,
         },
@@ -1036,18 +1479,12 @@ fn the_cases_of_th06nc() -> Vec<Case> {
         // one answers orb's question with レガシーモード and takes no bomb, so what it leaves is a clear in
         // `score.dat` — a pointdevice clear goes to the mode's own file and lights nothing, see
         // `orb_core::score`.
-        //
-        // **Immediately before the Extra's case and for no other reason**, which is th06c's own order:
-        // `xtask real` takes the game's records aside before every case that does not continue the one
-        // before it, so the unlock only reaches the Extra where that case is the one it continues. It sat
-        // two cases earlier while the Extra's launch continued the pointdevice clear instead — and then the
-        // front end offered no Extra at all, three of its `wait_until: { screen: 11 }` steps giving up
-        // while the walk went on to start a Normal run.
         Case {
             game: Game::Th06nc,
             name: "a_run_played_to_its_clear_without_a_bomb",
             recipe: include_str!("../recipes/th06nc/a_run_played_to_its_clear_without_a_bomb.yaml"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_run_of_th06nc_played_to_its_clear_without_a_bomb,
         },
@@ -1055,19 +1492,21 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             game: Game::Th06nc,
             name: "the_extra_played_to_its_clear",
             recipe: include_str!("../recipes/th06nc/the_extra_played_to_its_clear.yaml"),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: A_WHOLE_GAME,
             check: checks::the_extra_of_th06nc_played_to_its_clear,
         },
-        // **The two clears with no hit and no bomb**, as th06c's are: the Extra's first, continuing the
-        // Extra above in the directory the unlock is in, and then the Normal run, which needs nothing of it.
+        // **The two clears with no hit and no bomb**, as th06c's are: the Extra's, from records of a clear, and the
+        // Normal run.
         Case {
             game: Game::Th06nc,
             name: "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
             recipe: include_str!(
                 "../recipes/th06nc/the_extra_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
             ),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: A_WHOLE_GAME,
             check: checks::the_extra_of_th06nc_played_to_its_clear_with_no_hit_and_no_bomb,
         },
@@ -1077,16 +1516,16 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th06nc/a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
             ),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_normal_run_of_th06nc_played_to_its_clear_with_no_hit_and_no_bomb,
         },
     ]
 }
 
-/// **th06c's two clears with no hit and no bomb**, after the rest of its cases: the Extra's first, straight after
-/// `the_extra_a_cleared_run_unlocked` and continuing it, the Extra being offered only where the game's own
-/// records hold the clear that case's predecessor left; then the Normal run, which needs nothing of them.
+/// **th06c's two clears with no hit and no bomb**, after the rest of its cases: the Extra's, from records of a
+/// clear — the Extra being offered only where the game's own records hold one — and the Normal run.
 ///
 /// **Played at the game's own speed and not [`A_WHOLE_GAME`]'s four**, which is what that bound would give
 /// the Normal run: every measurement the two recipes' ways were read off was a launch at one, and the Extra
@@ -1099,7 +1538,8 @@ fn the_no_hit_cases_of_th06c() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th06c/the_extra_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
             ),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: WITHIN,
             check: checks::the_extra_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb,
         },
@@ -1109,16 +1549,17 @@ fn the_no_hit_cases_of_th06c() -> Vec<Case> {
             recipe: include_str!(
                 "../recipes/th06c/a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb.yaml"
             ),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_NO_HIT_RUN,
             check: checks::a_normal_run_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb,
         },
     ]
 }
 
-/// **th07's attempt at a card counted and kept**, after the rest of its cases and continuing none of them:
-/// the two runs are one launch, and the records it counts into are the game's own taken aside, so what the
-/// second run's build reads the file back over is this launch's count and nothing a case before it left.
+/// **th07's attempt at a card counted and kept**, after the rest of its cases: the two runs are one launch, and
+/// the records it counts into are the game's own taken aside, so what the second run's build reads the file back
+/// over is this launch's count and nothing another case left.
 ///
 /// **th07's alone of the four rewinding games' lists**, because it is the one whose count is lost at a read
 /// orb brackets: th06 and th06c carry their captures in memory, and th06nc's case of this name is its own
@@ -1128,7 +1569,8 @@ fn the_card_cases_of_th07() -> Vec<Case> {
         game: Game::Th07,
         name: "an_attempt_at_a_card_counted_and_kept",
         recipe: include_str!("../recipes/th07/an_attempt_at_a_card_counted_and_kept.yaml"),
-        continues: false,
+        before: &[],
+        starts_from: Start::Nothing,
         within: WITHIN,
         check: checks::an_attempt_at_a_card_of_th07_counted_and_kept,
     }]
@@ -1153,6 +1595,7 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
                 Game::Th06nc => unreachable!("th06nc has its own cases"),
                 Game::Th08 => unreachable!("th08 has its own cases"),
                 Game::Th10 => unreachable!("th10 has its own cases"),
+                Game::Th11 => unreachable!("th11 has its own cases"),
             }
         };
     }
@@ -1161,7 +1604,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_run_left_in_its_second_chapter",
             recipe: recipe!(game, "a_run_left_in_its_second_chapter"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_run_left_in_its_second_chapter,
         },
@@ -1169,7 +1613,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "the_run_picked_up_where_it_was_left",
             recipe: recipe!(game, "the_run_picked_up_where_it_was_left"),
-            continues: true,
+            before: &["a_run_left_in_its_second_chapter"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_picked_up_where_it_was_left,
         },
@@ -1177,7 +1622,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_death_answered_by_the_chapter_again",
             recipe: recipe!(game, "a_death_answered_by_the_chapter_again"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_answered_by_the_chapter_again,
         },
@@ -1187,7 +1633,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "the_run_started_over_and_its_replay_kept",
             recipe: recipe!(game, "the_run_started_over_and_its_replay_kept"),
-            continues: true,
+            before: &["a_death_answered_by_the_chapter_again"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_started_over_and_its_replay_kept,
         },
@@ -1195,7 +1642,11 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "an_attempt_of_the_kept_replay_watched",
             recipe: recipe!(game, "an_attempt_of_the_kept_replay_watched"),
-            continues: true,
+            before: &[
+                "a_death_answered_by_the_chapter_again",
+                "the_run_started_over_and_its_replay_kept",
+            ],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::an_attempt_of_the_kept_replay_watched,
         },
@@ -1203,7 +1654,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_chapter_taken_again_without_a_death",
             recipe: recipe!(game, "a_chapter_taken_again_without_a_death"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_taken_again_without_a_death,
         },
@@ -1211,7 +1663,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_chapter_further_back_taken_again",
             recipe: recipe!(game, "a_chapter_further_back_taken_again"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_further_back_taken_again,
         },
@@ -1221,7 +1674,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_death_answered_by_a_chapter_further_back",
             recipe: recipe!(game, "a_death_answered_by_a_chapter_further_back"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_answered_by_a_chapter_further_back,
         },
@@ -1234,7 +1688,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
                 game,
                 "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell"
             ),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell,
         },
@@ -1242,7 +1697,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "the_stage_taken_again_from_its_start",
             recipe: recipe!(game, "the_stage_taken_again_from_its_start"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_stage_taken_again_from_its_start,
         },
@@ -1250,7 +1706,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "the_run_given_up_at_the_retry",
             recipe: recipe!(game, "the_run_given_up_at_the_retry"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_given_up_at_the_retry,
         },
@@ -1258,7 +1715,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_chapter_of_the_stage_after_the_first",
             recipe: recipe!(game, "a_chapter_of_the_stage_after_the_first"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_chapter_of_the_stage_after_the_first,
         },
@@ -1267,7 +1725,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "the_run_picked_up_in_the_stage_it_walked_into",
             recipe: recipe!(game, "the_run_picked_up_in_the_stage_it_walked_into"),
-            continues: true,
+            before: &["a_chapter_of_the_stage_after_the_first"],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::the_run_picked_up_in_the_stage_it_walked_into,
         },
@@ -1275,7 +1734,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_stage_practised_on_its_own",
             recipe: recipe!(game, "a_stage_practised_on_its_own"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_stage_practised_on_its_own,
         },
@@ -1283,7 +1743,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_normal_mode_run_nothing_is_kept_of",
             recipe: recipe!(game, "a_normal_mode_run_nothing_is_kept_of"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_normal_mode_run_nothing_is_kept_of,
         },
@@ -1293,7 +1754,8 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_run_played_to_its_clear",
             recipe: recipe!(game, "a_run_played_to_its_clear"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_run_played_to_its_clear,
         },
@@ -1304,19 +1766,19 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             game,
             name: "a_normal_mode_run_played_to_its_clear",
             recipe: recipe!(game, "a_normal_mode_run_played_to_its_clear"),
-            continues: false,
+            before: &[],
+            starts_from: Start::Nothing,
             within: A_WHOLE_GAME,
             check: checks::a_normal_mode_run_played_to_its_clear,
         },
-        // And the Extra that clear unlocked. **The one case that needs what the case before it left in the
-        // game's own records** rather than in the directory orb keeps its files in — which is what
-        // [`Case::continues`] keeps for it: a case that starts from nothing has the game's records taken
-        // aside, and a game with no record of a clear does not offer the Extra at all.
+        // And the Extra a clear unlocks, **started from records of a clear** ([`Start::TheExtraOffered`]): a game
+        // with no record of one does not offer the Extra at all.
         Case {
             game,
             name: "the_extra_a_cleared_run_unlocked",
             recipe: recipe!(game, "the_extra_a_cleared_run_unlocked"),
-            continues: true,
+            before: &[],
+            starts_from: Start::TheExtraOffered,
             within: WITHIN,
             check: checks::the_extra_a_cleared_run_unlocked,
         },
@@ -1537,6 +1999,37 @@ pub mod checks {
         started_and_given_up(trace)
     }
 
+    /// **th11's run started by a recipe and handed back to the game's own title**, the scene wanted put at the
+    /// title as the pause menu's own item for it writes (`0x40dea0` with 4 at 0x42d4ec). See
+    /// [`started_and_given_up`] for what it is held to.
+    pub fn a_run_of_th11_started_and_given_up(trace: &Trace) -> Result<(), String> {
+        started_and_given_up(trace)
+    }
+
+    /// **th11's bomb and its four directions in the word a run is played with** — `orb_core::game::th11`'s
+    /// `BUTTON_BOMB` and `PAD_UP` with its three neighbours, th10's bits.
+    const TH11_BOMB: u16 = 0x0002;
+    const TH11_DIRECTIONS: u16 = 0x0010 | 0x0020 | 0x0040 | 0x0080;
+
+    /// **th11's Normal run played to its clear with no hit and no bomb**, in the game's own mode: the run started on
+    /// Normal, its ending reached, and no hit and no bomb between — [`took_no_hit_and_no_bomb`].
+    pub fn a_normal_run_of_th11_played_to_its_clear_with_no_hit_and_no_bomb(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        let normal = trace.records[started]
+            .state
+            .ok_or("the run stood over no state")?
+            .difficulty;
+        expect(normal == 1, || {
+            format!("the run was started on difficulty {normal} and not on Normal")
+        })?;
+        let ending = trace
+            .ending_from(started)
+            .ok_or("the run never reached its ending")?;
+        took_no_hit_and_no_bomb(trace, started, ending, TH11_BOMB)
+    }
+
     /// **Three things in order**: a run in progress, the log's own line for the give-up, and the front end
     /// reading a screen after it. The last of those is read off a line and not a field because nothing in
     /// `State` carries a front end's screen — `Game::front_end_screen` is what the log prints — and the first
@@ -1567,19 +2060,40 @@ pub mod checks {
     /// **And not the stage reached**, which is the one thing about this game's bot that is not settled —
     /// see [`super::the_cases_of_th08`].
     pub fn a_normal_mode_run_of_th08_played_without_a_bomb(trace: &Trace) -> Result<(), String> {
-        played_without_a_bomb(trace, TH08_BOMB, TH08_DIRECTIONS)
+        played_without_a_bomb(trace, TH08_BOMB, TH08_DIRECTIONS, the_stage_scripts_clock)
     }
 
     /// **th10's Normal run played by the rules with the bomb forbidden**, held to the four things th08's
     /// is — see [`a_normal_mode_run_of_th08_played_without_a_bomb`] — and not to the stage reached either,
     /// for th08's reason: how far the rules get is the bot's to vary, where this case is about the seam.
     pub fn a_normal_mode_run_of_th10_played_without_a_bomb(trace: &Trace) -> Result<(), String> {
-        played_without_a_bomb(trace, TH10_BOMB, TH10_DIRECTIONS)
+        played_without_a_bomb(trace, TH10_BOMB, TH10_DIRECTIONS, the_stage_scripts_clock)
     }
 
-    /// The run entered on Normal, the stage's own clock advancing under it, a direction in `directions`
+    /// **th11's Normal run played by the rules with the bomb forbidden**, held to th10's four things — **with the
+    /// stage's own frames for its clock and not the stage scripts'**. orb's clock of this game's stage scripts stood
+    /// at 60 from frame 129 of stage 1 to frame 4,305 of it on a launch of the real game, 2026-10-07, and read 360 at
+    /// frame 5,105 — nowhere near the bound below on a stage played for minutes — where the stage's frames counted
+    /// every one of them.
+    pub fn a_normal_mode_run_of_th11_played_without_a_bomb(trace: &Trace) -> Result<(), String> {
+        played_without_a_bomb(trace, TH11_BOMB, TH11_DIRECTIONS, |state| {
+            i64::from(state.stage_frames)
+        })
+    }
+
+    /// The stage script's own count — th08's, and th10's clock of its scripts — which a conversation stops.
+    fn the_stage_scripts_clock(state: &orb_core::game::State) -> i64 {
+        i64::from(state.script_frames)
+    }
+
+    /// The run entered on Normal, the stage's `clock` advancing under it, a direction in `directions`
     /// pressed inside it and never `bomb`.
-    fn played_without_a_bomb(trace: &Trace, bomb: u16, directions: u16) -> Result<(), String> {
+    fn played_without_a_bomb(
+        trace: &Trace,
+        bomb: u16,
+        directions: u16,
+        clock: fn(&orb_core::game::State) -> i64,
+    ) -> Result<(), String> {
         let started = trace.in_run_from(0).ok_or("no run was ever started")?;
         let normal = trace.records[started]
             .state
@@ -1594,10 +2108,10 @@ pub mod checks {
         let played = trace.records[started..]
             .iter()
             .filter_map(|record| record.state)
-            .map(|state| state.script_frames)
+            .map(|state| clock(&state))
             .max()
             .unwrap_or(0);
-        expect(played >= A_STAGE_IS_UNDER_WAY, || {
+        expect(played >= i64::from(A_STAGE_IS_UNDER_WAY), || {
             format!("the stage's own clock reached {played} frame(s)")
         })?;
         // **And a direction pressed inside the run**, which is the whole of what says the rules reached
@@ -1653,6 +2167,14 @@ pub mod checks {
     /// orb's own line for running it out, and the screen after it.
     pub fn a_run_of_th10_played_to_its_clear_without_a_bomb(trace: &Trace) -> Result<(), String> {
         played_to_its_clear_without_a_bomb(trace, TH10_BOMB).map(|_| ())
+    }
+
+    /// **th11's Normal run in Pointdevice mode, played to its ending with no bomb pressed** — th10's case of this
+    /// name: the ending, this game's scene 15 or orb's own line for running it out, the name typed into the clear's
+    /// own entry, the title's screen 14, and orb's question about the replay put up where the game's own offer of
+    /// one stood, the title's screen 15.
+    pub fn a_run_of_th11_played_to_its_clear_without_a_bomb(trace: &Trace) -> Result<(), String> {
+        played_to_its_clear_without_a_bomb(trace, TH11_BOMB).map(|_| ())
     }
 
     /// **A Normal run played to its ending with `bomb` never pressed, and the screen it ends at walked**, as
@@ -1895,10 +2417,22 @@ pub mod checks {
         let ending = trace
             .ending_from(reached)
             .ok_or("nothing says an ending ran, so the run was not cleared")?;
-        trace
+        let title = trace
             .line_from(ending, "front end: screen 0")
-            .map(|_| ())
-            .ok_or_else(|| "the ending was never pressed through to the title".to_owned())
+            .ok_or("the ending was never pressed through to the title")?;
+        // **And Kaguya's lighting Extra Start**, the title's item 1, which it steps over where no Kaguya clear is in
+        // the records (0x46799c): her clear's case is the one that says so, the Extra's own starting from records of
+        // one (`Start::TheExtraOffered`).
+        match last {
+            TH08_KAGUYAS_STAGE => trace
+                .line_from(title, "front end: screen 0, cursor on item 1")
+                .map(|_| ())
+                .ok_or_else(|| {
+                    "the title after Kaguya's clear never had its cursor on Extra Start, so her clear lit no Extra"
+                        .to_owned()
+                }),
+            _ => Ok(()),
+        }
     }
 
     /// **th08's Extra, played to its clear in 完全無欠モード with the bomb allowed** — the goal it was
@@ -1961,6 +2495,29 @@ pub mod checks {
     /// on Normal, the ending, the name the ranking is registered under typed into the clear's own entry, and
     /// the main menu up again, which is where the run's records have been written.
     pub fn a_normal_mode_run_of_th10_played_to_its_clear(trace: &Trace) -> Result<(), String> {
+        a_normal_mode_run_played_to_its_clear_and_on_to(trace, "front end: screen 2,")
+    }
+
+    /// **th11's Normal run in the game's own mode, played to its clear with the screen after its ending walked to the
+    /// main menu** — th10's case of this name over this game's screens: the name typed into the title's screen 14
+    /// and the main menu, screen 1, up again.
+    ///
+    /// **And the run held to no continue by what lights the Extra, not here**: the main menu offers it off endings
+    /// 6 to 11, which only a run with no continue reaches (0x40edb5 through 0x40edc0), so a run that continued and
+    /// was cleared passes this and leaves the Extra's case after it with no Extra to choose.
+    pub fn a_normal_mode_run_of_th11_played_to_its_clear(trace: &Trace) -> Result<(), String> {
+        a_normal_mode_run_played_to_its_clear_and_on_to(trace, "front end: screen 1,")
+    }
+
+    /// The mode question answered for the normal mode, the run on Normal, the ending, the name typed, and then the
+    /// front end's line `main_menu` opens with — **with the comma**, which is what keeps th11's `screen 1,` from
+    /// matching the `screen 14` and `screen 15` the ending walks through first — **and its cursor then on the Extra's
+    /// item**, which the menu steps over where the records do not light it: the clear's case is the one that says a
+    /// clear lights the Extra, the Extra's own starting from records of one (`Start::TheExtraOffered`).
+    fn a_normal_mode_run_played_to_its_clear_and_on_to(
+        trace: &Trace,
+        main_menu: &str,
+    ) -> Result<(), String> {
         let asked = trace
             .question_from(0, "mode")
             .ok_or("the mode question never stood")?;
@@ -1983,19 +2540,45 @@ pub mod checks {
         let named = trace
             .line_from(ending, "types ORB into the name the game asks for")
             .ok_or("the ranking was not registered under the name the recipe typed")?;
+        let menu = trace
+            .line_from(named, main_menu)
+            .ok_or("the screen after the ending was never walked to the main menu")?;
         trace
-            .line_from(named, "front end: screen 2")
+            .line_from(menu, &format!("{main_menu} cursor on item {THE_EXTRAS_ITEM}"))
             .map(|_| ())
             .ok_or_else(|| {
-                "the screen after the ending was never walked to the main menu".to_owned()
+                "the main menu after the clear never had its cursor on the Extra, so the clear lit no Extra"
+                    .to_owned()
             })
     }
+
+    /// The main menu's item the Extra is, th10's and th11's alike: item 1.
+    const THE_EXTRAS_ITEM: i32 = 1;
 
     /// **th10's Extra, played to its clear in Pointdevice mode** — th08's case of this name over this game's
     /// Extra, which its shot select writes as stage 7, the stage word 6 the state reads: the run at the Extra's
     /// own difficulty, ended on its own and not given up, and the screen after it walked with the game's own menu
     /// taken off and orb's question about the replay answered with keeping it.
     pub fn the_extra_of_th10_played_to_its_clear(trace: &Trace) -> Result<(), String> {
+        the_extra_played_to_its_clear_in(trace, TH10_THE_EXTRAS_STAGE)
+    }
+
+    /// **th11's Extra, played to its clear in Pointdevice mode** — th10's case of this name over this game's Extra,
+    /// whose partner select writes the stage as 7 (0x43d5b3 through 0x43d5ec), the stage word 6 the state reads.
+    ///
+    /// **The screen after it is the pause object's**, where th10's is too: a won run's end opens on state 21
+    /// (0x42d6b0), its ranking's name entry is state 25 where the score places, and the menu after it state 22 —
+    /// or, where it does not place, the lost run's menu, state 14 — and orb takes either off for its own question
+    /// (`Th11::skip_replay_prompt`). The run is read at the stage it started in and not where it ended: a cleared
+    /// Extra is moved on to stage 8 by its own ranking (0x42d850) and left there.
+    pub fn the_extra_of_th11_played_to_its_clear(trace: &Trace) -> Result<(), String> {
+        the_extra_played_to_its_clear_in(trace, TH11_THE_EXTRAS_STAGE)
+    }
+
+    /// The run started after the mode question at the Extra's difficulty and in its stage word `stage`, ended on its
+    /// own and not given up, and the screen after it walked with the game's own menu taken off and orb's question
+    /// about the replay answered with keeping it.
+    fn the_extra_played_to_its_clear_in(trace: &Trace, stage: i32) -> Result<(), String> {
         let asked = trace
             .question_from(0, "mode")
             .ok_or("the mode question never stood over the item that starts the Extra")?;
@@ -2005,16 +2588,13 @@ pub mod checks {
         let state = trace.records[started]
             .state
             .expect("in_run_from answers a record with a state");
-        expect(
-            (state.difficulty, state.stage) == (EXTRA, TH10_THE_EXTRAS_STAGE),
-            || {
-                format!(
-                    "the run that started is at difficulty {} and stage word {}, where the Extra is \
-                     {EXTRA} and {TH10_THE_EXTRAS_STAGE}",
-                    state.difficulty, state.stage
-                )
-            },
-        )?;
+        expect((state.difficulty, state.stage) == (EXTRA, stage), || {
+            format!(
+                "the run that started is at difficulty {} and stage word {}, where the Extra is \
+                     {EXTRA} and {stage}",
+                state.difficulty, state.stage
+            )
+        })?;
         expect(
             trace
                 .line_from(started, "retry: the run is given up")
@@ -2043,6 +2623,22 @@ pub mod checks {
         trace: &Trace,
     ) -> Result<(), String> {
         the_extra_of_th10_played_to_its_clear(trace)?;
+        the_extra_took_no_hit_and_no_bomb(trace, TH10_BOMB)
+    }
+
+    /// **th11's Extra played to its clear with no hit and no bomb, in Pointdevice mode** — th10's case of this name:
+    /// [`the_extra_of_th11_played_to_its_clear`], and no hit taken and no bomb pressed from the run's start to its
+    /// end.
+    pub fn the_extra_of_th11_played_to_its_clear_with_no_hit_and_no_bomb(
+        trace: &Trace,
+    ) -> Result<(), String> {
+        the_extra_of_th11_played_to_its_clear(trace)?;
+        the_extra_took_no_hit_and_no_bomb(trace, TH11_BOMB)
+    }
+
+    /// The Extra started after the mode question, from its start to `run ended after`, taking no hit and pressing no
+    /// `bomb`.
+    fn the_extra_took_no_hit_and_no_bomb(trace: &Trace, bomb: u16) -> Result<(), String> {
         let asked = trace
             .question_from(0, "mode")
             .ok_or("the mode question never stood over the item that starts the Extra")?;
@@ -2052,7 +2648,7 @@ pub mod checks {
         let ended = trace
             .line_from(started, "run ended after")
             .ok_or("the Extra never ended, so it was not cleared")?;
-        took_no_hit_and_no_bomb(trace, started, ended, TH10_BOMB)
+        took_no_hit_and_no_bomb(trace, started, ended, bomb)
     }
 
     /// **th10's Normal run played to its ending with no hit and no bomb, in Pointdevice mode** — the goal its
@@ -2080,6 +2676,21 @@ pub mod checks {
     /// inside the same card counting at least two more — the card's own start and the retry — which is what
     /// says nothing between the runs laid the score file back over the count.
     pub fn an_attempt_at_a_card_of_th10_counted_and_kept(trace: &Trace) -> Result<(), String> {
+        an_attempt_at_a_card_counted_and_kept_in_the_score_object(trace)
+    }
+
+    /// **th11's attempt at a card counted and kept**, th10's two runs over this game's score object — which this game
+    /// treats as th10 treats its own: read from `scoreth11.dat` once, at the startup (0x437800 at 0x428b28), and
+    /// written whole at each run's teardown (0x437a70 at 0x41fe17), so nothing between the two runs reads the file
+    /// back over the count `Th11::count_card_attempt` adds.
+    pub fn an_attempt_at_a_card_of_th11_counted_and_kept(trace: &Trace) -> Result<(), String> {
+        an_attempt_at_a_card_counted_and_kept_in_the_score_object(trace)
+    }
+
+    /// The first run's count at a card, the run left, and the second run's count at least two more.
+    fn an_attempt_at_a_card_counted_and_kept_in_the_score_object(
+        trace: &Trace,
+    ) -> Result<(), String> {
         const COUNTED: &str = "retry: attempt ";
         let attempt = |at: usize| -> Option<u32> {
             trace.records[at].lines.iter().find_map(|line| {
@@ -2120,6 +2731,9 @@ pub mod checks {
     /// The stage word th10's Extra is played in, the stage from nought that `[0x474c7c]` counts from 1 as 7.
     const TH10_THE_EXTRAS_STAGE: i32 = 6;
 
+    /// And th11's, the stage from nought that `[0x4a5728]` counts from 1 as 7.
+    const TH11_THE_EXTRAS_STAGE: i32 = 6;
+
     /// **How far the stage's own clock has to get for the run to have been played**, which is what
     /// `a_normal_mode_run_of_th08_played_without_a_bomb` and th10's of that name are held to in place of a
     /// stage reached.
@@ -2159,7 +2773,13 @@ pub mod checks {
         let ending = the_ending_ran(trace, last)?;
         // **And the name the ranking was registered under**, for the reason [`a_run_played_to_its_clear`]
         // gives: a tap at that entry registers the character its cursor started on, eight times over.
-        the_name_was_typed(trace, ending)
+        the_name_was_typed(trace, ending)?;
+        // **And the main menu's cursor on the Extra after it**, this being the clear that lights it — see
+        // [`the_extra_offered_after`]: this game's menu is screen 3.
+        let menu = trace
+            .line_from(ending, "front end: screen 3,")
+            .ok_or("the title after the clear was never walked to the main menu")?;
+        the_extra_offered_after(trace, menu)
     }
 
     /// **th06nc's 完全無欠モード run: played through six stages to its ending, dying on the way and coming
@@ -2390,7 +3010,7 @@ pub mod checks {
         )
     }
 
-    /// **The run the case before left is offered, taken up from where it stopped, and lands in the chapter it
+    /// **The run the launch before left is offered, taken up from where it stopped, and lands in the chapter it
     /// was left in** — then plays on into the next.
     pub fn the_run_picked_up_where_it_was_left(trace: &Trace) -> Result<(), String> {
         let asked = trace
@@ -2823,6 +3443,28 @@ pub mod checks {
     /// 2026-10-01.
     pub fn a_death_of_th10_answered_by_the_chapter_again(trace: &Trace) -> Result<(), String> {
         a_death_answered_by_the_chapter_again_on_the_scripts_clock(trace, 5)
+    }
+
+    /// **th11's death answered by the chapter again**, which is [`a_death_answered_by_the_chapter_again`] — the
+    /// stage's own frames going back to where the chapter began, and the chapter after the one died in reached —
+    /// with th10's sound held back on top of it.
+    ///
+    /// **Not th10's check, whose clock is the stage scripts'**: orb's clock of this game's scripts stood at 60 over
+    /// both sides of the retry on the launch this walk was played by hand in, 2026-10-07 — `script=60` on the frame
+    /// the question stood on, 199 frames into the stage — so it says nothing went back. The chapter after is near
+    /// enough for th10's reason not to hold here: the midboss's arrival at frame 2111, well inside what the recipe
+    /// plays.
+    ///
+    /// **And the sound left alone in five ranges**, `Th11::audio_state`'s manager, its DirectSound wrapper, the
+    /// stream, the holder of its buffer and the source — `snapshot: leaving 5 audio range(s) alone` on every chapter
+    /// that launch took.
+    pub fn a_death_of_th11_answered_by_the_chapter_again(trace: &Trace) -> Result<(), String> {
+        a_death_answered_by_the_chapter_again(trace)?;
+        let started = trace.in_run_from(0).ok_or("no run was started")?;
+        trace
+            .line_from(started, "snapshot: leaving 5 audio range(s) alone")
+            .map(|_| ())
+            .ok_or_else(|| "the snapshot did not hold this game's sound back".to_owned())
     }
 
     /// A hit raising the retry question, the chapter again answered, the run back in the chapter it died in
@@ -3585,27 +4227,36 @@ pub mod checks {
         // **And the name the ranking was registered under**, for the reason
         // [`a_run_played_to_its_clear`] gives: a tap at that entry registers the character its cursor
         // started on, eight times over.
-        trace
+        let named = trace
             .line_from(ending, "types ORB into the name the game asks for")
+            .ok_or("the ranking was not registered under the name the recipe typed")?;
+        the_extra_offered_after(trace, named)
+    }
+
+    /// **The title's cursor on Extra Start, item 1, after the clear**, which the title will not rest its cursor on
+    /// where it is not offering it: the clear's case is the one that says a clear lights the Extra, the Extra's own
+    /// starting from records of one (`Start::TheExtraOffered`).
+    fn the_extra_offered_after(trace: &Trace, from: usize) -> Result<(), String> {
+        trace
+            .line_from(from, ", cursor on item 1")
             .map(|_| ())
             .ok_or_else(|| {
-                "the ranking was not registered under the name the recipe typed".to_owned()
+                "the title after the clear never had its cursor on Extra Start, so the clear lit no Extra"
+                    .to_owned()
             })
     }
 
     /// **The Extra, which the run cleared in the other mode unlocked**: the run that starts is at the
     /// Extra's own difficulty, its chapters are a stage's like any other's, and one of them is taken again.
     ///
-    /// What says the unlock happened is that there was a run to start at all: the item is on the title menu
-    /// only where the game's own score file holds the record, and the case before this one is what put it
-    /// there.
+    /// What says the records offer it is that there was a run to start at all: the item is on the title menu
+    /// only where the game's own score file holds the record.
     pub fn the_extra_a_cleared_run_unlocked(trace: &Trace) -> Result<(), String> {
         a_chapter_of_the_extra_taken_again(trace, 7)
     }
 
     /// **th08's Extra, one of its chapters taken again** — [`the_extra_a_cleared_run_unlocked`] over this
-    /// game's Extra, which is its ninth stage word: the case after its whole-run Extra, continuing it, so
-    /// that the records the front end reads hold the unlock that one's predecessors left.
+    /// game's Extra, which is its ninth stage word.
     pub fn a_chapter_of_th08s_extra_taken_again(trace: &Trace) -> Result<(), String> {
         a_chapter_of_the_extra_taken_again(trace, TH08_THE_EXTRAS_STAGE + 1)
     }

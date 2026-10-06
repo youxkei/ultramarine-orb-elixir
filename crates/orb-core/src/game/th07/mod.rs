@@ -96,6 +96,9 @@
 
 /// The midstage table, in a file of its own because a `--chapter-tuning` pass writes one to paste over it.
 pub mod chapters;
+/// The score file as bytes, which orb itself never reads — only `orb-real`, making the records a case starts from.
+#[cfg(any(test, feature = "score-files"))]
+pub mod score_file;
 /// What a bot playing this game is told of it, which is this game's own arrays read — see
 /// `Game::what_a_bot_sees`.
 mod sight;
@@ -2905,6 +2908,7 @@ impl Game for Th07 {
                 target: RENDER,
                 prologue: RENDER_PROLOGUE,
             }),
+            renders_too: &[],
             // **Neither of these two is a gap, and both are readings.** The write of a replay file is
             // reached from one place in this game, the offer at the end of a run — which
             // [`Th07::skip_replay_prompt`] takes the game off before a frame of it is drawn, so there is
@@ -3022,6 +3026,8 @@ impl Game for Th07 {
             // `KERNEL32.dll` entries. See `orb::memtrack`.
             takes_its_memory: Memory::Kernel32Imports,
             makes_its_threads: Threads::CreateThread,
+            unloads_beside_its_frame: None,
+            decodes_through_one_window: None,
             opens_its_files: FileOpen::CreateFileA,
         }
     }

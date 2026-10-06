@@ -2423,6 +2423,12 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
     // as recent as the frame it appears in.
     unsafe { pacing() }.wait_for_slot(window);
     let waited = frame::now();
+    // **From the update to the end of the present**, and not around the wait for the frame's turn: what an unload off
+    // this thread frees is what the walks read and the device draws. **The present included, and not let go of at
+    // the end of the drawing**, which was tried: a real launch then stood with its main thread inside `Present`,
+    // `nvd3dum.dll` waiting on an object in rounds of a second, as the log said an unload had waited for the frame
+    // (`orb-real` 1791788493, launch 3) — the textures released beside the present the driver was making of them.
+    let a_frame = AFrameRuns::starts();
     let updated = update(chain);
     let ran = frame::now();
     // Where the game's own loop makes it, and inside the span this frame has to reach its blank in. On
@@ -2545,6 +2551,7 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
         pacing().hold_for_the_blank_before();
         let held = frame::now();
         PRESENT.call();
+        drop(a_frame);
         (drawn, held)
     };
     unsafe { pacing() }.finished(frame::Marks {
@@ -2655,6 +2662,335 @@ unsafe fn pushed(trampoline: &AtomicUsize, argument: *mut c_void) -> i32 {
     original(argument)
 }
 
+/// **The two walks again, entered the way th11 enters them** — see `game::FrameEntered::ChainInEbx`: the calc
+/// walk with the chain in `ebx` and the draw walk with nothing, each ending in a plain `ret`.
+///
+/// **Naked, and a jump into the hook rather than a call**: what stands over the prologue has to leave every
+/// register but `eax` as the game's code had it and pop nothing, and the hook is `fastcall` on one argument,
+/// which is `ecx` and no stack — so moving the chain into `ecx` and jumping is the whole of the entry, and the
+/// hook's own `ret` goes back to the game's caller. `ebx` is the game's to keep: the hook is `fastcall` and
+/// keeps it.
+///
+/// # Safety
+/// Only as the jump over the calc walk's prologue, entered by the game's own call with its chain in `ebx`.
+#[cfg(target_arch = "x86")]
+#[unsafe(naked)]
+pub unsafe extern "C" fn run_calc_chain_in_ebx() {
+    std::arch::naked_asm!("mov ecx, ebx", "jmp {hook}", hook = sym run_calc_chain)
+}
+
+/// See [`run_calc_chain_in_ebx`] — **the draw walk reads its chain itself** (`[0x4c3234]` at 0x456e25), so the hook
+/// is handed a null one, which it passes on to [`calls_the_draw_chain_taking_nothing`] and nothing reads.
+///
+/// # Safety
+/// Only as the jump over the draw walk's prologue, entered by the game's own call.
+#[cfg(target_arch = "x86")]
+#[unsafe(naked)]
+pub unsafe extern "C" fn run_draw_chain_taking_nothing() {
+    std::arch::naked_asm!("xor ecx, ecx", "jmp {hook}", hook = sym run_draw_chain)
+}
+
+/// The game's own calc walk behind [`run_calc_chain_in_ebx`] — the trampoline its patch left.
+#[cfg(target_arch = "x86")]
+pub static RUN_CALC_CHAIN_IN_EBX: AtomicUsize = AtomicUsize::new(0);
+/// And its draw walk's.
+#[cfg(target_arch = "x86")]
+pub static RUN_DRAW_CHAIN_TAKING_NOTHING: AtomicUsize = AtomicUsize::new(0);
+
+/// **The game's own calc walk called the way th11 enters it**, from the one convention [`call_original`] is
+/// written in: the chain put in `ebx` for the call and `ebx` put back after it.
+///
+/// **`ebx` saved and put back inside the asm, and not handed to the compiler as an operand**, which LLVM keeps
+/// for itself on x86 — the same reason `game::th10`'s `with_esi` gives for `esi`.
+///
+/// # Safety
+/// [`RUN_CALC_CHAIN_IN_EBX`] must hold the trampoline of a walk that reads its chain out of `ebx`, and `chain` be
+/// the game's own chain.
+#[cfg(target_arch = "x86")]
+pub unsafe extern "fastcall" fn calls_the_calc_chain_in_ebx(chain: *mut c_void) -> i32 {
+    let walk = RUN_CALC_CHAIN_IN_EBX.load(Ordering::Relaxed);
+    let answer: i32;
+    unsafe {
+        std::arch::asm!(
+            "push ebx",
+            "mov ebx, ecx",
+            "call eax",
+            "pop ebx",
+            // **Named registers and not `reg`**, which could hand the walk's address over in `ebx` itself and
+            // have the `mov` overwrite it before the call.
+            in("ecx") chain,
+            inout("eax") walk => answer,
+            clobber_abi("C"),
+        )
+    };
+    answer
+}
+
+/// And its draw walk, which takes nothing.
+///
+/// # Safety
+/// [`RUN_DRAW_CHAIN_TAKING_NOTHING`] must hold the trampoline of a walk that takes no argument.
+#[cfg(target_arch = "x86")]
+pub unsafe extern "fastcall" fn calls_the_draw_chain_taking_nothing(_chain: *mut c_void) -> i32 {
+    let walk: extern "C" fn() -> i32 =
+        unsafe { std::mem::transmute(RUN_DRAW_CHAIN_TAKING_NOTHING.load(Ordering::Relaxed)) };
+    walk()
+}
+
+/// **Whether orb's frame is between its update and the end of its present, and how many unloads off its thread are
+/// running** — the two kept apart, each waiting on [`ONE_OF_THEM_ENDED`] for the other. See [`unloads_in_edi`].
+///
+/// **Kept apart rather than a hold of the frame at the loading's own count**, which was the other way read: th11's
+/// title thread unloads the loading screen's file once that screen's counter reaches 180 (0x439521, 0x439564), so
+/// a frame loop holding still from the count until the thread's flag `[0x4c3e00]` is set would keep the two apart
+/// on every frame but the one the count is reached on, inside which the thread can wake from its `Sleep(16)`
+/// (0x43953e) and unload under the drawing that follows.
+static THE_FRAME_AND_THE_UNLOADS: Mutex<Running> = Mutex::new(Running {
+    a_frame: false,
+    unloads: 0,
+});
+static ONE_OF_THEM_ENDED: std::sync::Condvar = std::sync::Condvar::new();
+
+struct Running {
+    a_frame: bool,
+    unloads: u32,
+}
+
+std::thread_local! {
+    /// **Whether this thread is inside orb's frame**, where an unload is the frame's own — the game's main thread
+    /// tearing a scene down from inside its update — and runs on the spot, waiting on the frame there being
+    /// waiting on itself.
+    static IN_A_FRAME: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether the unload running on this thread is one the frames are waiting on.
+    #[cfg(target_arch = "x86")]
+    static HOLDS_THE_FRAMES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// **What [`the_frame`] holds while the game's walks run**: an unload off its thread waited out before, and every
+/// one after held off until it is dropped.
+struct AFrameRuns {
+    /// False for a frame entered from inside one, which the outer frame's own drop ends.
+    outermost: bool,
+}
+
+impl AFrameRuns {
+    fn starts() -> Self {
+        if IN_A_FRAME.get() {
+            return Self { outermost: false };
+        }
+        let running = THE_FRAME_AND_THE_UNLOADS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut running = ONE_OF_THEM_ENDED
+            .wait_while(running, |running| running.unloads > 0)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        running.a_frame = true;
+        IN_A_FRAME.set(true);
+        Self { outermost: true }
+    }
+}
+
+impl Drop for AFrameRuns {
+    fn drop(&mut self) {
+        if !self.outermost {
+            return;
+        }
+        IN_A_FRAME.set(false);
+        THE_FRAME_AND_THE_UNLOADS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .a_frame = false;
+        ONE_OF_THEM_ENDED.notify_all();
+    }
+}
+
+/// **The game's unload entered the way th11 enters it** — see `game::Hooks::unloads_beside_its_frame`: what it
+/// frees in `edi`, nothing on the stack, and a plain `ret`.
+///
+/// **Naked, with the original's address handed back in `eax`** rather than read out of [`UNLOADS_IN_EDI`] here:
+/// what stands over the prologue has to leave `edi` as the game's caller had it, and the two calls around the
+/// original are `extern "C"`, which keep `edi`, `esi`, `ebx` and `ebp` — and the unload reads none of `eax`, `ecx`
+/// and `edx` before writing them (0x4549e0 through 0x4549f7). The jump into [`lets_the_frames_run`] is the way
+/// out, its own `ret` going back to the game's caller.
+///
+/// # Safety
+/// Only as the jump over the unload's prologue, entered by the game's own call with what it frees in `edi`.
+#[cfg(target_arch = "x86")]
+#[unsafe(naked)]
+pub unsafe extern "C" fn unloads_in_edi() {
+    std::arch::naked_asm!(
+        "call {wait}",
+        "call eax",
+        "jmp {done}",
+        wait = sym waits_for_the_frame,
+        done = sym lets_the_frames_run,
+    )
+}
+
+/// The game's own unload behind [`unloads_in_edi`] — the trampoline its patch left.
+pub static UNLOADS_IN_EDI: AtomicUsize = AtomicUsize::new(0);
+
+/// **How long an unload waits for the frame before it runs under it.**
+///
+/// **Bounded, because th11's frame can be waiting on the very thread that waits on it**: its update joins a
+/// thread of its own through 0x459430 — the thread's stop asked for at `+0xc`, then `WaitForSingleObject` in
+/// rounds of 200ms until the thread is gone (0x459441 through 0x45946d) — at sixteen places, the title's own
+/// teardown among them (0x439702). A thread joined so while it waits here would hold the frame forever; past this,
+/// the unload runs as the game alone would have run it. A second, against the 16ms a frame of the game's own rate
+/// lasts: a frame not drawn by then is one that is waiting rather than drawing.
+#[cfg(target_arch = "x86")]
+const AN_UNLOAD_WAITS_AT_MOST: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// **The frame orb is running waited out**, on a thread that is not running it, and the frames after it held off
+/// until [`lets_the_frames_run`]; answers the unload to call.
+#[cfg(target_arch = "x86")]
+extern "C" fn waits_for_the_frame() -> usize {
+    if !IN_A_FRAME.get() {
+        let running = THE_FRAME_AND_THE_UNLOADS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if running.a_frame {
+            detail!("frame: an unload off the frame's thread waits for the frame to be presented");
+        }
+        let (mut running, waited) = ONE_OF_THEM_ENDED
+            .wait_timeout_while(running, AN_UNLOAD_WAITS_AT_MOST, |running| running.a_frame)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if waited.timed_out() {
+            log!(
+                "frame: an unload off the frame's thread waited {AN_UNLOAD_WAITS_AT_MOST:?} for the frame \
+                 and runs under it"
+            );
+        }
+        running.unloads += 1;
+        HOLDS_THE_FRAMES.set(true);
+    }
+    UNLOADS_IN_EDI.load(Ordering::Relaxed)
+}
+
+/// And the frames let run again, where [`waits_for_the_frame`] held them.
+#[cfg(target_arch = "x86")]
+extern "C" fn lets_the_frames_run() {
+    if HOLDS_THE_FRAMES.replace(false) {
+        THE_FRAME_AND_THE_UNLOADS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unloads -= 1;
+        ONE_OF_THEM_ENDED.notify_all();
+    }
+}
+
+/// **Held by whichever thread is inside the game's LZSS decode or encode**, which share one window — see
+/// `game::Hooks::decodes_through_one_window`.
+///
+/// **orb's own lock and not the archive's `0x4c3ac0`**, which th11's archive reads already decode inside: taking it
+/// for the score file's decode too would hold that thread's every later file read behind the score's, where what
+/// has to be one at a time is the window alone.
+#[cfg(target_arch = "x86")]
+static THE_WINDOW: Mutex<()> = Mutex::new(());
+
+std::thread_local! {
+    /// The window held by a decode or an encode on this thread, from its entry until its return.
+    #[cfg(target_arch = "x86")]
+    static HOLDS_THE_WINDOW: std::cell::RefCell<Option<std::sync::MutexGuard<'static, ()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// **The game's LZSS decode entered the way th11 enters it**, its output in `eax` and three arguments pushed, which
+/// it pops — and the window held around it.
+///
+/// **Naked, the three arguments pushed again and the original called**, and not a jump into it: the window is
+/// let go of after the original returns, so this has to be the frame it returns into. `eax` is kept over the lock's
+/// call, which hands the original's address back in `ecx`'s place — what the decode is entered with is `eax` and
+/// the stack, and it reads neither `ecx` nor `edx` before writing them (0x4426c0 through 0x4426f1).
+///
+/// # Safety
+/// Only as the jump over the decode's prologue, entered by the game's own call.
+#[cfg(target_arch = "x86")]
+#[unsafe(naked)]
+pub unsafe extern "C" fn decodes_alone() {
+    std::arch::naked_asm!(
+        "push eax",
+        "call {take}",
+        "mov ecx, eax",
+        "pop eax",
+        "push dword ptr [esp+0xc]",
+        "push dword ptr [esp+0xc]",
+        "push dword ptr [esp+0xc]",
+        "call ecx",
+        "push eax",
+        "call {give}",
+        "pop eax",
+        "ret 0xc",
+        take = sym takes_the_window_to_decode,
+        give = sym gives_the_window_back,
+    )
+}
+
+/// And the encode, the same way — it takes nothing in a register, so `eax` kept over the lock is kept for nothing.
+///
+/// # Safety
+/// Only as the jump over the encode's prologue, entered by the game's own call.
+#[cfg(target_arch = "x86")]
+#[unsafe(naked)]
+pub unsafe extern "C" fn encodes_alone() {
+    std::arch::naked_asm!(
+        "push eax",
+        "call {take}",
+        "mov ecx, eax",
+        "pop eax",
+        "push dword ptr [esp+0xc]",
+        "push dword ptr [esp+0xc]",
+        "push dword ptr [esp+0xc]",
+        "call ecx",
+        "push eax",
+        "call {give}",
+        "pop eax",
+        "ret 0xc",
+        take = sym takes_the_window_to_encode,
+        give = sym gives_the_window_back,
+    )
+}
+
+/// The game's own decode and encode behind [`decodes_alone`] and [`encodes_alone`] — the trampolines their patches
+/// left.
+pub static DECODE_ALONE: AtomicUsize = AtomicUsize::new(0);
+pub static ENCODE_ALONE: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_arch = "x86")]
+extern "C" fn takes_the_window_to_decode() -> usize {
+    takes_the_window();
+    DECODE_ALONE.load(Ordering::Relaxed)
+}
+
+#[cfg(target_arch = "x86")]
+extern "C" fn takes_the_window_to_encode() -> usize {
+    takes_the_window();
+    ENCODE_ALONE.load(Ordering::Relaxed)
+}
+
+/// The window taken for this thread, waited for where another thread's decode or encode has it.
+#[cfg(target_arch = "x86")]
+fn takes_the_window() {
+    let held = match THE_WINDOW.try_lock() {
+        Ok(held) => held,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            detail!(
+                "lzss: a decode or an encode waits for another thread's to be done with the window"
+            );
+            THE_WINDOW
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        }
+    };
+    HOLDS_THE_WINDOW.set(Some(held));
+}
+
+#[cfg(target_arch = "x86")]
+extern "C" fn gives_the_window_back() {
+    HOLDS_THE_WINDOW.take();
+}
+
 /// Replaces the game's device setup, to redirect the device's `Present` before
 /// anything is presented through it. Runs again after every device reset.
 ///
@@ -2732,6 +3068,38 @@ pub extern "fastcall" fn get_input_with_the_keys(
         || original(keys, 0, player, pad) | added,
         || original(0, 0, player, pad) | added,
     )
+}
+
+/// **The same hook over a pad half entered with the keyboard's word in `ecx` alone**, answering a `u32` — see
+/// `game::Read::PadHalfInEcx`, and th11, which is that game: `fastcall` with one argument is `ecx` and nothing on
+/// the stack, and the `u32` comes back in `eax`.
+///
+/// **orb's word is the low half**, which is all a run of th11 ever acts on — its replay's calc job keeps
+/// `[0x4c92a8] & 0xffff` (0x43600d) — so the shot, the bomb, the focus, the pause, the skip and the four
+/// directions are all in it. **The high half is the game's own and passes only with the keyboard's word**: Enter,
+/// Q, R and the screenshot are read off the live word by the menus and the pause (0x42ca55, 0x42cba6, 0x42cb38),
+/// so a read orb answered with a word of its own — a bot's, a playback's, nothing while the window is behind —
+/// carries none of them, and one it let through carries what the keyboard held.
+#[cfg(target_arch = "x86")]
+pub extern "fastcall" fn get_input_with_the_keys_in_ecx(keys: u32) -> u32 {
+    let original: extern "fastcall" fn(u32) -> u32 =
+        unsafe { std::mem::transmute(GET_INPUT.load(Ordering::Relaxed)) };
+    let added = u32::from(unsafe { chosen() }.map_or(0, |game| unsafe {
+        game.pad_word(joystick::reading(), DPAD_MOVES.load(Ordering::Relaxed))
+    }));
+    let mut whole = None;
+    let word = the_read(
+        || {
+            let read = original(keys) | added;
+            whole = Some(read);
+            read as u16
+        },
+        || (original(0) | added) as u16,
+    );
+    match whole {
+        Some(read) if read as u16 == word => read,
+        _ => u32::from(word),
+    }
 }
 
 /// [`get_input`]'s own work, with the game's read handed in as the one call that makes it — which is what
@@ -3986,6 +4354,17 @@ pub extern "stdcall" fn stage_building_of_two(first: u32, second: u32) -> u32 {
     original(first, second)
 }
 
+/// [`stage_building`] over a call that takes one and pops it itself — see `game::Building`.
+#[cfg(target_arch = "x86")]
+pub extern "stdcall" fn stage_building_of_one(first: u32) -> u32 {
+    let original: extern "stdcall" fn(u32) -> u32 =
+        unsafe { std::mem::transmute(STAGE_BUILDING.load(Ordering::Relaxed)) };
+    if let Some(game) = unsafe { chosen() } {
+        unsafe { resume::stage_building(game) };
+    }
+    original(first)
+}
+
 /// **The pad half of the input read, which is orb's and not the game's.** A tail call inside the keyboard
 /// half, so it cannot be told apart from outside it — and it is not called through: what the buttons and
 /// the axes of every pad mean to this frame is [`Game::pad_word`], for the device the game holds as much
@@ -4576,6 +4955,22 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         }
         unsafe { profile::record(profile::Phase::Reproduction, the_line_began) };
         if result == CHAIN_EXIT_SUCCESS || result == CHAIN_EXIT_ERROR {
+            break;
+        }
+        // **And none of the frame's updates past one that began a chapter not yet written down**, so that the frame
+        // drawn is that chapter's first and [`keep_chapter`] writes it: at four updates a drawn frame a chapter whose
+        // first frame was not a drawn one was passed unwritten, and a hit in it kept an earlier chapter's file under
+        // its name and a retry went back to that earlier one — real4's hit in chapter 10 was taken again from
+        // chapter 7 (2026-10-08). The frame is a few updates short of the speed asked for, once a chapter.
+        let begun = runtime.chapters.started_at();
+        if repeat + 1 < repeats
+            && runtime.chaptering()
+            && runtime.keeping()
+            && state.in_game
+            && runtime.chapters.name().is_some()
+            && state.stage_frames == begun
+            && runtime.kept != Some((state.stage, begun))
+        {
             break;
         }
     }
@@ -6748,6 +7143,21 @@ unsafe fn keep_the_chapter_hit_in(runtime: &Runtime, state: &State) {
     };
     if !runtime.keeping() {
         return;
+    }
+    // **Only the chapter that was written down at its start**: a run at more than one update to a drawn frame passes
+    // a chapter whose first frame is not drawn without writing it, and the file left is then an earlier chapter's —
+    // kept under this chapter's name, it put a launch back at the Extra's first chapter for a hit in its thirteenth
+    // (`s7-c13-f38696`, th11 at four updates a frame, 2026-10-08).
+    // A stage's start is marked written at frame nought, see `keep_the_stages_start`.
+    let written_at = match runtime.chapters.number() {
+        1 if runtime.kept == Some((state.stage, 0)) => 0,
+        _ => runtime.chapters.started_at(),
+    };
+    if runtime.kept != Some((state.stage, written_at)) {
+        return log!(
+            "resume: chapter {} was not written down at its start; the hit in it not kept",
+            runtime.chapters.number()
+        );
     }
     let dir = dir.join(format!(
         "s{}-c{}-f{}",

@@ -305,6 +305,7 @@ unsafe fn enemies(into: &mut Frame) {
                 at: unsafe { position(enemy + ENEMY_POSITION) },
                 step: None,
                 half: ((width / 2.0).abs(), (height / 2.0).abs()),
+                grows: 0.0,
             });
         }
         element = next;
@@ -390,6 +391,7 @@ unsafe fn bullets(into: &mut Frame, game_speed: f32) {
             at: unsafe { position(bullet + BULLET_POSITION) },
             step: Some((vx * share, vy * share)),
             half: ((width / 2.0).abs(), (height / 2.0).abs()),
+            grows: 0.0,
         });
     }
 }

@@ -1,0 +1,68 @@
+# **The no-hit Extra played to the boss and left there**, for `cargo xtask real --again` to measure chapters 7 and 8
+# by — the shotgun fairies and the two columns of fairies after the midboss, where the attempts lost are lost —
+# without playing the 24 chapters of the boss after them on every launch, which are three quarters of the clear's
+# 620 to 749 seconds a launch at --again-pace=4 (orb-real 1791729866). Not a case: no check reads it, which is why it is under `measured/`
+# and not beside them. Its walk the_extra_played_to_its_clear_with_no_hit_and_no_bomb's, up to the stage.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 3, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- bombs: false
+- press: [decide]
+  frames: 6
+# The boss's first nonspell is chapter 10: reaching it is chapters 7 and 8 passed.
+- play_until: { stage: 7, chapter: 10 }
+  give_up_after: 216000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

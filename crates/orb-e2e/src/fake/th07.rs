@@ -2733,6 +2733,10 @@ impl Fake {
     fn enters_the_ending(&self) {
         self.leaves_its_own_run();
         self.cleared.set(true);
+        // **And the clear in the records in memory**, which is where the title reads `Extra Start` from on the same
+        // launch: the ending writes `99` into the shot's `CLRD` byte for the difficulty (0x41e590) and the title
+        // asks those bytes (0x42f7df).
+        self.clear_in_its_records.set(true);
         self.an_ending_is_running(ENDING_UPDATES);
         self.the_roll_lasts(ROLL_UPDATES);
     }

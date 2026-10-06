@@ -66,6 +66,62 @@ fn a_recipes_press_reaches_th06_through_the_pad_by_its_mapping() {
     });
 }
 
+/// **And the host's own pad reaches no run pressed through the virtual pad**: its bomb held on winmm's joystick 0,
+/// read by orb's sampling, and the run acting on the recipe's shot alone. A run pressed through the virtual pad is
+/// orb's, and a pad somebody had in hand pressing into one bombed th06nc's no-hit Extra on 917 frames (orb-real
+/// 1791701497).
+#[test]
+fn the_hosts_own_pad_reaches_no_run_of_th06_pressed_through_a_pad() {
+    in_its_own_process(|| {
+        let game = Fake::attach("th06-the-hosts-pad-unread", the_run(), |config| {
+            config.autoplay = Some(
+                "- press: [decide]\n  frames: 2\n  until: { stage: 1, chapter: 1 }\n  give_up_after: 1800\n\
+                 - press: [shot]\n  frames: 100000\n"
+                    .to_owned(),
+            );
+            config.through_a_pad = true;
+            config.log_level = LogLevel::Verbose;
+        });
+        game.image().no_controller();
+        game.sim()
+            .joystick()
+            .attach(HOSTS_BUTTONS, HOSTS_TRAVEL.0, HOSTS_TRAVEL.1);
+        game.in_a_pointdevice_run();
+        let bomb = u32::try_from(MAPPING.bomb).expect("the mapping has a bomb button");
+        game.sim().joystick().pushes(1 << bomb, HOSTS_CENTRE);
+        for _ in 0..WAITS {
+            if game.log().said(HOSTS_PAD_READ) {
+                break;
+            }
+            game.frame();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            game.log().said(HOSTS_PAD_READ),
+            "orb's sampling never read the host's pad:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+        game.frames(10);
+        assert_eq!(
+            game.image().input_now() & (SHOT | BOMB),
+            SHOT,
+            "the host's own pad's bomb reached a run pressed through the virtual pad",
+        );
+    });
+}
+
+/// The host's pad, as `mode_on_a_winmm_pad` plugs one in: sixteen buttons over a whole 16-bit travel, resting in
+/// the middle of it.
+const HOSTS_BUTTONS: u32 = 16;
+const HOSTS_TRAVEL: (u32, u32) = (0, 65535);
+const HOSTS_CENTRE: u32 = HOSTS_TRAVEL.1 / 2;
+
+/// The line orb's sampling thread writes once it has read that pad.
+const HOSTS_PAD_READ: &str = "joystick: winmm 0 is";
+
+/// How long that thread is given, in frames with a millisecond of real time each.
+const WAITS: u32 = 3000;
+
 /// **And handed to the read where the launch presses through no pad**, both bits reaching the run.
 #[test]
 fn a_recipes_press_is_handed_to_th06s_read_where_the_launch_presses_through_no_pad() {

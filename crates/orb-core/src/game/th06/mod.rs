@@ -1501,6 +1501,7 @@ impl Game for Th06 {
                 target: RENDER,
                 prologue: RENDER_PROLOGUE,
             }),
+            renders_too: &[],
             input: Some(Read::Code(Patch {
                 target: GET_INPUT,
                 prologue: GET_INPUT_PROLOGUE,
@@ -1548,6 +1549,8 @@ impl Game for Th06 {
             // `malloc` and `new` reach the OS through. See `orb::memtrack`.
             takes_its_memory: Memory::Kernel32Imports,
             makes_its_threads: Threads::CreateThread,
+            unloads_beside_its_frame: None,
+            decodes_through_one_window: None,
             opens_its_files: FileOpen::CreateFileA,
         }
     }

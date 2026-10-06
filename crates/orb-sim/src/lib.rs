@@ -490,6 +490,10 @@ impl Win for Sim {
         self.space.allocation_at(address)
     }
 
+    fn readable_at(&self, address: usize) -> Option<std::ops::Range<usize>> {
+        self.space.readable_at(address)
+    }
+
     /// Nothing, for the reason [`private_regions`](Sim::private_regions) answers with nothing: the ranges
     /// orb names as its own are the test binary's own allocations, and this is one 32-bit address space
     /// where a laid-out region can hold the same numbers.

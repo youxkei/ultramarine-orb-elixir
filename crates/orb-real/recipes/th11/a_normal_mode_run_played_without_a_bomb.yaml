@@ -1,0 +1,69 @@
+# **A Normal run of th11 played out by the rules with the bomb forbidden**, which is the launch that says the
+# arrays a bot of this game is told of are the arrays: the enemies with their bodies, the bullets with their
+# steps and boxes, both kinds of laser with the phase that says when each hits, the items, and the boss the
+# fight is with.
+#
+# **The front end is walked by this game's own screen numbers** — see `a_run_started_and_given_up.yaml`,
+# which walks the same four: the main menu 1, the difficulty 5, the character 6 and the partner 7.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 1, cursor: 0 }
+  give_up_after: 900
+# **And orb's own question over that item, answered with the normal mode** — item 1. `Th11::rewinds` answers
+# true, so the main menu's first item is asked about. The mode is the other one because **this case is about the
+# run the rules play**, and a pointdevice run's deaths are answered by a chapter rather than by the life going —
+# which is the opposite of what `bombs: false` below is measuring. **And it is the game's own mode for the case
+# after this one too**, whose practice is offered only the stages a run of that mode has won.
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 5 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 5, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 5, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 6 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+# **No bomb from here**, which is what the run is measured by: the hit stands and takes the life.
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **The run played into its third stage and no further**, which is two bosses and the stage between them
+# against every array the rules are told of — and inside the twenty minutes a case of this game is given at
+# the game's own speed. `stage: 3` is counted from one, and a `play` ends the moment the run is over, so a run
+# lost before it stops here too.
+- play_until: { stage: 3, chapter: 0 }
+  give_up_after: 60000
+- screenshot: the-third-stage-reached
+  frames: 12
+# **`quit` and not `leave`**: what this case is about is the run played, and what is left of it has nothing
+# to hand back. The stages it won are meant to be in `scoreth11.dat` already: the game writes its score object out
+# first thing in the game object's teardown (0x437a70 at 0x41fe17), which a scene that rebuilds a run runs, the
+# next stage's scene 12 among them (0x4200bc).
+- quit: true

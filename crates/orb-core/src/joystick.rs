@@ -398,24 +398,18 @@ unsafe fn answered(device: u32, into: *mut JoyInfo) -> Option<u32> {
     if device != DEVICE || into.is_null() || !unsafe { describes_a_sample(&*into) } {
         return None;
     }
-    // **And the virtual pad on top, where one is plugged in**, with joystick 0 answering whether or not a real
-    // one does: the startup check that arrives before the thread has a sample is asked here and not of winmm, so
-    // what it finds is the pad the run is pressed through — and the very read it is is the one the game decides
-    // there is a joystick by.
+    // **And the virtual pad in its place, where one is plugged in**, with joystick 0 answering whether or not a
+    // real one does: the startup check that arrives before the thread has a sample is asked here and not of
+    // winmm, so what it finds is the pad the run is pressed through — and the very read it is is the one the game
+    // decides there is a joystick by. The real one's caps are kept, being what the game measures this joystick
+    // against; what it is pushing is not, a run pressed through the virtual pad being orb's — see [`reading`].
     if let Some(pushed) = the_virtual_pad() {
-        let (real, caps) = match latest() {
-            Some(sample) => (
-                (sample.result == joyerr::NOERROR).then_some(sample.info),
-                sample.caps.filter(|_| sample.is_a_pad()),
-            ),
-            None => {
-                let (result, info) = orb_api::joystick::position(DEVICE, RETURN_ALL);
-                let caps = orb_api::joystick::caps(DEVICE);
-                ((result == joyerr::NOERROR).then_some(info), caps)
-            }
+        let caps = match latest() {
+            Some(sample) => sample.caps.filter(|_| sample.is_a_pad()),
+            None => orb_api::joystick::caps(DEVICE),
         };
         let asked = unsafe { *into };
-        unsafe { *into = position_with(real, caps, pushed, &asked) };
+        unsafe { *into = position_of(caps, pushed, &asked) };
         return Some(joyerr::NOERROR);
     }
     let sample = latest()?;
@@ -1004,16 +998,20 @@ fn name(field: [u8; 32]) -> String {
 /// game, so the game's own reading of a pad is not running either and a pad would do nothing at all on
 /// them; the samples this thread takes every few milliseconds are there to be read.
 ///
+/// **And the virtual pad alone where one is plugged in**, no pad the machine has beside it: a run pressed
+/// through the virtual pad is orb's, and a pad somebody has in hand is not playing it. Laid over one, th06nc's
+/// no-hit Extra bombed on 917 frames with the bomb forbidden and walked its front end into Normal's challenge
+/// mode, the machine having a second pad in XInput's slot 1 (orb-real 1791701497).
+///
 /// Starts the sampling thread where nothing has yet, which is every launch whose game holds a
 /// DirectInput controller: such a game asks winmm nothing after its startup check, so the first frame
 /// that wants a pad is what has to start it.
 pub fn reading() -> Option<Reading> {
     sampling();
-    let sampled = PAD.lock().ok().and_then(|held| *held);
-    match the_virtual_pad() {
-        Some(pushed) => Some(read_with(sampled, pushed)),
-        None => sampled,
+    if let Some(pushed) = the_virtual_pad() {
+        return Some(read_of(pushed));
     }
+    PAD.lock().ok().and_then(|held| *held)
 }
 
 /// **What the virtual pad is doing**: a bit per button, the first button the lowest — winmm's own numbering and
@@ -1123,26 +1121,18 @@ const fn middle(travel: (u32, u32)) -> u32 {
     travel.0 + (travel.1 - travel.0) / 2
 }
 
-/// **A pad orb sampled with the virtual one on top**, each measured against its own bounds: an axis the virtual
-/// pad has pushed off its middle is the virtual pad's, and one it has not is the sampled pad's.
-fn read_with(sampled: Option<Reading>, pushed: Pushed) -> Reading {
-    let at_rest = Axis {
-        at: middle(VIRTUAL_TRAVEL),
+/// **What the virtual pad reads as**, its axes measured against its own travel.
+fn read_of(pushed: Pushed) -> Reading {
+    let axis = |at: u32| Axis {
+        at,
         min: VIRTUAL_TRAVEL.0,
         max: VIRTUAL_TRAVEL.1,
     };
-    let axis = |sampled: Option<Axis>, at: u32| match at == middle(VIRTUAL_TRAVEL) {
-        true => sampled.unwrap_or(at_rest),
-        false => Axis { at, ..at_rest },
-    };
     Reading {
-        buttons: sampled.map_or(0, |reading| reading.buttons) | pushed.buttons,
-        x: axis(sampled.map(|reading| reading.x), pushed.x),
-        y: axis(sampled.map(|reading| reading.y), pushed.y),
-        pov: match pushed.pov {
-            POV_CENTERED => sampled.map_or(POV_CENTERED, |reading| reading.pov),
-            pov => pov,
-        },
+        buttons: pushed.buttons,
+        x: axis(pushed.x),
+        y: axis(pushed.y),
+        pov: pushed.pov,
     }
 }
 
@@ -1301,9 +1291,9 @@ pub unsafe extern "system" fn device_poll(device: usize) -> i32 {
     }
 }
 
-/// **`GetDeviceState` of the pad the game holds, with the virtual pad on top** — its buttons held where the
-/// virtual pad holds them, an axis it pushes off the middle across the device's `±range`, and its hat — and the
-/// virtual pad alone where the real device has nothing to give, unacquired behind the window or unplugged.
+/// **`GetDeviceState` of the pad the game holds, answered as the virtual pad** — its buttons held where the
+/// virtual pad holds them, an axis it pushes off the middle across the device's `±range`, and its hat — whatever
+/// the real device read, and whether it read anything, unacquired behind the window or unplugged.
 ///
 /// # Safety
 /// As DirectInput's own: `into` is `size` writable bytes.
@@ -1317,10 +1307,11 @@ pub unsafe extern "system" fn device_state(device: usize, size: u32, into: *mut 
     if device != HELD_DEVICE.load(Ordering::Relaxed) || size != JOY_STATE || into.is_null() {
         return read;
     }
-    if read < 0 {
-        unsafe { std::ptr::write_bytes(into, 0, JOY_STATE as usize) };
-        unsafe { (into.add(JOY_STATE_HAT) as *mut u32).write_unaligned(u32::MAX) };
-    }
+    // **What the real device read is put back to a pad at rest**, whatever it read: a run pressed through the
+    // virtual pad is orb's, and a pad somebody has in hand is not playing it — see [`reading`]. The device is read
+    // all the same, being the game's to keep acquired.
+    unsafe { std::ptr::write_bytes(into, 0, JOY_STATE as usize) };
+    unsafe { (into.add(JOY_STATE_HAT) as *mut u32).write_unaligned(u32::MAX) };
     let range = i64::try_from(ITS_RANGE.load(Ordering::Relaxed)).unwrap_or(0);
     let onto = |at: u32| {
         let travel = i64::from(VIRTUAL_TRAVEL.1 - VIRTUAL_TRAVEL.0);
@@ -1343,26 +1334,21 @@ pub unsafe extern "system" fn device_state(device: usize, size: u32, into: *mut 
     0
 }
 
-/// **A position of joystick 0 with the virtual pad on top**, measured against the caps the real one reports —
+/// **A position of joystick 0 that is the virtual pad's**, measured against the caps the real one reports —
 /// [`virtual_caps`] where none does, which is what [`caps_answer`] told the game it was.
-fn position_with(
-    real: Option<JoyInfo>,
-    caps: Option<JoyCaps>,
-    pushed: Pushed,
-    asked: &JoyInfo,
-) -> JoyInfo {
+fn position_of(caps: Option<JoyCaps>, pushed: Pushed, asked: &JoyInfo) -> JoyInfo {
     let caps = caps.unwrap_or_else(virtual_caps);
     let onto = |at: u32, low: u32, high: u32| {
         let span = u64::from(high.saturating_sub(low));
         let travel = u64::from(VIRTUAL_TRAVEL.1 - VIRTUAL_TRAVEL.0);
         low + u32::try_from(u64::from(at - VIRTUAL_TRAVEL.0) * span / travel).unwrap_or(high)
     };
-    let mut info = real.unwrap_or(JoyInfo {
+    let mut info = JoyInfo {
         x: middle((caps.x_min, caps.x_max)),
         y: middle((caps.y_min, caps.y_max)),
         pov: POV_CENTERED,
         ..JoyInfo::default()
-    });
+    };
     info.size = asked.size;
     info.flags = asked.flags;
     info.buttons |= pushed.buttons;

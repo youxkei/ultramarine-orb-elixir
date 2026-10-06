@@ -8,6 +8,7 @@
 //! ```text
 //! orb-real <session-dir> [<game>]
 //! orb-real list
+//! orb-real records <game> <start> <dir>
 //! orb-real show <trace> [<needle>]
 //! orb-real spawns <trace>
 //! orb-real paths <trace> [<every>]
@@ -19,7 +20,8 @@
 //!
 //! `list` prints the cases for `cargo xtask real` to drive — one line each, `game`, the game's exe, the
 //! records it keeps of its own as one comma-separated field, the target orb has to be built for to attach
-//! to it, the case, whether it continues the one before and how long its launch may take, tab-separated —
+//! to it, the case, the cases whose recipes it plays first, the records it starts from and how long its launch may
+//! take, tab-separated —
 //! so that which games and cases there are is said in one place, this crate, and `xtask` carries no copy
 //! of it.
 //!
@@ -40,7 +42,8 @@ fn main() -> ExitCode {
     let Some(session) = args.next() else {
         eprintln!(
             "usage: orb-real <session-dir> [th06|th07]\n       orb-real list\n       \
-             orb-real show <trace> [<needle>]\n       orb-real watching <trace>\n       \
+             orb-real records <game> <start> <dir>\n       \
+             orb-real show <trace> [<needle>]\n       orb-real watching <trace> [<kept>]\n       \
              orb-real picture <trace> <out.bmp> [<frame>]\n       orb-real spawns <trace>\n       \
              orb-real paths <trace> [<every>]"
         );
@@ -48,11 +51,15 @@ fn main() -> ExitCode {
     };
     if session == "watching" {
         let Some(path) = args.next() else {
-            eprintln!("usage: orb-real watching <trace>");
+            eprintln!("usage: orb-real watching <trace> [<kept>]");
             return ExitCode::FAILURE;
         };
-        return match watching(&path) {
-            Ok(()) => ExitCode::SUCCESS,
+        let kept = args.next();
+        return match watching(&path, kept.as_deref()) {
+            Ok(said) => {
+                print!("{said}");
+                ExitCode::SUCCESS
+            }
             Err(why) => {
                 eprintln!("orb-real: {why}");
                 ExitCode::FAILURE
@@ -107,6 +114,19 @@ fn main() -> ExitCode {
             }
         };
     }
+    if session == "world" {
+        let (Some(path), Some(table)) = (args.next(), args.next()) else {
+            eprintln!("usage: orb-real world <trace> <table>");
+            return ExitCode::FAILURE;
+        };
+        return match world(&path, &table) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                eprintln!("orb-real: {why}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if session == "spawns" {
         let Some(path) = args.next() else {
             eprintln!("usage: orb-real spawns <trace>");
@@ -120,18 +140,36 @@ fn main() -> ExitCode {
             }
         };
     }
+    if session == "records" {
+        let (Some(game), Some(start), Some(dir)) = (args.next(), args.next(), args.next()) else {
+            eprintln!("usage: orb-real records <game> <start> <dir>");
+            return ExitCode::FAILURE;
+        };
+        return match records_laid(&game, &start, Path::new(&dir)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                eprintln!("orb-real: {why}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if session == "list" {
         for case in orb_real::cases() {
             println!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 case.game.name(),
                 case.game.exe(),
                 case.game.records().join(","),
                 case.game.target(),
                 case.name,
-                u8::from(case.continues),
+                match case.before {
+                    [] => "-".to_owned(),
+                    before => before.join(","),
+                },
+                start_name(case.starts_from),
                 case.within,
                 case.speed(),
+                case.pace(),
             );
         }
         return ExitCode::SUCCESS;
@@ -152,8 +190,8 @@ fn main() -> ExitCode {
     for game in games {
         for case in cases_of(game) {
             let path = Path::new(&session).join(case.name).join(TRACE_FILE);
-            let bytes = match std::fs::read(&path) {
-                Ok(bytes) => bytes,
+            let file = match std::fs::File::open(&path) {
+                Ok(file) => file,
                 Err(why) if why.kind() == std::io::ErrorKind::NotFound => {
                     println!("{} {}: not run", game.name(), case.name);
                     continue;
@@ -170,7 +208,14 @@ fn main() -> ExitCode {
                 }
             };
             ran += 1;
-            let trace = match Trace::read(&bytes) {
+            // **Its pictures let go of as each record is read**, no check looking at one: a trace kept with
+            // them goes past what an i686 process can hold — see `orb_core::trace::each`.
+            let mut records = Vec::new();
+            let read = orb_core::trace::each(file, |mut record| {
+                record.picture = None;
+                records.push(record);
+            });
+            let trace = match read.map(|_| Trace { records }) {
                 Ok(trace) => trace,
                 Err(why) => {
                     println!(
@@ -211,6 +256,39 @@ fn main() -> ExitCode {
     }
 }
 
+/// The name `list` prints a case's [`orb_real::Start`] by and `records` takes it by.
+fn start_name(start: orb_real::Start) -> &'static str {
+    match start {
+        orb_real::Start::Nothing => "nothing",
+        orb_real::Start::ANormalClear => "a-normal-clear",
+        orb_real::Start::TheExtraOffered => "the-extra-offered",
+    }
+}
+
+/// **The game's records a case starts from, written into `dir`** — `Game::the_records_of`, by the names the game
+/// keeps them under. Here and not in `xtask` because the records are made with `orb-core`'s reading of the game,
+/// which is built for the target the game runs on, as every other read of this binary's is.
+fn records_laid(game: &str, start: &str, dir: &Path) -> Result<(), String> {
+    let game = Game::ALL
+        .into_iter()
+        .find(|known| known.name() == game)
+        .ok_or_else(|| format!("no game called {game}"))?;
+    let start = [
+        orb_real::Start::Nothing,
+        orb_real::Start::ANormalClear,
+        orb_real::Start::TheExtraOffered,
+    ]
+    .into_iter()
+    .find(|known| start_name(*known) == start)
+    .ok_or_else(|| format!("no start called {start}"))?;
+    for (name, bytes) in game.the_records_of(start) {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes)
+            .map_err(|why| format!("{} cannot be written: {why}", path.display()))?;
+    }
+    Ok(())
+}
+
 /// What one trace holds, printed: for every frame that said something, the state the game's memory was in,
 /// which question of orb's own stood over it, and the lines the log said that frame — or, given a `needle`,
 /// only the frames whose lines hold it.
@@ -230,45 +308,164 @@ fn main() -> ExitCode {
 /// **The trace is seconds behind and that is what it is for**: records are held until a chunk of them is
 /// worth a write — see `orb_core::trace`'s own `FLUSH_AT` — so this is the launch as of a moment ago and
 /// never mid-record, whole records being what a chunk is made of.
-fn watching(path: &str) -> Result<(), String> {
-    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
-    let trace = Trace::read(&bytes)?;
-    let Some(newest) = trace.records.last() else {
-        return Err(format!("{path} holds no frame yet"));
-    };
-    let said = |among: &[&str]| {
-        trace
-            .records
-            .iter()
-            .rev()
-            .flat_map(|record| record.lines.iter().rev().map(move |line| (record, line)))
-            .find(|(_, line)| among.iter().any(|it| line.contains(it)))
-            .map(|(record, line)| format!("f{} {line}", record.frame))
-    };
-    let step = said(&["autoplay: step"]);
-    // **Each needle as long as it has to be to match one line and not another.** `chapter` alone finds
-    // the `chaptering=` of every `perf:` line, which is said once every 600 frames and so is always the
-    // newest of anything: the trailing space is what tells a boundary's own line from that field.
-    let event = said(&[
-        "died in chapter",
-        "autoplay: hit at",
-        "chapter ",
-        "run ended",
-        "retry: ",
-        "front end: screen",
-    ]);
-    let pictures = trace
-        .records
-        .iter()
-        .filter(|record| record.picture.is_some())
-        .count();
-    match &newest.state {
-        Some(state) => println!("f{} {}ms {state}", newest.frame, newest.ms),
-        None => println!("f{} {}ms nothing read yet", newest.frame, newest.ms),
+///
+/// **And with `kept`, read on from where the look before left off**: the file at `kept` holds the byte that look
+/// read to and what it had found by then, and is written again with this look's — see
+/// `orb_core::trace::each_from` for why a look of a long launch cannot start from the beginning. A trace shorter
+/// than the byte kept, or another trace, is read from its start.
+fn watching(path: &str, kept: Option<&str>) -> Result<String, String> {
+    let mut seen = kept
+        .and_then(|kept| std::fs::read_to_string(kept).ok())
+        .and_then(|it| Watched::from_kept(&it, path))
+        .unwrap_or_default();
+    let read = seen.read_on(path);
+    if let Some(kept) = kept {
+        std::fs::write(kept, seen.to_kept(path))
+            .map_err(|why| format!("{kept} cannot be written: {why}"))?;
     }
-    println!("  step: {}", step.as_deref().unwrap_or("no step said yet"));
-    println!("  event: {}", event.as_deref().unwrap_or("nothing yet"));
-    println!("  {} frame(s), {pictures} picture(s)", trace.records.len());
+    read?;
+    seen.said(path)
+}
+
+/// **What a watch has found of a trace**, up to the byte it read to.
+#[derive(Debug, Default, PartialEq)]
+struct Watched {
+    read_to: u64,
+    frames: usize,
+    pictures: usize,
+    newest: Option<String>,
+    step: Option<String>,
+    event: Option<String>,
+}
+
+impl Watched {
+    /// The records past what has been found, taken in up to the last one whole.
+    fn read_on(&mut self, path: &str) -> Result<(), String> {
+        use std::io::Seek;
+        // **Each needle as long as it has to be to match one line and not another.** `chapter` alone finds
+        // the `chaptering=` of every `perf:` line, which is said once every 600 frames and so is always the
+        // newest of anything: the trailing space is what tells a boundary's own line from that field.
+        const EVENTS: [&str; 6] = [
+            "died in chapter",
+            "autoplay: hit at",
+            "chapter ",
+            "run ended",
+            "retry: ",
+            "front end: screen",
+        ];
+        let mut file =
+            std::fs::File::open(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
+        let length = file
+            .metadata()
+            .map_err(|why| format!("{path} cannot be read: {why}"))?
+            .len();
+        if length < self.read_to {
+            *self = Self::default();
+        }
+        file.seek(std::io::SeekFrom::Start(self.read_to))
+            .map_err(|why| format!("{path} cannot be read: {why}"))?;
+        orb_core::trace::each_from(file, self.read_to, |mut record, past| {
+            let said = |among: &[&str]| {
+                record
+                    .lines
+                    .iter()
+                    .rev()
+                    .find(|line| among.iter().any(|it| line.contains(it)))
+                    .map(|line| format!("f{} {line}", record.frame))
+            };
+            self.step = said(&["autoplay: step"]).or(self.step.take());
+            self.event = said(&EVENTS).or(self.event.take());
+            self.pictures += usize::from(record.picture.take().is_some());
+            self.frames += 1;
+            self.newest = Some(match &record.state {
+                Some(state) => format!("f{} {}ms {state}", record.frame, record.ms),
+                None => format!("f{} {}ms nothing read yet", record.frame, record.ms),
+            });
+            self.read_to = past;
+        })
+        .map(|_| ())
+        .map_err(|why| format!("{path}: {why}"))
+    }
+
+    /// What a look prints.
+    fn said(&self, path: &str) -> Result<String, String> {
+        let Some(newest) = &self.newest else {
+            return Err(format!("{path} holds no frame yet"));
+        };
+        Ok(format!(
+            "{newest}\n  step: {}\n  event: {}\n  {} frame(s), {} picture(s)\n",
+            self.step.as_deref().unwrap_or("no step said yet"),
+            self.event.as_deref().unwrap_or("nothing yet"),
+            self.frames,
+            self.pictures,
+        ))
+    }
+
+    /// As a `kept` file holds it: the trace, the counts, then the three lines, each empty where nothing was found.
+    fn to_kept(&self, path: &str) -> String {
+        let line = |it: &Option<String>| it.as_deref().unwrap_or("").replace('\n', " ");
+        format!(
+            "{path}\n{} {} {}\n{}\n{}\n{}\n",
+            self.read_to,
+            self.frames,
+            self.pictures,
+            line(&self.newest),
+            line(&self.step),
+            line(&self.event),
+        )
+    }
+
+    /// Out of a `kept` file, where it was written of `path`.
+    fn from_kept(kept: &str, path: &str) -> Option<Self> {
+        let mut lines = kept.lines();
+        if lines.next()? != path {
+            return None;
+        }
+        let mut counts = lines.next()?.split(' ');
+        let mut count = || counts.next()?.parse::<u64>().ok();
+        let (read_to, frames, pictures) = (count()?, count()?, count()?);
+        let mut line = || {
+            let it = lines.next()?;
+            Some((!it.is_empty()).then(|| it.to_owned()))
+        };
+        Some(Self {
+            read_to,
+            frames: frames as usize,
+            pictures: pictures as usize,
+            newest: line()?,
+            step: line()?,
+            event: line()?,
+        })
+    }
+}
+
+/// **Every record of the trace at `path` handed to `on` as it is read**, and how many there were — see
+/// `orb_core::trace::each` for why a file is not taken in whole.
+fn each_record(path: &str, on: impl FnMut(orb_core::trace::Record)) -> Result<usize, String> {
+    let file = std::fs::File::open(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
+    orb_core::trace::each(file, on).map_err(|why| format!("{path}: {why}"))
+}
+
+/// **One table of the world a trace was taken with `--trace-the-world`**, a line a row: the stage counted from one,
+/// its frame, the row's place in the table, and the row's numbers as the game's `the_world` lays them out.
+fn world(path: &str, table: &str) -> Result<(), String> {
+    each_record(path, |record| {
+        let (Some(state), Some(world)) = (&record.state, &record.the_world) else {
+            return;
+        };
+        let Some((_, rows)) = world.tables.iter().find(|(name, _)| name == table) else {
+            return;
+        };
+        for (at, row) in rows.iter().enumerate() {
+            let numbers: Vec<String> = row.iter().map(|it| format!("{it}")).collect();
+            println!(
+                "s{} {} {at} {}",
+                state.stage + 1,
+                state.stage_frames,
+                numbers.join(" ")
+            );
+        }
+    })?;
     Ok(())
 }
 
@@ -283,15 +480,12 @@ fn watching(path: &str) -> Result<(), String> {
 /// how many where a row of the table stands. A frame whose script clock stands still — a boss holding it —
 /// is left out, since every rise there has the one frame number.
 fn spawns(path: &str) -> Result<(), String> {
-    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
-    let trace = Trace::read(&bytes)?;
-    let mut before: Option<&orb_core::game::State> = None;
-    for state in trace
-        .records
-        .iter()
-        .filter_map(|record| record.state.as_ref())
-    {
-        if let Some(last) = before
+    let mut before: Option<orb_core::game::State> = None;
+    each_record(path, |record| {
+        let Some(state) = record.state else {
+            return;
+        };
+        if let Some(last) = &before
             && last.stage == state.stage
             && state.script_frames > last.script_frames
             && state.enemy_count > last.enemy_count
@@ -304,7 +498,7 @@ fn spawns(path: &str) -> Result<(), String> {
             );
         }
         before = Some(state);
-    }
+    })?;
     Ok(())
 }
 
@@ -324,20 +518,18 @@ type ACardsPath = (u32, Vec<(i32, (f32, f32))>);
 /// went on each of its frames — th10's `土着神「宝永四年の赤蛙」`, whose doubles go at where the player is and lay their
 /// rice on the way.
 fn paths(path: &str, every: i32) -> Result<(), String> {
-    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
-    let trace = Trace::read(&bytes)?;
     // Each card's frames and the place on each, its first attempt alone: a card's count going back is a retry.
     let mut cards: Vec<ACardsPath> = Vec::new();
     let mut done: Vec<u32> = Vec::new();
-    for record in &trace.records {
+    each_record(path, |record| {
         let (Some(state), Some(at)) = (&record.state, record.at) else {
-            continue;
+            return;
         };
         let (Some(card), Some(frames)) = (state.spellcard, state.boss_attack_frames) else {
-            continue;
+            return;
         };
         if done.contains(&card) {
-            continue;
+            return;
         }
         match cards.iter_mut().find(|(it, _)| *it == card) {
             Some((_, places)) if places.last().is_some_and(|(last, _)| frames < *last) => {
@@ -346,7 +538,7 @@ fn paths(path: &str, every: i32) -> Result<(), String> {
             Some((_, places)) => places.push((frames, at)),
             None => cards.push((card, vec![(frames, at)])),
         }
-    }
+    })?;
     for (card, places) in cards {
         let Some(&(last, _)) = places.last() else {
             continue;
@@ -383,16 +575,16 @@ fn paths(path: &str, every: i32) -> Result<(), String> {
 /// A 32-bit bottom-up BMP, which is what `orb_core::shot` keeps — see its own doc for why nothing encodes
 /// anything on the frame's own thread.
 fn picture(path: &str, out: &str, at: Option<u32>) -> Result<(), String> {
-    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
-    let trace = Trace::read(&bytes)?;
-    let mut kept = trace
-        .records
-        .iter()
-        .filter(|record| record.picture.is_some());
-    let found = match at {
-        Some(at) => kept.find(|record| record.frame >= at),
-        None => kept.next_back(),
-    };
+    let mut found: Option<orb_core::trace::Record> = None;
+    each_record(path, |record| {
+        let wanted = match at {
+            Some(at) => found.is_none() && record.frame >= at,
+            None => true,
+        };
+        if wanted && record.picture.is_some() {
+            found = Some(record);
+        }
+    })?;
     let record = found.ok_or_else(|| match at {
         Some(at) => format!("{path} holds no picture taken on frame {at} or after it"),
         None => format!("{path} holds no picture"),
@@ -451,9 +643,7 @@ fn over_a_hit(over: &orb_core::trace::OverAHit) -> Vec<String> {
 }
 
 fn shown(path: &str, needle: Option<&str>) -> Result<(), String> {
-    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
-    let trace = Trace::read(&bytes)?;
-    for record in &trace.records {
+    each_record(path, |record| {
         // **And what stood over a hit, as lines of their own** beside the log's — see
         // `orb_core::trace::OverAHit`, which a check reads as fields and a person reads here.
         let over: Vec<String> = record.over_a_hit.iter().flat_map(over_a_hit).collect();
@@ -464,7 +654,7 @@ fn shown(path: &str, needle: Option<&str>) -> Result<(), String> {
             .filter(|line| needle.is_none_or(|needle| line.contains(needle)))
             .collect();
         if lines.is_empty() {
-            continue;
+            return;
         }
         let question = match &record.question {
             Some(question) => format!(" question={question}"),
@@ -485,6 +675,72 @@ fn shown(path: &str, needle: Option<&str>) -> Result<(), String> {
         for line in lines {
             println!("  {line}");
         }
-    }
+    })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::watching;
+    use orb_core::trace::Record;
+
+    fn a_record(frame: u32, line: &str) -> Vec<u8> {
+        rmp_serde::to_vec_named(&Record {
+            frame,
+            ms: frame * 16,
+            state: None,
+            chapter: 0,
+            retries: 0,
+            question: None,
+            word: 0,
+            lines: vec![line.to_owned()],
+            picture: None,
+            over_a_hit: None,
+            the_field: None,
+            at: None,
+            the_world: None,
+            spans: Vec::new(),
+            phases: Vec::new(),
+        })
+        .unwrap()
+    }
+
+    /// **A look kept between looks reads on from where the one before left off, and says what one look of the
+    /// whole trace says**: the bytes the first look read are written over with what no record is, and the second
+    /// look, of the two records written since, still answers as a look of all five.
+    #[test]
+    fn a_watch_kept_between_looks_reads_on_from_the_look_before() {
+        let dir = std::env::temp_dir().join(format!("orb-real-watching-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (trace, kept, whole) = (
+            dir.join("trace.msgpack"),
+            dir.join("kept"),
+            dir.join("whole"),
+        );
+        let (trace, kept) = (trace.to_str().unwrap(), kept.to_str().unwrap());
+
+        let mut first = a_record(1, "autoplay: step 1 of 3");
+        first.extend(a_record(2, "stage 1 chapter 1 at frame 2"));
+        first.extend(a_record(3, "nothing of note"));
+        let later = [
+            a_record(4, "autoplay: step 2 of 3"),
+            a_record(5, "nothing of note"),
+        ]
+        .concat();
+        std::fs::write(&whole, [first.as_slice(), &later].concat()).unwrap();
+        let said_of_the_whole = watching(whole.to_str().unwrap(), None).unwrap();
+
+        std::fs::write(trace, &first).unwrap();
+        watching(trace, Some(kept)).unwrap();
+        std::fs::write(trace, [vec![0xc1; first.len()], later].concat()).unwrap();
+        let said = watching(trace, Some(kept)).unwrap();
+
+        assert_eq!(said, said_of_the_whole);
+        assert!(said.contains("5 frame(s)"), "{said}");
+        assert!(said.contains("step: f4 autoplay: step 2 of 3"), "{said}");
+        assert!(
+            said.contains("event: f2 stage 1 chapter 1 at frame 2"),
+            "{said}"
+        );
+    }
 }

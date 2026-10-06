@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use orb_config::LogLevel;
-use orb_real::{Case, Game, TRACE_FILE, Trace};
+use orb_real::{Case, Game, Start, TRACE_FILE, Trace};
 
 use crate::fake::th06c::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};
@@ -140,23 +140,16 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
     }
 }
 
-/// **The case each chain starts at**, which is every case of th06c that continues nothing — see
-/// `Case::continues`, and [`the_chain_from`], which is what one of these names.
-///
-/// **Written here and held against `orb-real`'s own list by
-/// [`every_chain_of_th06cs_cases_has_a_test_of_its_own`]**, so a case added there with nothing before it
-/// fails this file rather than going unrun.
-///
-/// **A test per chain and not one test for all sixteen**, which is the whole reason this list exists: the
-/// cases were one test, and a chain has to be played in its own order — a case that continues is handed the
-/// files the one before it left — so all sixteen ran one after another while the other seven threads of the
-/// run sat idle. Measured: 181s of a 181s run was this one test, eleven tests on eight threads. Split, the
-/// wall clock is the longest chain instead, which is the Normal clear and the Extra that continues it.
-///
-/// Fewer than the cases, a case that continues another being played in that one's chain.
-const CHAINS: [&str; 14] = [
+/// **Every case of th06c's, each the test of its own below** — held against `orb-real`'s own list by
+/// [`every_case_of_th06c_has_a_test_of_its_own`], so a case added there fails this file rather than going
+/// unrun. **A test per case**, so that they are played at once rather than one after another: one test for
+/// all sixteen once took 181s of a 181s run, eleven tests on eight threads.
+const CASES: [&str; 20] = [
     "a_run_left_in_its_second_chapter",
+    "the_run_picked_up_where_it_was_left",
     "a_death_answered_by_the_chapter_again",
+    "the_run_started_over_and_its_replay_kept",
+    "an_attempt_of_the_kept_replay_watched",
     "a_chapter_taken_again_without_a_death",
     "a_chapter_further_back_taken_again",
     "a_death_answered_by_a_chapter_further_back",
@@ -164,167 +157,113 @@ const CHAINS: [&str; 14] = [
     "the_stage_taken_again_from_its_start",
     "the_run_given_up_at_the_retry",
     "a_chapter_of_the_stage_after_the_first",
+    "the_run_picked_up_in_the_stage_it_walked_into",
     "a_stage_practised_on_its_own",
     "a_normal_mode_run_nothing_is_kept_of",
     "a_run_played_to_its_clear",
     "a_normal_mode_run_played_to_its_clear",
+    "the_extra_a_cleared_run_unlocked",
+    "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
     "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
 ];
 
-/// The cases of the chain that starts at `head` — see `orb_real::chains_of`, which is what makes one.
-///
-/// # Panics
-/// If no chain starts there, which is a chain this file names and `orb-real` does not have.
-fn the_chain_from(head: &str) -> Vec<Case> {
-    orb_real::chains_of(Game::Th06c)
-        .into_iter()
-        .find(|chain| chain[0].name == head)
-        .unwrap_or_else(|| panic!("th06c has no chain starting at {head}"))
-}
-
-/// **Every chain [`CHAINS`] names is a chain `orb-real` has, and every chain it has is named** — which is
-/// what makes a case added there reach a test here.
+/// **Every case `orb-real` has is named in [`CASES`], and every name there is a case** — which is what makes
+/// a case added there reach a test here.
 #[test]
-fn every_chain_of_th06cs_cases_has_a_test_of_its_own() {
-    let heads: Vec<&str> = orb_real::chains_of(Game::Th06c)
+fn every_case_of_th06c_has_a_test_of_its_own() {
+    let names: Vec<&str> = orb_real::cases_of(Game::Th06c)
         .iter()
-        .map(|chain| chain[0].name)
+        .map(|case| case.name)
         .collect();
     assert_eq!(
-        heads, CHAINS,
-        "the chains this file plays are not the chains th06c's cases make",
+        names, CASES,
+        "th06c's cases are not the ones this file names"
     );
 }
 
-/// One chain played out on the laid-out game, in its own order and its own directory.
-fn the_chain_passes(head: &str) {
+/// **One case played out on the laid-out game as `xtask real` plays it alone**: its records holding a clear
+/// only where it starts from one, `Case::starts_from`, then each case it plays first and itself last, each
+/// launch finding what the one before left.
+fn the_case_passes(name: &str) {
     in_its_own_process(|| {
         let against = real_traces(Game::Th06c);
-        let mut held = 0;
-        let mut parted: Vec<String> = Vec::new();
+        let case = orb_real::case_of(Game::Th06c, name)
+            .unwrap_or_else(|| panic!("th06c has no case called {name}"));
+        let a_clear = case.starts_from != Start::Nothing;
         let mut left: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-        // **Whether the records the next launch starts from hold a clear**, folded over the chain the way
-        // `xtask real` folds it — see `orb_real::Case::leaves_a_clear`.
-        let mut a_clear = false;
-        let chain = the_chain_from(head);
-        let names: Vec<&str> = chain.iter().map(|case| case.name).collect();
-        for case in chain {
-            a_clear = a_clear && case.continues;
-            let name = format!("th06c-real-{}", case.name);
+        let launches = case.before.iter().map(|before| {
+            orb_real::case_of(Game::Th06c, before).unwrap_or_else(|| {
+                panic!("{name} plays {before} first, which is no case of th06c's")
+            })
+        });
+        let mut parted = None;
+        let mut held = false;
+        for launch in launches.chain(std::iter::once(case)) {
             let game = Fake::attach_configured(
                 Display::agreed(120),
-                &name,
+                &format!("th06c-real-{name}-{}", launch.name),
                 Work::wandering(WORK_US),
-                settings(&case),
+                settings(&launch),
             );
             game.stages_last(A_STAGE);
             if !a_clear {
                 game.its_records_hold_no_clear();
             }
             let dir = game.launch().dir().to_path_buf();
-            if case.continues {
-                for (inside, bytes) in &left {
-                    game.sim().files().put(dir.join(inside), bytes);
-                }
+            for (inside, bytes) in &left {
+                game.sim().files().put(dir.join(inside), bytes);
             }
-            a_clear |= case.leaves_a_clear();
-            match played_out(&game, &dir, &case, &against) {
+            match played_out(&game, &dir, &launch, &against) {
                 Held::NotCompared => {}
-                Held::Same => held += 1,
+                Held::Same => held = true,
                 Held::Different(how) => {
-                    held += 1;
-                    parted.push(how);
+                    held = true;
+                    parted = Some(how);
                 }
             }
             left = left_by(&game, &dir);
         }
+        if let Some(how) = parted {
+            panic!("the laid-out game did not walk where the real one did:\n  {how}");
+        }
         assert!(
-            parted.is_empty(),
-            "the laid-out game did not walk where the real one did:\n  {}",
-            parted.join("\n  ")
-        );
-        assert!(
-            against.is_empty() || held > 0,
-            "{against:?} holds no trace of any of {names:?}",
+            against.is_empty() || held,
+            "{against:?} holds no trace of {name}",
         );
     });
 }
 
-// One test per chain, so that the fourteen of them are played at once rather than one after another — see
-// [`CHAINS`], and [`every_chain_of_th06cs_cases_has_a_test_of_its_own`], which is what says none is
-// missing. Named after the case each starts at, so a failure names the chain in the harness's own output.
-
-#[test]
-fn a_run_of_th06c_left_in_its_second_chapter_and_picked_up() {
-    the_chain_passes("a_run_left_in_its_second_chapter");
+/// One `#[test]` per case.
+macro_rules! a_test_per_case {
+    ($($test:ident => $name:literal,)*) => {
+        $(
+            #[test]
+            fn $test() {
+                the_case_passes($name);
+            }
+        )*
+    };
 }
 
-#[test]
-fn a_death_of_th06c_answered_by_the_chapter_and_the_replay_kept() {
-    the_chain_passes("a_death_answered_by_the_chapter_again");
-}
-
-#[test]
-fn a_chapter_of_th06c_taken_again_without_a_death() {
-    the_chain_passes("a_chapter_taken_again_without_a_death");
-}
-
-#[test]
-fn a_chapter_of_th06c_further_back_taken_again() {
-    the_chain_passes("a_chapter_further_back_taken_again");
-}
-
-/// And the same list over a death, the question the hit raised answered by the recipe and not the rules.
-#[test]
-fn a_death_of_th06c_answered_by_a_chapter_further_back() {
-    the_chain_passes("a_death_answered_by_a_chapter_further_back");
-}
-
-#[test]
-fn the_stage_of_th06c_taken_again_from_its_start() {
-    the_chain_passes("the_stage_taken_again_from_its_start");
-}
-
-#[test]
-fn the_run_of_th06c_given_up_at_the_retry() {
-    the_chain_passes("the_run_given_up_at_the_retry");
-}
-
-#[test]
-fn a_chapter_of_th06cs_stage_after_the_first_and_the_run_picked_up_in_it() {
-    the_chain_passes("a_chapter_of_the_stage_after_the_first");
-}
-
-#[test]
-fn a_stage_of_th06c_practised_on_its_own() {
-    the_chain_passes("a_stage_practised_on_its_own");
-}
-
-#[test]
-fn a_normal_mode_run_of_th06c_nothing_is_kept_of() {
-    the_chain_passes("a_normal_mode_run_nothing_is_kept_of");
-}
-
-#[test]
-fn a_run_of_th06c_played_to_its_clear() {
-    the_chain_passes("a_run_played_to_its_clear");
-}
-
-/// And the Extra that clear unlocked, played twice, which continues it in the directory its records were left
-/// in — so the three are one chain and the longest of them.
-#[test]
-fn a_normal_mode_run_of_th06c_played_to_its_clear_and_the_extra_it_unlocked() {
-    the_chain_passes("a_normal_mode_run_played_to_its_clear");
-}
-
-#[test]
-fn a_normal_run_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb() {
-    the_chain_passes("a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb");
-}
-
-/// A death in the nonspell after a card, answered by that nonspell again — the laid-out midboss's card and
-/// the attack after it.
-#[test]
-fn a_death_in_the_nonspell_after_a_card_of_th06c_answered_by_that_nonspell() {
-    the_chain_passes("a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell");
-}
+a_test_per_case!(
+    a_run_of_th06c_left_in_its_second_chapter => "a_run_left_in_its_second_chapter",
+    the_run_of_th06c_picked_up_where_it_was_left => "the_run_picked_up_where_it_was_left",
+    a_death_of_th06c_answered_by_the_chapter_again => "a_death_answered_by_the_chapter_again",
+    the_run_of_th06c_started_over_and_its_replay_kept => "the_run_started_over_and_its_replay_kept",
+    an_attempt_of_th06cs_kept_replay_watched => "an_attempt_of_the_kept_replay_watched",
+    a_chapter_of_th06c_taken_again_without_a_death => "a_chapter_taken_again_without_a_death",
+    a_chapter_of_th06c_further_back_taken_again => "a_chapter_further_back_taken_again",
+    a_death_of_th06c_answered_by_a_chapter_further_back => "a_death_answered_by_a_chapter_further_back",
+    a_death_in_the_nonspell_after_a_card_of_th06c_answered_by_that_nonspell => "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
+    the_stage_of_th06c_taken_again_from_its_start => "the_stage_taken_again_from_its_start",
+    the_run_of_th06c_given_up_at_the_retry => "the_run_given_up_at_the_retry",
+    a_chapter_of_th06cs_stage_after_the_first => "a_chapter_of_the_stage_after_the_first",
+    the_run_of_th06c_picked_up_in_the_stage_it_walked_into => "the_run_picked_up_in_the_stage_it_walked_into",
+    a_stage_of_th06c_practised_on_its_own => "a_stage_practised_on_its_own",
+    a_normal_mode_run_of_th06c_nothing_is_kept_of => "a_normal_mode_run_nothing_is_kept_of",
+    a_run_of_th06c_played_to_its_clear => "a_run_played_to_its_clear",
+    a_normal_mode_run_of_th06c_played_to_its_clear => "a_normal_mode_run_played_to_its_clear",
+    the_extra_of_th06c_a_cleared_run_unlocked => "the_extra_a_cleared_run_unlocked",
+    the_extra_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb => "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
+    a_normal_run_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb => "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
+);

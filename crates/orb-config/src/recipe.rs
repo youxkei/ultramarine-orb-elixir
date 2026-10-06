@@ -382,6 +382,9 @@ pub enum Dodge {
     LeftOfTheMiddle,
     /// Fire that fills the field and piles against its left: waited for right of the middle.
     RightOfTheMiddle,
+    /// Fire that streams down across the field from fairies above it to the left and piles into the corner it goes
+    /// to: waited for against the left wall, under where it sets off from.
+    AgainstTheLeftWall,
     /// Fire that thins out towards the floor and carries a run along it into a corner: waited for on the floor
     /// beside the middle, and dodged without going far from it — see `orb_bot::steer`.
     OnTheFloorByTheMiddle,
@@ -433,6 +436,17 @@ pub enum Dodge {
     /// in the field's middle, a little above the floor, and dodged no further across than `40` from the middle — see
     /// `orb_bot::steer`.
     LowInTheMiddle,
+    /// th11's `恨霊「スプリーンイーター」`, rings of spirits that lay arms of still bullets round the run and close on
+    /// where it stood, the arms after them: waited for at the floor in the middle and then in each ring's middle, and
+    /// gone round the burst's edge as the arms close — see `orb_bot::cards`.
+    SpleenEater,
+    /// th11's `恨霊「スプリーンイーター」` the partner's way, Reimu with Yukari: waited for against the nearer side wall, and
+    /// gone through the gap to the other one as a ring's spirits close in — see `orb_bot::cards`.
+    ThroughTheGap,
+    /// th11's `妬符「グリーンアイドモンスター」`, a monster that follows the run and lays a trail of still bullets behind
+    /// it: waited for under the boss, led straight up under her and brought back down beside the trail — see
+    /// `orb_bot::cards`.
+    GreenEyedMonster,
     /// th10's `「諏訪大戦　～ 土着神話 vs 中央神話」`, slow bullets piling at the floor with streams through them, its
     /// boss's life held to its end: up and down the left wall by the card's own frames, no further out from it than
     /// `72` and no lower than the low line, and up the middle for its last frames — see `orb_bot::steer`.
@@ -446,6 +460,76 @@ pub enum Dodge {
     /// A fall of fire that swings from side to side, landing in one bottom corner and then the other: waited for
     /// at the low line on the other side of the middle from where it lands.
     AwayFromWhereTheFallLands,
+    /// th11's `核熱「ニュークリアフュージョン」`, rings of eight suns born above the boss and flung out across the whole
+    /// field, each ring turned its own way: waited out low on the field between the two suns of the ring coming that
+    /// leave the gap nearest straight down — see `orb_bot::cards`.
+    BetweenTheSuns,
+    /// th11's `爆符「メガフレア」`, flares born across the top of the field that fall straight down and shrink as they
+    /// fall: waited out on the floor, across from where the flares about to land will land — see `orb_bot::cards`.
+    BetweenTheFlares,
+    /// th11's `反応「妖怪ポリグラフ」`, a star of eight rays the boss lays still bullets along, out to as far as the
+    /// run is from her and turning there: gone round her between two of the rays as they turn — see `orb_bot::steer`.
+    YoukaiPolygraph,
+    /// th11's `「嫌われ者のフィロソフィ」`, columns of big bullets across the whole field and roses coming up round the
+    /// boss as she goes round its edge: waited for at the top right of her round through its blue stage and then just off
+    /// its middle away from her, dodged no further from there than `40` — see `orb_bot::cards`.
+    PhilosophyOfTheHated,
+    /// th11's `「サブタレイニアンローズ」`, rings of bullets going out from the boss with roses going round between
+    /// them: waited for half as far from the boss as the floor is, round her out of the way of the rose on the ring
+    /// coming, dodged no further from there than `40` — see `orb_bot::cards`.
+    SubterraneanRose,
+    /// th11's `復燃「恋の埋火」`, hearts trailing bullets that come back off every wall: waited for on the low line in the
+    /// field's middle, at the place across the hearts come onto last and nearer under the boss, dodged no further from
+    /// there than `40` — see `orb_bot::cards`.
+    EmbersOfLove,
+    /// th11's `深層「無意識の遺伝子」`, a boss going from corner to corner laying bullets along her way: waited for across
+    /// the field from her, on the low line while she is high and up while she is low, dodged no further from there
+    /// than `40` — see `orb_bot::cards`.
+    GeneticsOfTheSubconscious,
+    /// th11's `神徳「五穀豊穣ライスシャワー」`, rice falling over the field and pellets scattered from the boss: waited for
+    /// under her a third of the way up and dodged in small steps either way no further from there than `40` — see
+    /// `orb_bot::steer`.
+    RiceShower,
+    /// The stage after th11's Extra midboss, rows of fairies coming in from either side and laying streams of rice:
+    /// waited out against the left wall through the first set, along the low line to the right wall, straight up it
+    /// through the last set and back to the bottom left, twice over, and to the rules' own from the columns firing three
+    /// ways — see `orb_bot::cards`.
+    FromTheLeftWallToTheTopRight,
+    /// th11's Extra boss's fire after `反応「妖怪ポリグラフ」`, arms of bullets wound out from her lying as long rows by the
+    /// floor: waited out on the floor left of the middle under the place whose next row is furthest above, at the whole
+    /// step — see `orb_bot::cards`.
+    BetweenTheLongRows,
+    /// The stage before th11's Extra midboss: waited out on the floor under the red fairies, the lowest one going up
+    /// and then the side of those gathered at the top that has more of them, and on that side after, dodged in small
+    /// steps no further from there than `40` — see `orb_bot::cards`.
+    WhereTheRedFairiesComeOut,
+    /// th11's `奇跡「ミラクルフルーツ」`, fruits bursting into rows of rice: waited out where the run is across a little
+    /// above the floor, and on the floor while rice is coming down on it — see `orb_bot::cards`.
+    MiracleFruit,
+    /// th11's `本能「イドの解放」`, hearts thrown out from the boss along curves: waited out in front of her a little below
+    /// the middle of the field — see `orb_bot::cards`.
+    ReleaseOfTheId,
+    /// th11's `花咲爺「華やかなる仁者への嫉妬」`, big bullets aimed at the run laying lines of petals: waited out going round
+    /// the boss clockwise, over her and down again — see `orb_bot::cards`.
+    JealousyOfTheKind,
+    /// th11's `「死灰復燃」`, bodies coming at the run firing as they come: waited out under the boss, and up to the top
+    /// as one comes near and down again as the next does — see `orb_bot::cards`.
+    Rekindled,
+    /// th11's `焔星「フィクストスター」`, rings of stars about suns going round the boss: waited out in front of her at the
+    /// height between the rings — see `orb_bot::cards`.
+    FixedStar,
+    /// th11's `「地獄の人工太陽」`, a sun at the field's middle sending rings out and pulling them and the run back in:
+    /// waited out on the floor under it, away from its pull — see `orb_bot::cards`.
+    ArtificialSun,
+    /// th11's stage 5 after its midboss, yin-yangs thrown at the run: waited out on the floor streaming across from
+    /// one side to the other and never back — see `orb_bot::cards`.
+    AcrossTheYinYangs,
+    /// th11's `贖罪「旧地獄の針山」`, spirits going round in circles sent out in a fan of seven: waited out on the floor
+    /// in the gap between the circles' ways nearest the run — see `orb_bot::cards`.
+    BetweenTheSpinningSpirits,
+    /// th11's stage 5 after its yin-yangs, spirits aimed at the run and spirits firing back: waited out a little below
+    /// the middle of the field — see `orb_bot::cards`.
+    AfterTheYinYangs,
 }
 
 impl Dodge {
@@ -467,6 +551,7 @@ impl Dodge {
             Dodge::AndThenThereWereNone => "and_then_there_were_none",
             Dodge::LeftOfTheMiddle => "left_of_the_middle",
             Dodge::RightOfTheMiddle => "right_of_the_middle",
+            Dodge::AgainstTheLeftWall => "against_the_left_wall",
             Dodge::OnTheFloorByTheMiddle => "on_the_floor_by_the_middle",
             Dodge::WhereverItIsEmptiest => "wherever_it_is_emptiest",
             Dodge::WhereThereWillBeRoom => "where_there_will_be_room",
@@ -482,10 +567,33 @@ impl Dodge {
             Dodge::AThirdOfTheWayUp => "a_third_of_the_way_up",
             Dodge::AThirdOfTheWayUpAndNoLower => "a_third_of_the_way_up_and_no_lower",
             Dodge::LowInTheMiddle => "low_in_the_middle",
+            Dodge::SpleenEater => "spleen_eater",
+            Dodge::ThroughTheGap => "through_the_gap",
+            Dodge::GreenEyedMonster => "green_eyed_monster",
             Dodge::GreatSuwaWar => "great_suwa_war",
             Dodge::TenagaAshinaga => "tenaga_ashinaga",
             Dodge::UnderTheBoss => "under_the_boss",
             Dodge::AwayFromWhereTheFallLands => "away_from_where_the_fall_lands",
+            Dodge::BetweenTheSuns => "between_the_suns",
+            Dodge::BetweenTheFlares => "between_the_flares",
+            Dodge::YoukaiPolygraph => "youkai_polygraph",
+            Dodge::PhilosophyOfTheHated => "philosophy_of_the_hated",
+            Dodge::SubterraneanRose => "subterranean_rose",
+            Dodge::EmbersOfLove => "embers_of_love",
+            Dodge::GeneticsOfTheSubconscious => "genetics_of_the_subconscious",
+            Dodge::RiceShower => "rice_shower",
+            Dodge::FromTheLeftWallToTheTopRight => "from_the_left_wall_to_the_top_right",
+            Dodge::BetweenTheLongRows => "between_the_long_rows",
+            Dodge::WhereTheRedFairiesComeOut => "where_the_red_fairies_come_out",
+            Dodge::MiracleFruit => "miracle_fruit",
+            Dodge::ReleaseOfTheId => "release_of_the_id",
+            Dodge::JealousyOfTheKind => "jealousy_of_the_kind",
+            Dodge::Rekindled => "rekindled",
+            Dodge::FixedStar => "fixed_star",
+            Dodge::ArtificialSun => "artificial_sun",
+            Dodge::AcrossTheYinYangs => "across_the_yin_yangs",
+            Dodge::BetweenTheSpinningSpirits => "between_the_spinning_spirits",
+            Dodge::AfterTheYinYangs => "after_the_yin_yangs",
         }
     }
 }
@@ -1545,6 +1653,7 @@ mod tests {
             ("and_then_there_were_none", Dodge::AndThenThereWereNone),
             ("left_of_the_middle", Dodge::LeftOfTheMiddle),
             ("right_of_the_middle", Dodge::RightOfTheMiddle),
+            ("against_the_left_wall", Dodge::AgainstTheLeftWall),
             ("on_the_floor_by_the_middle", Dodge::OnTheFloorByTheMiddle),
             ("wherever_it_is_emptiest", Dodge::WhereverItIsEmptiest),
             ("where_there_will_be_room", Dodge::WhereThereWillBeRoom),
@@ -1569,6 +1678,9 @@ mod tests {
                 Dodge::AThirdOfTheWayUpAndNoLower,
             ),
             ("low_in_the_middle", Dodge::LowInTheMiddle),
+            ("spleen_eater", Dodge::SpleenEater),
+            ("through_the_gap", Dodge::ThroughTheGap),
+            ("green_eyed_monster", Dodge::GreenEyedMonster),
             ("great_suwa_war", Dodge::GreatSuwaWar),
             ("tenaga_ashinaga", Dodge::TenagaAshinaga),
             ("under_the_boss", Dodge::UnderTheBoss),
@@ -1576,6 +1688,38 @@ mod tests {
                 "away_from_where_the_fall_lands",
                 Dodge::AwayFromWhereTheFallLands,
             ),
+            ("between_the_suns", Dodge::BetweenTheSuns),
+            ("between_the_flares", Dodge::BetweenTheFlares),
+            ("youkai_polygraph", Dodge::YoukaiPolygraph),
+            ("philosophy_of_the_hated", Dodge::PhilosophyOfTheHated),
+            ("subterranean_rose", Dodge::SubterraneanRose),
+            ("embers_of_love", Dodge::EmbersOfLove),
+            (
+                "genetics_of_the_subconscious",
+                Dodge::GeneticsOfTheSubconscious,
+            ),
+            ("rice_shower", Dodge::RiceShower),
+            (
+                "from_the_left_wall_to_the_top_right",
+                Dodge::FromTheLeftWallToTheTopRight,
+            ),
+            ("between_the_long_rows", Dodge::BetweenTheLongRows),
+            (
+                "where_the_red_fairies_come_out",
+                Dodge::WhereTheRedFairiesComeOut,
+            ),
+            ("miracle_fruit", Dodge::MiracleFruit),
+            ("release_of_the_id", Dodge::ReleaseOfTheId),
+            ("jealousy_of_the_kind", Dodge::JealousyOfTheKind),
+            ("rekindled", Dodge::Rekindled),
+            ("fixed_star", Dodge::FixedStar),
+            ("artificial_sun", Dodge::ArtificialSun),
+            ("across_the_yin_yangs", Dodge::AcrossTheYinYangs),
+            (
+                "between_the_spinning_spirits",
+                Dodge::BetweenTheSpinningSpirits,
+            ),
+            ("after_the_yin_yangs", Dodge::AfterTheYinYangs),
         ] {
             assert_eq!(
                 read(&format!("- dodge: {{ with: {name}, spell: 1 }}\n")),

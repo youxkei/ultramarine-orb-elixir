@@ -1215,6 +1215,33 @@ impl Fake {
         });
     }
 
+    /// **This file's own `score.dat` for the records an `orb-real` case starts from** — see `orb_real::Start`:
+    /// nothing for a fresh copy, Eirin's clear with every stage of its run passed for a Normal clear, and
+    /// Kaguya's on top of it for the Extra — what [`Fake::writes_down_the_stage`] leaves for those runs.
+    pub fn the_score_file_a_case_starts_from(start: orb_real::Start) -> Option<Vec<u8>> {
+        let eirins = Records {
+            eirins_stage_passed: true,
+            cleared: true,
+            extra_lit: false,
+            stages_passed: A_RUNS_STAGES
+                .iter()
+                .fold(0, |passed, stage| passed | 1 << stage),
+        };
+        match start {
+            orb_real::Start::Nothing => None,
+            orb_real::Start::ANormalClear => Some(eirins.bytes().to_vec()),
+            orb_real::Start::TheExtraOffered => Some(
+                Records {
+                    extra_lit: true,
+                    stages_passed: eirins.stages_passed | 1 << KAGUYAS_STAGE,
+                    ..eirins
+                }
+                .bytes()
+                .to_vec(),
+            ),
+        }
+    }
+
     /// **The title menu up straight away**, for an e2e test that is not about the frames a launch spends
     /// before it: the same screen [`comes_up_at_its_title`](Fake::comes_up_at_its_title) puts up, without
     /// the wait.

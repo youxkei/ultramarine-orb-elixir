@@ -80,6 +80,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             // every frame — and that is an ordinary bullet's whole motion.
             step: Some((vx * scale, vy * scale)),
             half: (wx / 2.0, wy / 2.0),
+            grows: 0.0,
         });
     }
     // **And the lasers, which are a line rather than a box**: the player's own test for one at
@@ -168,6 +169,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
                 sx / enemy::A_THIRD_OF_ITS_SIZE,
                 sy / enemy::A_THIRD_OF_ITS_SIZE,
             ),
+            grows: 0.0,
         });
     }
     // **Every slot walked and not the live count taken**, because the count says how many there are and

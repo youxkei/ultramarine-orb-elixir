@@ -349,6 +349,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             at: unsafe { position(enemy + ENEMY_POSITION) },
             step: None,
             half: half((sx, sy)),
+            grows: 0.0,
         });
         // **And the boxes it has past that one, where it is one of the long enemies** — see
         // [`ENEMY_BOXES_AT`], which has the walk. A [`Kind::Trail`] apiece and not a body: each is a
@@ -380,6 +381,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
                 at: unsafe { position(at) },
                 step: None,
                 half: half((sx * taper, sy * taper)),
+                grows: 0.0,
             });
         }
     }
@@ -455,6 +457,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             at: unsafe { position(bullet + BULLET_POSITION) },
             step: Some((vx * of_it, vy * of_it)),
             half: unsafe { half(bullet + BULLET_SIZE) },
+            grows: 0.0,
         });
     }
     // **And the lasers, which live in the bullet manager in this game** — see [`LASERS_AT`]. A beam is a

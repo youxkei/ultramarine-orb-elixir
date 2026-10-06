@@ -2,8 +2,8 @@
 # other half of what orb's own question offers: `つづきから` picks the chapter up and `はじめから` throws it
 # away, and a fresh run would write over the replay the run before it was writing, so orb keeps that one first.
 #
-# **This case continues the one before it**, so the chapter and the replay it answers about are that run's
-# — see `Case::continues`, and `a_death_answered_by_the_chapter_again.yaml`, which leaves them.
+# **This case plays `a_death_answered_by_the_chapter_again.yaml` first**, so the chapter and the replay it
+# answers about are that run's — see `Case::before`.
 #
 # **The front end is walked by this game's own screen numbers** — see `a_run_started_and_given_up.yaml`,
 # which walks the same four.

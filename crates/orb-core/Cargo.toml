@@ -18,6 +18,10 @@ publish.workspace = true
 # `orb-config/sim` goes with it because that crate reads and writes `orb.yaml` through the file seam:
 # cargo would union `orb-api/sim` in anyway, and naming it here is what says the chain was meant.
 sim = ["orb-api/sim", "orb-config/sim", "dep:orb-sim"]
+# **The writing side of a game's score file**, `score_file::encode` and the records a fresh install makes, which
+# orb itself never needs — it reads a file and the game writes it. What reaches for it is `orb-real`, which lays a
+# file the game's own logic makes into a copy for the cases that start from one, and `sim`'s laid-out games.
+score-files = []
 
 [dependencies]
 orb-api = { workspace = true }

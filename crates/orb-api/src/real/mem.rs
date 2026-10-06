@@ -315,6 +315,13 @@ pub fn allocation_at(address: usize) -> Option<usize> {
     (info.State != MEM_FREE).then_some(info.AllocationBase as usize)
 }
 
+pub fn readable_at(address: usize) -> Option<std::ops::Range<usize>> {
+    let info = query(address)?;
+    let base = info.BaseAddress as usize;
+    (info.State == MEM_COMMIT && info.Protect & (PAGE_NOACCESS | PAGE_GUARD) == 0)
+        .then_some(base..base + info.RegionSize)
+}
+
 pub fn a_restore_needs(base: usize, len: usize) {
     if let Ok(mut needed) = NEEDED.lock() {
         needed.push((base, len));

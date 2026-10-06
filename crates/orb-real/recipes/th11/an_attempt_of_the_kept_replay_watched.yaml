@@ -1,0 +1,38 @@
+# The replay `the_run_started_over_and_its_replay_kept` kept, found through the main menu's item 3 — the
+# replays — where orb's own list stands in the game's screen's place for the rewindable mode, and one attempt
+# of it watched: the list is answered down through the replay, the stage and the chapter to the attempt, and
+# the attempt plays out until the list is back.
+#
+# **The attempt a death rewound the run from**: the replay is `a_death_answered_by_the_chapter_again`'s, whose
+# hit falls in stage 1's first chapter, so that chapter holds two attempts and the first of them is the one
+# that ended in the death — the stretch of a run nothing but orb's own replay keeps.
+#
+# **Item 3, aimed at by its own number**: the main menu steps its cursor over the Extra where the records have not
+# lit it (0x439350 at 0x43a0c3), so a count of taps would land elsewhere on a copy that has. The press that would
+# open the game's own list — screen 11 — is held back for orb's question (`Th11::menu_pointed_at` answers the
+# replays for item 3), and item 0 of it is orb's own replays.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [down]
+  frames: 10
+  until: { screen: 1, cursor: 3 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# The replay, and its first stage.
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+# **Item 0 of the chapters**, the stage's first, and the first of its attempts.
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- wait_until: { question: choose_replay }
+  give_up_after: 3600
+- quit: true

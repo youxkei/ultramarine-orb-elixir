@@ -491,6 +491,18 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
     load_library(&process, &orb_dll)?;
+    // **Held, where a debugger is asked for, before the game's first instruction of its own**, and not
+    // after it: what the hold is for is a breakpoint on the game's first moments, th11's title loading
+    // `title.anm` some 350 ms after orb's attach at `--pace=16`, where an attach takes over a second.
+    if config.hold_for_a_debugger {
+        println!(
+            "orb: pid {} holds for a debugger, two minutes at most",
+            process.id()
+        );
+        if !process.waits_for_a_debugger(std::time::Duration::from_secs(120))? {
+            println!("orb: no debugger came; the game starts without one");
+        }
+    }
     process.resume()?;
 
     println!(

@@ -2,8 +2,8 @@
 # runs the Extra's own item is lit by, in the directory the first left its records in.
 #
 # **Kaguya's, because the records now route a run to her.** The chooser sends stage word 5 on to 7 where
-# 0x439856 finds Eirin's stage passed in the run's `CLRD` record (0x433b47), which the case before this one
-# wrote; and Kaguya's ending is the one clear that writes the bit the title lights Extra Start out of —
+# 0x439856 finds Eirin's stage passed in the run's `CLRD` record (0x433b47), which the records this case starts
+# from hold (`orb_real::Start::ANormalClear`); and Kaguya's ending is the one clear that writes the bit the title lights Extra Start out of —
 # `0x4000`, where the stage word is 7 (0x429a00 through 0x429c07). Nothing of her fight is measured, so
 # nothing of it is told: the ways are the stages before hers, as the first run had them.
 #
@@ -42,4 +42,10 @@
   until: { screen: 0 }
   give_up_after: 120000
 - wait_until: { frames: 300 }
+# **And the cursor walked onto Extra Start**, item 1, which the title steps over where no Kaguya clear is in the
+# records (0x46799c) — so this step reaches it only where her clear lit the Extra, and gives up otherwise.
+- press: [down]
+  frames: 30
+  until: { screen: 0, cursor: 1 }
+  give_up_after: 1800
 - quit: true

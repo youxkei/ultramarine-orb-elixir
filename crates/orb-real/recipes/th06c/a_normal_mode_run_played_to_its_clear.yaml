@@ -57,4 +57,11 @@
   until: { screen: 2 }
   give_up_after: 3600
 - wait_until: { frames: 300 }
+# **And the cursor tapped onto Extra Start, item 1**, which the title steps over to the third where no shot's record
+# holds a clear (`0x14002d526` through `0x14002d594`) — so this step reaches it only where the clear lit the Extra,
+# which is this case's to say, the Extra's own starting from records of a clear (`orb_real::Start::TheExtraOffered`).
+- press: [down]
+  frames: 6
+  until: { screen: 2, cursor: 1 }
+  give_up_after: 600
 - quit: true

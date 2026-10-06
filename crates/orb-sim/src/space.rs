@@ -189,6 +189,16 @@ impl Space {
             .map(|region| region.allocation)
     }
 
+    /// The region holding `address`, where it can be read.
+    pub fn readable_at(&self, address: usize) -> Option<std::ops::Range<usize>> {
+        self.asked.fetch_add(1, Ordering::Relaxed);
+        let regions = self.regions.lock().unwrap();
+        regions
+            .iter()
+            .find(|region| region.holds(address, 1) && region.access == Access::Open)
+            .map(|region| region.base..region.end())
+    }
+
     /// Drops a region, for the frees a test needs to be seen: a region that has gone away
     /// between a snapshot and the restore of it is the case a restore has to survive.
     pub fn unmap(&self, base: usize) {

@@ -15,12 +15,15 @@ publish.workspace = true
 # `orb-e2e`: a recipe that cannot reach its point on the fake, or a check that fails there, is found in the
 # suite rather than after six minutes of the real game.
 [dependencies]
-# For `trace::Record` and `game::State`, which are what a check reads. No feature: nothing here lays a game
-# out, it only reads what a launch wrote.
-orb-core = { workspace = true }
+# For `trace::Record` and `game::State`, which are what a check reads, and `score-files` for the score file a
+# case that starts from the Extra offered is laid into the copy with — see `Start`. Not `sim`: nothing here lays a
+# game out.
+orb-core = { workspace = true, features = ["score-files"] }
 
 # For the one test here, which is that every recipe this crate carries is one orb can read — see
 # `every_recipe_reads`. A dependency of the test alone: what parses a recipe at a launch is orb's own copy,
 # and a case is a `&'static str` until then.
 [dev-dependencies]
 orb-config = { workspace = true }
+# For the tests of `orb-real watching`, which write a trace to watch the way orb writes one.
+rmp-serde = "1.3"

@@ -148,6 +148,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             at: unsafe { position(bullet + BULLET_POSITION) },
             step: Some(unsafe { position(bullet + BULLET_STEP) }),
             half: (wx / 2.0, wy / 2.0),
+            grows: 0.0,
         });
     }
     // **And the enemies, whose bodies are as solid as a bullet in this game.** Which is what a run on its way
@@ -185,6 +186,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             at: unsafe { position(enemy + ENEMY_POSITION) },
             step: None,
             half,
+            grows: 0.0,
         });
         if !solid {
             continue;
@@ -203,6 +205,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
                 at: unsafe { position(node) },
                 step: None,
                 half,
+                grows: 0.0,
             });
         }
     }

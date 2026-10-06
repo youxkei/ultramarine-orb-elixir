@@ -1,0 +1,76 @@
+# **The Extra, played out by the rules and the ways its cards are taken by, with the bomb forbidden, in
+# Pointdevice mode, from records of the clear that lights it** — a death answered by the chapter again, so that what
+# has to be got through is each attack once and not the stage on its lives.
+#
+# **Item 1 of the main menu, the Extra, which the menu steps over on records with none of endings 6 to 11 seen**
+# (0x439350 at 0x43a0c3), and the records that light it are a Normal clear's (`orb_real::Start::TheExtraOffered`). Its
+# walk is the run's own three selects: the Extra's item writes the difficulty as 4 (0x43a539), the difficulty's
+# screen then holds that one item, and the partner select writes the stage as 7 (0x43d5b3 through 0x43d5ec). The
+# character and the partner selects offer only a shot type whose own ending is lit (0x43cc17, 0x43d0ef), which for
+# those records is Reimu and Yukari, both at cursor 0.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [down]
+  frames: 10
+  until: { screen: 1, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 5 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 10
+  until: { screen: 6 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+# The cards the rules cannot get through with no hit are dodged the ways `orb_bot`'s own table for th11's Extra
+# names — `orb_bot::ways` — so nothing here names one.
+- press: [decide]
+  frames: 10
+  until: { stage: 7, chapter: 0 }
+  give_up_after: 900
+# **The whole Extra in one step**, which a `play` ends the frame the run is over.
+- play_until: { frames: 400000 }
+  give_up_after: 420000
+# **And the screen the run ends at**: the ranking's name typed into its entry where the run ranks, and the replay
+# of a run nobody will add to again kept — orb taking the game's own menu off that screen and putting up its own
+# question in its place (`Th11::skip_replay_prompt`). **No decide reaches that menu**: after a cleared Extra the
+# lost run's menu, where a score that does not place lands, starts the run over from its item 0, and the stage it
+# starts over is the Extra's own ranking's 8, which has no file (asm.md, *`+0x1f4`, `+0x1f8`, and the Extra's stage
+# 8*).
+#
+# **Waited for and not pressed at**: a won run's end opens on state 21, whose tally goes to the ranking's name entry
+# by itself ten frames on where the score places (0x42e774 through 0x42e849) — th10's first state, which takes a
+# decide, has no counterpart here, no store of state 20 being in the exe.
+- wait_until: { name: true }
+  give_up_after: 1800
+- name: ORB
+  give_up_after: 1800
+# One decide, which leaves the entry from the cell the name step puts its grid on, past the ten frames the entry
+# waits (state 25, 0x42efc9): every menu of this game reads a decide off the keys gone down (`[0x4c92b4]`, 0x459ba1
+# through 0x459bb4), so a press held on into the menu after it is no second one.
+- wait_until: { frames: 12 }
+- press: [decide]
+  frames: 2
+- wait_until: { question: keep_replay }
+  give_up_after: 7200
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

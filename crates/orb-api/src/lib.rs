@@ -337,6 +337,9 @@ pub trait Win: Send + Sync + 'static {
     /// still the ones it saved.
     fn allocation_at(&self, address: usize) -> Option<usize>;
 
+    /// The run of pages about `address` that can all be read, and nothing where `address` cannot be.
+    fn readable_at(&self, address: usize) -> Option<std::ops::Range<usize>>;
+
     /// The ranges [`keep_out_of_private_regions`](Win::keep_out_of_private_regions) named, for naming the
     /// memory a fault touched.
     fn orbs_own(&self) -> Vec<(usize, usize)>;

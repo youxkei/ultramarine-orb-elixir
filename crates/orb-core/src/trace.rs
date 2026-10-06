@@ -658,20 +658,66 @@ pub fn close_at_exit() {
 /// records were read before it.
 pub fn read(bytes: &[u8]) -> Result<Vec<Record>, String> {
     let mut records = Vec::new();
-    let mut cursor = Cursor::new(bytes);
-    while (cursor.position() as usize) < bytes.len() {
-        let mut reader = rmp_serde::Deserializer::new(&mut cursor);
-        match Record::deserialize(&mut reader) {
-            Ok(record) => records.push(record),
-            Err(why) => {
-                return Err(format!(
-                    "record {} cannot be read: {why}",
-                    records.len() + 1
-                ));
-            }
-        }
-    }
+    each(Cursor::new(bytes), |record| records.push(record))?;
     Ok(records)
+}
+
+/// **Every record in a trace handed to `on` in turn as it is read**, and how many there were — refusing a record
+/// it cannot read as [`read`] does, once the ones before it have been handed over.
+///
+/// **One at a time and not the whole file taken in**, which is what [`read`] is over a file's bytes: a whole
+/// Pointdevice Extra of th11 at `--shot-every=1`, its card 171 retried, wrote a trace of 4,217,061,558 bytes
+/// (2026-10-09), and `orb-real` — an i686 process with 2 GiB to put it in — answered `cannot be read` from past
+/// 2,101,866,839 of them, so the monitor reading a launch through it read nothing and called the launch stuck.
+pub fn each(reader: impl std::io::Read, mut on: impl FnMut(Record)) -> Result<usize, String> {
+    each_from(reader, 0, |record, _| on(record))
+}
+
+/// **Every record of a trace from where `reader` stands, byte `from` of it, handed to `on` with the byte of the
+/// trace past it**, and how many there were — refusing a record it cannot read as [`each`] does, once the ones
+/// before it have been handed over.
+///
+/// **For a reader that comes back to a trace still being written**, which reads on from the last record it was
+/// handed and not from the start: `orb-real watching` read the whole 4,217,061,558 bytes of a Pointdevice Extra of
+/// th11 in 45 seconds, and past some 5 GB a look took longer than the minute between two of them. `from` is a byte
+/// some earlier call handed `on`, or nought.
+pub fn each_from(
+    reader: impl std::io::Read,
+    from: u64,
+    mut on: impl FnMut(Record, u64),
+) -> Result<usize, String> {
+    use std::io::BufRead;
+    let mut reader = std::io::BufReader::new(Counted {
+        inner: reader,
+        read: from,
+    });
+    let mut count = 0;
+    loop {
+        match reader.fill_buf() {
+            Ok([]) => return Ok(count),
+            Ok(_) => {}
+            Err(why) => return Err(format!("record {} cannot be read: {why}", count + 1)),
+        }
+        let record = Record::deserialize(&mut rmp_serde::Deserializer::new(&mut reader))
+            .map_err(|why| format!("record {} cannot be read: {why}", count + 1))?;
+        let past = reader.get_ref().read - reader.buffer().len() as u64;
+        count += 1;
+        on(record, past);
+    }
+}
+
+/// A reader that counts the bytes it has handed over.
+struct Counted<R> {
+    inner: R,
+    read: u64,
+}
+
+impl<R: std::io::Read> std::io::Read for Counted<R> {
+    fn read(&mut self, into: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.inner.read(into)?;
+        self.read += count as u64;
+        Ok(count)
+    }
 }
 
 #[cfg(test)]
@@ -758,6 +804,62 @@ mod tests {
     #[test]
     fn an_empty_trace_is_no_records() {
         assert_eq!(read(&[]).unwrap(), Vec::<Record>::new());
+    }
+
+    /// **A reader handed a few bytes at a time gives the records whole**, each one over before the next is handed
+    /// over — which is what reading a file through a buffer is, a record lying across two of its fills.
+    #[test]
+    fn records_read_through_a_reader_a_few_bytes_at_a_time_are_handed_over_in_order() {
+        struct Trickle<'a>(&'a [u8]);
+        impl std::io::Read for Trickle<'_> {
+            fn read(&mut self, into: &mut [u8]) -> std::io::Result<usize> {
+                let count = into.len().min(self.0.len()).min(7);
+                into[..count].copy_from_slice(&self.0[..count]);
+                self.0 = &self.0[count..];
+                Ok(count)
+            }
+        }
+        let mut bytes = Vec::new();
+        for frame in 1..=3 {
+            bytes.extend(rmp_serde::to_vec_named(&a_record(frame)).unwrap());
+        }
+        let mut handed = Vec::new();
+        let count = each(Trickle(&bytes), |record| handed.push(record.frame)).unwrap();
+        assert_eq!((count, handed), (3, vec![1, 2, 3]));
+
+        let cut = &bytes[..bytes.len() - 5];
+        let mut before = Vec::new();
+        let refused = each(Trickle(cut), |record| before.push(record.frame)).unwrap_err();
+        assert!(
+            refused.starts_with("record 3 cannot be read"),
+            "the refusal does not name the record: {refused}"
+        );
+        assert_eq!(
+            before,
+            vec![1, 2],
+            "the records before the one cut short were not handed over"
+        );
+    }
+
+    /// **A read on from the byte past a record hands over the records after it**, each with the byte past it in the
+    /// whole trace — the trace's own length past the last one.
+    #[test]
+    fn records_read_on_from_the_byte_past_one_are_the_ones_after_it() {
+        let mut bytes = Vec::new();
+        for frame in 1..=4 {
+            bytes.extend(rmp_serde::to_vec_named(&a_record(frame)).unwrap());
+        }
+        let mut past = Vec::new();
+        each_from(bytes.as_slice(), 0, |_, at| past.push(at)).unwrap();
+        assert_eq!(past.last(), Some(&(bytes.len() as u64)));
+
+        let from = past[1];
+        let mut handed = Vec::new();
+        let count = each_from(&bytes[from as usize..], from, |record, at| {
+            handed.push((record.frame, at))
+        })
+        .unwrap();
+        assert_eq!((count, handed), (2, vec![(3, past[2]), (4, past[3])]));
     }
 
     /// **The frame's own picture goes in and comes back out**, bytes for bytes: what a check does with a

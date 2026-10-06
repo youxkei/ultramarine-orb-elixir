@@ -136,6 +136,10 @@ pub struct Config {
     /// run: the frame two of them stop agreeing on is read off the world, and a world a frame is a trace many
     /// times the size.
     pub trace_the_world: bool,
+    /// **Whether the launcher holds the game, made and with orb in it, until a debugger is attached to it**,
+    /// which nothing does unless `--hold-for-a-debugger` asks: a breakpoint on the game's first moments is
+    /// past before an attach to a running launch lands.
+    pub hold_for_a_debugger: bool,
     /// **Where every chapter a pointdevice run is hit in is kept**, as it stood at its start, and nowhere
     /// unless `--keep-hits-in` names a directory — each a run of its own to pick that chapter up from, for
     /// trying again what was hit in without playing the run to it.
@@ -587,6 +591,7 @@ impl Config {
             shot_every: 0,
             trace_the_field_in: None,
             trace_the_world: false,
+            hold_for_a_debugger: false,
             keep_hits_in: None,
             frame_hooks: true,
             own_frame_loop: true,

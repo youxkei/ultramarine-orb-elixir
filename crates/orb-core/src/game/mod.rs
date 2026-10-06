@@ -100,6 +100,36 @@ pub mod th07;
 pub mod th08;
 #[cfg(target_arch = "x86")]
 pub mod th10;
+#[cfg(target_arch = "x86")]
+pub mod th11;
+
+// **And each game's score file under `score-files` whatever the architecture**, the one part of a game that is
+// bytes on a disk and no address of its process: `orb-real` makes the records a case starts from for every game,
+// and is built for one architecture.
+#[cfg(all(feature = "score-files", not(target_arch = "x86_64")))]
+pub mod th06c {
+    pub mod score_file;
+}
+#[cfg(all(feature = "score-files", not(target_arch = "x86_64")))]
+pub mod th06nc {
+    pub mod score_file;
+}
+#[cfg(all(feature = "score-files", not(target_arch = "x86")))]
+pub mod th07 {
+    pub mod score_file;
+}
+#[cfg(all(feature = "score-files", not(target_arch = "x86")))]
+pub mod th08 {
+    pub mod score_file;
+}
+#[cfg(all(feature = "score-files", not(target_arch = "x86")))]
+pub mod th10 {
+    pub mod score_file;
+}
+#[cfg(all(feature = "score-files", not(target_arch = "x86")))]
+pub mod th11 {
+    pub mod score_file;
+}
 
 use std::ffi::c_void;
 use std::fmt;
@@ -224,6 +254,17 @@ pub const KNOWN: &[Known] = &[
             version: "1.00a",
         }],
         game: &th10::Th10,
+    },
+    // The fifth: [`th11::Th11`], played in the game's own mode until it rewinds. Pinned by the md5 alone, and what
+    // of it is not read is at the end of `th11/asm.md`.
+    Known {
+        exe: "th11.exe",
+        cfg: "th11.cfg",
+        builds: &[Build {
+            md5: "6af1e3b37f28293f4fc127ee01d2632c",
+            version: "1.00a",
+        }],
+        game: &th11::Th11,
     },
 ];
 
@@ -353,6 +394,11 @@ pub enum Read {
     /// `runtime::get_input_with_the_keys`. **Called through**, so the pad's buttons and stick are the game's
     /// own, and what [`Game::pad_word`] answers is added to it: over such a game, what its half leaves out.
     PadHalf(Patch),
+    /// **The same half entered with the keyboard's word in `ecx` and nothing pushed**, answering a `u32`: th11's
+    /// `0x457270`, `mov ecx,esi; call 0x457270` at 0x4579eb and a plain `ret`. See
+    /// `runtime::get_input_with_the_keys_in_ecx`, which hands orb's `u16` the low half of the word and keeps the
+    /// game's own high half — Enter, Q, R and the screenshot — where orb let the keyboard's word through.
+    PadHalfInEcx(Patch),
 }
 
 /// **A function the game asks for by name at startup**, which orb answers in place of the host.
@@ -380,6 +426,14 @@ pub struct Lookup {
 /// which window to make. Clicking is what a person does, and it settles the same things.
 pub struct Dialog {
     pub clicks: &'static [i32],
+}
+
+/// **A game's LZSS decode and encode over the one window they share**, each entered with three arguments on the
+/// stack which it pops (`ret 0xc`) and, for the decode, its output in `eax` — see `runtime::decodes_alone` and
+/// [`Hooks::decodes_through_one_window`].
+pub struct OneWindow {
+    pub decode: Patch,
+    pub encode: Patch,
 }
 
 /// A function to hook and the bytes expected at it, so a mismatch is caught
@@ -508,6 +562,18 @@ pub struct Hooks {
     /// `None` where the game has no such call, which costs a resumed run the seed and with
     /// it every enemy the seed decides.
     pub stage_building: Option<Building>,
+    /// **A function a thread of the game's own frees what a frame draws through with**, entered with what it
+    /// frees in `edi`, nothing on the stack and a plain `ret` — which orb holds off until the frame it is running
+    /// has been presented, and lets run on the spot where it is the frame's own thread that calls it. See
+    /// `runtime::unloads_in_edi`.
+    ///
+    /// `None` for a game no thread of which frees anything a frame is reading.
+    pub unloads_beside_its_frame: Option<Patch>,
+    /// **The game's LZSS decode and encode, which share one window for the whole process** — see [`OneWindow`]
+    /// — and which orb lets one thread at a time through.
+    ///
+    /// `None` for a game whose decoders keep their window apart, or that orb has not read one of.
+    pub decodes_through_one_window: Option<OneWindow>,
     /// Runs around the read of the score file that the front end's own unlocks are taken out of —
     /// which stages it offers, whether it offers the Extra stage — and around no other read of it.
     ///
@@ -552,6 +618,13 @@ pub struct Hooks {
     /// The game's whole frame: its draw, its update, its pacing and its present.
     /// Replacing it is what lets orb pace the game and drop a frame of input lag.
     pub render: Option<Patch>,
+    /// **The game's other frames, patched with the same entry as [`Hooks::render`]**, for a game whose message
+    /// pump picks one of several each frame: th11's WinMain calls `0x446080`, `0x446650` or `0x446420` by its
+    /// pacing settings and the display's refresh (0x445874 through 0x4458a7), each `stdcall` on the window. Their
+    /// trampolines are called by nothing — a frame handed back goes to [`Hooks::render`]'s — because orb's own
+    /// frame runs the game's steps itself, and which pacing the game would have chosen is the one thing it
+    /// replaces.
+    pub renders_too: &'static [Patch],
     /// Everything the game reads from the keyboard, once a frame. Needed because
     /// orb keeps updating while the window is not in front, and a game that carried
     /// on reading the keyboard then would act on keys meant for something else.
@@ -763,7 +836,8 @@ impl Entered {
 /// that takes something other than one argument: th06's `Stage::RegisterChain` and the builds of th06c and
 /// th06nc take one number and leave the stack to their caller, th07's and th08's take theirs in `ecx` — the
 /// supervisor's `mov ecx,[eax+0x95ec]` at 0x42f0ae and the build's `mov ecx,[eax+0x3ddc4]` at 0x43b3dc, with
-/// nothing pushed — and th10's `0x429610` takes two and pops them itself (`ret 0x8` at 0x4296b2).
+/// nothing pushed — th10's `0x429610` takes two and pops them itself (`ret 0x8` at 0x4296b2), and th11's
+/// `0x435e00` takes one and pops it (`push [ebp+0x74]; call 0x435e00` at 0x41fc2a, `ret 0x4` at 0x435eaf).
 ///
 /// **th07's and th08's were `Cdecl` once**, which read the stage off a stack nothing had pushed it on and
 /// called on with `ecx` written over, so the build kept whatever the register held: nothing read the field it
@@ -772,13 +846,17 @@ pub enum Building {
     Cdecl(Patch),
     InEcx(Patch),
     StdcallOfTwo(Patch),
+    StdcallOfOne(Patch),
 }
 
 impl Building {
     /// The patch any of them carries.
     pub fn patch(&self) -> &Patch {
         match self {
-            Self::Cdecl(patch) | Self::InEcx(patch) | Self::StdcallOfTwo(patch) => patch,
+            Self::Cdecl(patch)
+            | Self::InEcx(patch)
+            | Self::StdcallOfTwo(patch)
+            | Self::StdcallOfOne(patch) => patch,
         }
     }
 }
@@ -799,6 +877,11 @@ impl Building {
 pub enum FrameEntered {
     InEcx,
     OnTheStack,
+    /// **th11's**, which is the read above not holding: its frame takes the window on the stack as th10's does
+    /// (`push 0x4c3d88`, `ret 0x4` at 0x4464fd), but its calc walk takes the chain in `ebx` (`mov ebx,[0x4c3234];
+    /// call 0x456cb0` at 0x4464d1) and its draw walk nothing at all, reading the chain itself (0x456e25), both
+    /// ending in a plain `ret` — see `runtime::run_calc_chain_in_ebx`.
+    ChainInEbx,
 }
 
 /// What the game's own front end is being asked for.
@@ -2892,6 +2975,14 @@ pub struct Frame {
     pub bombs: i8,
     /// Whether a line of dialogue is up, which is a thing to press past.
     pub dialogue: bool,
+    /// **Whether the player can go out through a side wall and in at the other**, for a game whose player has
+    /// such a move: `true` from th11 with Reimu and Yukari, shot type 0, whose gap — see `Th11`'s `GAP_STATE` —
+    /// is taken from against a side wall by letting the direction go and pressing back into the wall within 8
+    /// frames, the shot and the focus let go; the player is then carried `1.17` a frame out through it for 45
+    /// frames, out of the rules' hands and not untouchable, and comes in at the other side. `false` everywhere else.
+    pub warps_across: bool,
+    /// **Whether the player is being carried through that gap now**, the frames a word moves it none.
+    pub warping: bool,
     /// **Whether a bullet out of its hitting state is nothing to keep away from at all**, which is a game's
     /// own answer and not a rule: what it says is that such a bullet cannot take a life *and* that standing
     /// where one comes out is not how a run dies either.
@@ -3007,6 +3098,10 @@ pub struct Hazard {
     pub step: Option<(f32, f32)>,
     /// Half the box the player is tested against, on each axis, as the game's own test is given it.
     pub half: (f32, f32),
+    /// **How much that half changes by a frame**, negative for a thing that shrinks, and nought for every game's
+    /// hazards but th11's bodies: its `爆符「メガフレア」` lets flares fall from a reach of 88 that land some 20 to 30
+    /// across, and carried down at the reach they had higher up they read the whole floor as shut.
+    pub grows: f32,
 }
 
 /// **Which of the game's arrays a [`Hazard`] came out of**, with what the game says of it there.

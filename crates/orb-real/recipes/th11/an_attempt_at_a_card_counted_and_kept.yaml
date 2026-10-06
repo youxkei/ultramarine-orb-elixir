@@ -1,0 +1,133 @@
+# Two runs of th11 in one launch: the first asked for its chapter again inside a spell card, so that the retry
+# counts an attempt at that card, and the second started from the beginning and asked for the same card's
+# chapter again, so that its count says whether the first run's attempt was kept — th10's case of this name over
+# this game.
+#
+# **What keeping it means here is the score object left as it is.** `Th11::count_card_attempt` adds one to the
+# card's attempts in the score object where a chapter is taken again — the game counts an attempt where a card
+# *starts* (0x40c650, at 0x40c6e4) — and th11 reads its score file into that object once, at the startup (0x437800
+# at 0x428b28), and writes it out at each run's teardown (0x437a70 at 0x41fe17), so nothing between the two runs reads
+# the file back over the count. The second run's retry therefore says at least two more than the first's: the card's
+# own start, and the retry. A run build that laid the file back over the records would say one more, or less.
+#
+# **The first card of a Normal run is its first boss's**, 罠符「キャプチャーウェブ」, card 3: stage 1's midboss
+# declares none on Normal, her cards being Hard's and Lunatic's.
+#
+# **Nothing is taken at all, the chapter being asked for again rather than lost**, for th07's case's reason.
+#
+# The walk to each run is a_death_answered_by_the_chapter_again's, and the second's answer to the run the first left
+# is the_run_started_over_and_its_replay_kept's.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 1, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 5 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 5, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 5, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 6 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# The first card of the run, two seconds of it played, and its chapter asked for again.
+- play_until: { card: true }
+  give_up_after: 18000
+- play_until: { frames: 120 }
+  give_up_after: 1800
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 300 }
+  give_up_after: 1800
+# The run left for the title, which is where the chapter it was in is written down, so the run after it is
+# asked about.
+- leave: true
+- wait_until: { frames: 300 }
+# **And the second run from the beginning**, the answer that starts a run rather than picking one up.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 1, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 5 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 5, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 5, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 6 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: resume }
+  give_up_after: 900
+- answer: { question: resume, item: 1 }
+  give_up_after: 600
+- play_until: { card: true }
+  give_up_after: 18000
+- play_until: { frames: 120 }
+  give_up_after: 1800
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 300 }
+  give_up_after: 1800
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

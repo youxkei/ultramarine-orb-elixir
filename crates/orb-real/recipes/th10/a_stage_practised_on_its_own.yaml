@@ -7,8 +7,8 @@
 # cursor 0 — over the copy's own records, where `cargo xtask real` takes them aside. To a score file with
 # nothing in it the practice offers no stage (2026-10-02: that screen stood and `decide` did nothing), nor to
 # the files a Pointdevice run left that reached stage 1 and was quit there: a stage is offered once a run of
-# the shot type and the difficulty has cleared it (0x416c08, 0x4314be). So this case continues
-# `a_normal_mode_run_played_without_a_bomb.yaml`, whose run of the game's own mode clears stages 1 and 2.
+# the shot type and the difficulty has cleared it (0x416c08, 0x4314be). So this case starts from records of a
+# Normal clear of the game's own mode (`orb_real::Start::ANormalClear`), every stage of which is cleared.
 #
 # **With orb's own mode question over the item, answered with the pointdevice mode**, which is what makes the
 # chapter taken again below a chapter orb put back.

@@ -1,0 +1,17 @@
+# **The title walked to its main menu and the cursor onto the Extra, and the launch left there**, for
+# `cargo xtask real --again` to count how often th11's title stands spinning: the hang came 80 frames after the main
+# menu, on the interrupt the menu sends at its frame 0x50 (0x43a252), with the cursor walked down as the Extra's
+# cases walk it — orb-real 1791748820 and 1791675900. Not a case: no check reads it.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [down]
+  frames: 10
+  until: { screen: 1, cursor: 1 }
+  give_up_after: 900
+# **Ten seconds at the game's own rate and not the 200 frames that would do**: `cargo xtask real` sees the game by
+# `tasklist.exe`, which takes five seconds to answer, and a launch closed within a look of it is one it says never
+# came up — three in a row did so at 200 frames at pace 16 (orb-real 1791750231), where 8000 is the wait to give
+# it. Each launch's own trace is what says whether it got past the hang, `xtask`'s word on a launch it lost not
+# being one to go by: of 30 at pace 16, 6 stood at the title (1791750231), and of 30 at pace 1, 2 (1791751990).
+- wait_until: { frames: 600 }
+- quit: true

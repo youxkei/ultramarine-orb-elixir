@@ -1,10 +1,10 @@
-# **The Extra, which the case before unlocked by clearing the game in the other mode**: a run with a name of
+# **The Extra, which a clear of the game in the other mode unlocks**: a run with a name of
 # its own — `Game::run_slot` answers one for it where a practice run gets none — and whose chapters come out
 # of the last row of the midstage table rather than out of a fight.
 #
 # **Its item is on the title menu only where the game's own score file says the game has been cleared**, and
-# that file is the copy's: a pointdevice clear writes its record into the mode's own fork, so what put the
-# record where the front end reads it is the case before this one.
+# that file is the copy's: a pointdevice clear writes its record into the mode's own fork, so the case starts
+# from records of a clear of the game's own mode (`orb_real::Start::TheExtraOffered`).
 #
 # The title menu is reached and its cursor walked as an_attempt_of_the_kept_replay_watched.yaml does it: a
 # decide gets past the screen the launch comes up on, that same press raises orb's question about which mode,
@@ -25,7 +25,7 @@
   give_up_after: 900
 # **Extra Start, which is the item after the one a full run is started from.** This step gives up where the
 # Extra is still locked, the menu not resting its cursor on an item it is not offering — see the same step
-# under th07, where that was measured. What puts the item on the menu is the case before this one.
+# under th07, where that was measured. What puts the item on the menu is the records the case starts from.
 - press: [down]
   frames: 30
   until: { screen: 2, cursor: 1 }

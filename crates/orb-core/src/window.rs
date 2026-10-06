@@ -528,6 +528,57 @@ pub unsafe fn answers_the_window_activated(original: usize) {
     SET_ACTIVE_WINDOW.store(original, Ordering::Relaxed);
 }
 
+/// The game's own `SendMessageA`, which [`send_message_a`] calls through.
+static SEND_MESSAGE_A: AtomicUsize = AtomicUsize::new(0);
+
+/// `LRESULT SendMessageA(HWND, UINT, WPARAM, LPARAM)`.
+pub type SendMessageA = unsafe extern "system" fn(*mut c_void, u32, usize, isize) -> isize;
+
+/// `WM_SYSCOMMAND`, and the two of its commands that minimise a window and put it back.
+const WM_SYSCOMMAND: u32 = 0x0112;
+const SC_MINIMIZE: usize = 0xf020;
+const SC_RESTORE: usize = 0xf120;
+
+/// **The window orb plays in neither minimised nor put back when the game asks**, and every other message sent as
+/// asked — [`set_foreground_window`]'s answer to a third way a game brings itself forward: th11 sends its new
+/// window `SC_MINIMIZE`, sleeps 16 milliseconds and sends it `SC_RESTORE` (0x446cfa, 0x446d16), and a window put
+/// back from the taskbar is a window Windows activates, whatever its style. Nought is the answer, which is a
+/// window procedure's for a system command it carried out.
+///
+/// # Safety
+/// The arguments are `SendMessageA`'s own, and [`answers_the_message_sent`] must have run first.
+pub unsafe extern "system" fn send_message_a(
+    window: *mut c_void,
+    message: u32,
+    wparam: usize,
+    lparam: isize,
+) -> isize {
+    let original: SendMessageA =
+        unsafe { std::mem::transmute(SEND_MESSAGE_A.load(Ordering::Relaxed)) };
+    let ours = window as usize;
+    if unsafe { *OUT_OF_THE_WAY.get() }
+        && ours != 0
+        && (ours == GAME_WINDOW.load(Ordering::Relaxed)
+            || ours == PLAYED_IN.load(Ordering::Relaxed))
+        && message == WM_SYSCOMMAND
+        && matches!(wparam & 0xfff0, SC_MINIMIZE | SC_RESTORE)
+    {
+        detail!(
+            "screen: the game asked for the window orb plays in to be minimised or put back; it stays as it is"
+        );
+        return 0;
+    }
+    unsafe { original(window, message, wparam, lparam) }
+}
+
+/// Says which function [`send_message_a`] calls through.
+///
+/// # Safety
+/// Must run before the game sends its window anything.
+pub unsafe fn answers_the_message_sent(original: usize) {
+    SEND_MESSAGE_A.store(original, Ordering::Relaxed);
+}
+
 /// The game's own `Direct3DCreate9`, which [`direct3d_create9`] calls through.
 static DIRECT3D_CREATE9: AtomicUsize = AtomicUsize::new(0);
 
@@ -624,6 +675,12 @@ pub unsafe extern "system" fn create_device9(
         true => behaviour | orb_api::d3d9::D3DCREATE_NOWINDOWCHANGES,
         false => behaviour,
     };
+    // **And not `D3DCREATE_MULTITHREADED`**, though th11's title loads `title.anm` and `title_v.anm` on a thread of its
+    // own (0x4394f0, their textures among it) while the main thread draws, through a device made with `0x40` or
+    // `0x20` alone (0x446f5d): with and without it, one launch of each in turns over 30 pairs of
+    // `recipes/th11/measured/the_main_menu_reached_and_left` at pace 16, 2 and 3 stood spinning at the title on a
+    // `title.anm` script written over (`scratchpad` sessions from 1791766810, 2026-10-12) — the 6 of 30 without it
+    // and 1 of 30 with it of separate sessions before that (1791750231, 1791754411) were the sessions' own swing.
     if PRESENTS_WITHOUT_WAITING.load(Ordering::Relaxed) && !parameters.is_null() {
         let interval = parameters as usize + orb_api::d3d9::PRESENTATION_INTERVAL;
         unsafe {

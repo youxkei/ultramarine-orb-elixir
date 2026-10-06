@@ -1,0 +1,68 @@
+# **A run of th11 started by a recipe and handed back to the game's own title**, which is what
+# `Th11::leave_run` writes: the scene wanted put at the title, the one the pause menu's own item for the title
+# writes.
+#
+# **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the title's
+# `+0x1c`: the title comes up on 1, the main menu, with no screen before it waiting for a key; its item 0 starts a
+# run; 5 is the difficulty, 6 the character and 7 the partner, whose `decide` asks for the run. `orb-core`'s
+# `game/th11/asm.md` has where each was read.
+#
+# **The main menu reads no key for its first eighty frames** (0x43a22d), so the cursor is taken to 0 once it is up;
+# and the difficulty remembers the last one, so its cursor is taken to 0 and then down to 1, Normal. The character
+# and the partner are taken to 0, Reimu and Yukari.
+#
+# **And orb's own question over that item, answered with the pointdevice mode** — item 0. `Th11::rewinds` answers
+# yes, so the item puts up orb's question of which mode to play in, and without this step the menu stands behind a
+# question nobody answers and screen 5 never comes.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 1, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 5 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 5, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 5, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 6 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+# **Long enough for there to be something to take down**: ten seconds of the stage, its first enemies on the
+# field.
+- play_until: { frames: 600 }
+  give_up_after: 7200
+- leave: true
+- wait_until: { screen: 1 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- quit: true

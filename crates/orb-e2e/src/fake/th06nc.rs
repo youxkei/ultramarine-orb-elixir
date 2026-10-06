@@ -409,6 +409,9 @@ pub struct Fake {
     on_its_own_for: Cell<i32>,
     /// Which item the menu was left on, which is the item the front end comes back on.
     left_the_menu_on: Cell<i32>,
+    /// Whether the title up is one built out of a run, which goes on to the main menu unpressed — see
+    /// [`Fake::builds`].
+    the_title_passes_on: Cell<bool>,
     /// Whether the run being chosen is the Extra.
     extra: Cell<bool>,
     /// How long a stage lasts before the next is built. `None` is a stage that never ends.
@@ -428,6 +431,10 @@ pub struct Fake {
     /// The updates the ending's script and the roll after it have left, where one is running.
     ending_updates: Cell<i32>,
     roll_updates: Cell<i32>,
+    /// **The shot — `character * 2 + shot` — and the difficulty of a run that reached the ending**, which the
+    /// records after it hold as a clear: [`CLEARED`] goes into the shot's `CLRD` arrays (`0x14002d40d`,
+    /// `0x14002d44e`), the four in memory the front end asks before it takes a decide on the Extra.
+    cleared: Cell<Option<(u8, usize)>>,
     /// Every open of the score file, by the name it landed in and whether it was for writing.
     opens: RefCell<Vec<(String, bool)>>,
     /// Every seek the sound's catch-up made, for a test about the frame.
@@ -665,6 +672,7 @@ impl Fake {
             frames_since_launch: Cell::new(0),
             on_its_own_for: Cell::new(0),
             left_the_menu_on: Cell::new(MENU_ITEM_RUN),
+            the_title_passes_on: Cell::new(false),
             extra: Cell::new(false),
             stage_frames: Cell::new(None),
             last_stage_frame: Cell::new(0),
@@ -675,6 +683,7 @@ impl Fake {
             hit: Cell::new(false),
             ending_updates: Cell::new(0),
             roll_updates: Cell::new(0),
+            cleared: Cell::new(None),
             opens: RefCell::new(Vec::new()),
             seeks: RefCell::new((Vec::new(),)),
             pictures: Cell::new(0),
@@ -1239,6 +1248,11 @@ impl Fake {
                 SCREEN_BACK_FROM_A_RUN
             };
             self.goes_to(coming_up_on, self.left_the_menu_on.get());
+            // **And a title built out of a run is one that goes on by itself**: the build `0x1400575a0`
+            // copies `[0x140c6de24]` — set for a launch's first front end only — into `[+0x16874]`, state 0
+            // hands a front end with it clear to `0x14004ead0`, which runs the title's animation through
+            // and sets `[+0x16875]`, and state 2 with that set writes state 3 before it reads a key.
+            self.the_title_passes_on.set(coming_up_on == SCREEN_TITLE);
             self.image.is_not_paused();
             self.out_of_lives.set(false);
             self.continue_state.set(CONTINUE_BUILT);
@@ -1386,7 +1400,11 @@ impl Fake {
             SCREEN_LOGO if decide || up_for >= LOGO_LEAVES_ON_ITS_OWN_AFTER => {
                 self.goes_to(SCREEN_TITLE, cursor);
             }
-            SCREEN_TITLE if decide => self.goes_to(SCREEN_MENU, cursor),
+            // Not on the update the title is built on, which is state 0's and not state 2's: the game read
+            // `front end: screen 2` for a frame before `screen 3`, and a recipe waits for that 2.
+            SCREEN_TITLE if (up_for > 1 && self.the_title_passes_on.replace(false)) || decide => {
+                self.goes_to(SCREEN_MENU, cursor);
+            }
             SCREEN_MENU if decide && up_for >= THE_MENU_TAKES_A_PRESS_AFTER => {
                 self.left_the_menu_on.set(cursor);
                 match cursor {
@@ -2022,6 +2040,10 @@ impl Fake {
     /// The ending a cleared run hands over to: the stage's jobs gone, the ending's own in their place,
     /// with the supervisor's state still a stage's.
     fn enters_the_ending(&self) {
+        self.cleared.set(Some((
+            self.image.the_character_chosen() * 2 + self.image.the_shot_chosen(),
+            self.image.the_difficulty_now() as usize,
+        )));
         self.tears_the_stage_down();
         self.image.an_ending_is_running();
         self.ending_updates.set(ENDING_UPDATES);
@@ -2177,11 +2199,41 @@ impl Fake {
         let Some(landed) = self.opens_the_score_file(true) else {
             return;
         };
-        let records = self
+        let mut records = self
             .the_records_the_game_parses()
             .unwrap_or_else(|| records_holding(true));
+        // **And a clear of the run before written into the records in memory first**, which is where the front end
+        // reads its Extra from on the same launch.
+        if let Some((shot, difficulty)) = self.cleared.take() {
+            records = with_the_clear(records, shot, difficulty);
+            self.image
+                .the_score_file_copy_is(&score_file::encode(&records, THE_GAMES_OWN_SEED));
+        }
         self.puts_the_file(&landed, &score_file::encode(&records, THE_GAMES_OWN_SEED));
     }
+}
+
+/// **`records` with `shot`'s `CLRD` holding a clear of `difficulty` in both arrays**, the record made where there is
+/// none — the four the game makes with no file hold `1` in every byte (`0x14003c603`).
+fn with_the_clear(mut records: Vec<Record>, shot: u8, difficulty: usize) -> Vec<Record> {
+    const IN_A_CHALLENGE: usize = 0xc;
+    const AT_ALL: usize = 0x11;
+    const SHOT: usize = 0x16;
+    match records
+        .iter_mut()
+        .find(|record| record.magic() == b"CLRD" && record.bytes.get(SHOT) == Some(&shot))
+    {
+        Some(record) => {
+            record.bytes[IN_A_CHALLENGE + difficulty] = CLEARED;
+            record.bytes[AT_ALL + difficulty] = CLEARED;
+        }
+        None => {
+            let mut reached = [1; 5];
+            reached[difficulty] = CLEARED;
+            records.push(score_file::clrd(shot, reached, reached));
+        }
+    }
+    records
 }
 
 /// The records an installation somebody has played holds, with a clear among them or without one: a

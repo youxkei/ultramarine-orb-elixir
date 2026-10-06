@@ -2,7 +2,7 @@
 # this name over this game's Extra. The rules and the ways `orb_bot`'s own table for th10's Extra names play it,
 # so nothing here names one; a death the mode answers is still a hit, and the case fails on it.
 #
-# **The Extra's item, which the records of the chain before it light**, and the walk and the screen after the run
+# **The Extra's item, which the records it starts from light**, and the walk and the screen after the run
 # are `the_extra_played_to_its_clear.yaml`'s — see it for the addresses.
 - press: [decide]
   frames: 10

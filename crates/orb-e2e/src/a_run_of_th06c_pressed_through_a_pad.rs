@@ -3,9 +3,10 @@
 //! answers this game with (`runtime::xinput_get_state`), the word read off that sample as th06's and th07's pad
 //! half reads one.
 //!
-//! **What says a press went through the pads is the machine's own pad reaching the game beside it**: a launch
-//! that hands the bot's word to the read answers this game's pad with that word alone, and one pressing through
-//! the pads answers it with every pad on the machine.
+//! **And the machine's own pad reaches neither**: a launch that hands the bot's word to the read answers this
+//! game's pad with that word alone, and one pressing through the pads with the virtual pad alone — a run pressed
+//! through it is orb's, and a pad somebody had in hand pressing into one bombed th06nc's no-hit Extra on 917
+//! frames (orb-real 1791701497).
 
 use crate::fake::th06c::{Fake, TO_A_RUN};
 use crate::fake::{Display, Launched, Work, in_its_own_process};
@@ -67,10 +68,9 @@ fn the_machines_pad_holds_the_bomb(game: &Fake) {
     );
 }
 
-/// **Through the pad, the recipe's shot and the machine's own pad's bomb reach the run together**, every pad on
-/// the machine being the one player's.
+/// **Through the pad, the recipe's shot reaches the run and the machine's own pad's bomb does not.**
 #[test]
-fn a_recipes_press_reaches_th06c_through_the_pads_beside_the_machines_own() {
+fn a_recipes_press_reaches_th06c_through_the_pad_in_place_of_the_machines_own() {
     in_its_own_process(|| {
         let game = in_a_run("th06c-through-a-pad", true);
         game.frames(10);
@@ -88,8 +88,8 @@ fn a_recipes_press_reaches_th06c_through_the_pads_beside_the_machines_own() {
         the_machines_pad_holds_the_bomb(&game);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & (SHOT | BOMB),
-            SHOT | BOMB,
-            "the machine's own pad's bomb did not reach the run beside the virtual pad's shot",
+            SHOT,
+            "the machine's own pad's bomb reached a run pressed through the virtual pad",
         );
     });
 }

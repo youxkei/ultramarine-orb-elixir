@@ -1,0 +1,58 @@
+# The run a_chapter_of_the_stage_after_the_first left in stage 2's fight, offered as the run starts and
+# taken up where it stopped — in stage 2 and not at a run's first, and begun out of the fade the stage before it
+# ended on, as the run that left it was — and then played on.
+#
+# **The walk and the resume question are the_run_picked_up_where_it_was_left's**, the question coming on the
+# frame the partner select asks for the run. What is played on for is a chapter of stage 2 after the one landed
+# in, which inside the midboss's fight is her card, 11, at frame 3052 on a launch of the real game, 2026-10-07 —
+# five hundred-odd frames after her arrival at 2521, where the run was left.
+- wait_until: { screen: 1 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 1, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 5 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 5, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 5, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 6 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- bombs: false
+- press: [decide]
+  frames: 10
+  until: { question: resume }
+  give_up_after: 900
+- answer: { question: resume, item: 0 }
+  give_up_after: 1800
+- play_until: { frames: 3600 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

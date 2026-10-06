@@ -203,9 +203,13 @@ impl Bits<'_> {
     }
 }
 
-/// A file of these records as the game would read it: packed as literals alone and enciphered the other way
-/// about — for a laid-out game's directory, and for the tests.
-#[cfg(any(test, feature = "sim"))]
+/// A file of these records as the game writes one (0x42b1e0), the records as they are given, packed and
+/// enciphered behind the header a file of its own carries — for a laid-out game's directory, for the tests, and for
+/// the score file `orb-real` lays into a copy.
+///
+/// **Packed as literals alone and not by the game's own packing**, which chooses which runs to copy: the game's
+/// parse (0x42b030) unpacks either to the same records, and what a launch reads is the records.
+#[cfg(any(test, feature = "sim", feature = "score-files"))]
 pub fn encode(records: &Records) -> Vec<u8> {
     let plain: Vec<u8> = records
         .shot_types
@@ -230,11 +234,18 @@ pub fn encode(records: &Records) -> Vec<u8> {
         })
         .collect();
     encipher(&mut packed);
+    // The header 0x42b030 makes where it reads no file, `+0xc` its `0x100`, and the file's length at `+0x4` as the
+    // writer puts it.
     let mut file = Vec::with_capacity(HEADER + packed.len());
     file.extend_from_slice(MAGIC);
-    file.extend_from_slice(&[0; 4]);
+    file.extend_from_slice(
+        &u32::try_from(HEADER + packed.len())
+            .expect("a file of kilobytes")
+            .to_le_bytes(),
+    );
     file.extend_from_slice(&VERSION.to_le_bytes());
-    file.extend_from_slice(&[0; 6]);
+    file.extend_from_slice(&[0; 2]);
+    file.extend_from_slice(&FRESH_HEADERS_WORD.to_le_bytes());
     file.extend_from_slice(
         &u32::try_from(packed.len())
             .expect("a file of kilobytes")
@@ -250,7 +261,7 @@ pub fn encode(records: &Records) -> Vec<u8> {
 }
 
 /// [`decipher`] run backwards: each place read in the order it writes them.
-#[cfg(any(test, feature = "sim"))]
+#[cfg(any(test, feature = "sim", feature = "score-files"))]
 fn encipher(body: &mut [u8]) {
     let plain = body.to_vec();
     let short_tail = match body.len() % BLOCK {
@@ -290,10 +301,204 @@ pub fn record(letters: &[u8; 2], size: usize, number: u32, fill: u8) -> Vec<u8> 
             .to_le_bytes(),
     );
     record[RECORD_NUMBER_AT..RECORD_NUMBER_AT + 4].copy_from_slice(&number.to_le_bytes());
+    summed(record)
+}
+
+/// The record with its sum written in, the bytes from `+0x8` added up as the parse adds them (0x42b0a5).
+#[cfg(any(test, feature = "sim", feature = "score-files"))]
+fn summed(mut record: Vec<u8>) -> Vec<u8> {
     let sum = sum(&record[RECORD_SUMMED_FROM..]);
     record[RECORD_SUM_AT..RECORD_SUM_AT + 4].copy_from_slice(&sum.to_le_bytes());
     record
 }
+
+/// The header word at `+0xc` of the file 0x42b030 makes where it reads none, which the writer carries on.
+#[cfg(any(test, feature = "sim", feature = "score-files"))]
+const FRESH_HEADERS_WORD: u32 = 0x100;
+
+/// **The records a game with no file of its own makes** (0x42ae60): seven shot types' records as 0x42acb0 empties
+/// one and the settings as 0x42add0 does, each numbered and summed as the writer numbers and sums them (0x42b1e0) —
+/// what a fresh install's first teardown writes. `generator` is the word 0x42add0 draws the settings' `0x200`
+/// words from, `0x4918b0` as `timeGetTime` seeded it.
+#[cfg(any(test, feature = "score-files"))]
+pub fn the_records_of_a_fresh_install(generator: u16) -> Records {
+    let mut records = Records::default();
+    for (number, slot) in records.shot_types.iter_mut().enumerate() {
+        *slot = Some(an_empty_shot_types_record(number));
+    }
+    records.settings = Some(empty_settings(generator));
+    records
+}
+
+/// 0x42acb0: nought, `CR` and its size, five difficulties' rankings of ten from 1,000,000 down by 100,000 under the
+/// name `--------`, and every card numbered with its difficulty out of `0x4743c0`.
+#[cfg(any(test, feature = "score-files"))]
+fn an_empty_shot_types_record(number: usize) -> Vec<u8> {
+    let mut record = vec![0; SHOT_TYPES_RECORD_BYTES];
+    record[..2].copy_from_slice(SHOT_TYPES_RECORD);
+    put_dword(&mut record, RECORD_SIZE_AT, SHOT_TYPES_RECORD_BYTES as u32);
+    for difficulty in 0..RANKED_DIFFICULTIES {
+        for place in 0..RANKED_PLACES {
+            let at = RANKING_AT + (difficulty * RANKED_PLACES + place) * RANKED_ENTRY_BYTES;
+            put_dword(
+                &mut record,
+                at,
+                RANKED_SCORE_AT_THE_TOP - RANKED_SCORE_STEP * place as u32,
+            );
+            record[at + RANKED_STAGE_AT] = 1;
+            record[at + RANKED_NAME_AT..at + RANKED_NAME_AT + RANKED_NAME.len()]
+                .copy_from_slice(RANKED_NAME);
+        }
+    }
+    for (card, difficulty) in CARD_DIFFICULTIES.iter().enumerate() {
+        let at = CARDS_AT + card * CARD_BYTES;
+        put_dword(&mut record, at + CARD_NUMBER_AT, card as u32);
+        put_dword(&mut record, at + CARD_DIFFICULTY_AT, u32::from(*difficulty));
+    }
+    put_dword(&mut record, RECORD_NUMBER_AT, number as u32);
+    summed(record)
+}
+
+/// 0x42add0: nought, `ST` and its size, eight spaces of name, and `0x200` words drawn from the generator.
+#[cfg(any(test, feature = "score-files"))]
+fn empty_settings(mut generator: u16) -> Vec<u8> {
+    let mut record = vec![0; SETTINGS_BYTES];
+    record[..2].copy_from_slice(SETTINGS);
+    put_dword(&mut record, RECORD_SIZE_AT, SETTINGS_BYTES as u32);
+    record[SETTINGS_NAME_AT..SETTINGS_NAME_AT + SETTINGS_NAME.len()].copy_from_slice(SETTINGS_NAME);
+    for word in 0..SETTINGS_DRAWS {
+        // One draw of the generator, inlined in 0x42add0.
+        generator = (generator ^ 0x9630).wrapping_sub(0x6553).rotate_left(2);
+        let at = SETTINGS_DRAWS_AT + word * 2;
+        record[at..at + 2].copy_from_slice(&generator.to_le_bytes());
+    }
+    summed(record)
+}
+
+/// **A stage cleared, as a run of the main game marks it** (0x416c08): the practice's entry `stage + difficulty *
+/// 6` of the shot type's record, the stage counted from 1, its `+0x4` and `+0x5` set to 1 — the latter the byte the
+/// practice select offers a stage by (0x4314be).
+#[cfg(any(test, feature = "score-files"))]
+pub fn a_stage_cleared(
+    records: &mut Records,
+    character: usize,
+    shot: usize,
+    difficulty: usize,
+    stage: usize,
+) {
+    let Some(Some(record)) = records.shot_types.get_mut(character * 3 + shot) else {
+        return;
+    };
+    let at = PRACTICE_AT + (stage + difficulty * PRACTICE_STAGES) * PRACTICE_ENTRY_BYTES;
+    record[at + PRACTICE_CLEARED_AT] = 1;
+    record[at + PRACTICE_OFFERED_AT] = 1;
+    *record = summed(record.clone());
+}
+
+/// **An ending seen, as the ending's set-up writes it** (0x40b560): the byte of ending `character * 3 + shot`, six
+/// more for a run with no continue above Easy, set to 1, and the flag of an ending of six or more seen — the bytes
+/// from the seventh the main menu offers the Extra by (0x42c850).
+#[cfg(any(test, feature = "score-files"))]
+pub fn an_ending_seen(
+    records: &mut Records,
+    character: usize,
+    shot: usize,
+    continues: u32,
+    difficulty: u32,
+) {
+    let Some(settings) = records.settings.as_mut() else {
+        return;
+    };
+    let ending = character * 3
+        + shot
+        + if continues == 0 && difficulty > 0 {
+            6
+        } else {
+            0
+        };
+    settings[ENDINGS_SEEN_AT + ending] = 1;
+    if ending > 5 {
+        settings[AN_ENDING_OF_SIX_OR_MORE_SEEN_AT] = 1;
+    }
+    *settings = summed(settings.clone());
+}
+
+#[cfg(any(test, feature = "score-files"))]
+fn put_dword(bytes: &mut [u8], at: usize, value: u32) {
+    bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+/// A shot type's ranking (0x42acb0): from `+0x10`, ten places of `0x18` bytes for each of five difficulties, the
+/// score at `+0x0`, the stage reached at `+0x4` and the name at `+0x6`.
+#[cfg(any(test, feature = "score-files"))]
+const RANKING_AT: usize = 0x10;
+#[cfg(any(test, feature = "score-files"))]
+const RANKED_DIFFICULTIES: usize = 5;
+#[cfg(any(test, feature = "score-files"))]
+const RANKED_PLACES: usize = 10;
+#[cfg(any(test, feature = "score-files"))]
+const RANKED_ENTRY_BYTES: usize = 0x18;
+#[cfg(any(test, feature = "score-files"))]
+const RANKED_STAGE_AT: usize = 0x4;
+#[cfg(any(test, feature = "score-files"))]
+const RANKED_NAME_AT: usize = 0x6;
+#[cfg(any(test, feature = "score-files"))]
+const RANKED_SCORE_AT_THE_TOP: u32 = 1_000_000;
+#[cfg(any(test, feature = "score-files"))]
+const RANKED_SCORE_STEP: u32 = 100_000;
+#[cfg(any(test, feature = "score-files"))]
+const RANKED_NAME: &[u8; 9] = b"--------\0";
+
+/// The cards (0x42acb0): 110 of `0x8c` bytes, each numbered at `+0x624` of the record and its difficulty at
+/// `+0x628`.
+#[cfg(any(test, feature = "score-files"))]
+const CARDS_AT: usize = 0x624 - CARD_NUMBER_AT;
+#[cfg(any(test, feature = "score-files"))]
+const CARD_BYTES: usize = 0x8c;
+#[cfg(any(test, feature = "score-files"))]
+const CARD_NUMBER_AT: usize = 0x0;
+#[cfg(any(test, feature = "score-files"))]
+const CARD_DIFFICULTY_AT: usize = 0x4;
+/// **Each card's difficulty**, the 110 bytes at `0x4743c0` (`objdump -s --start-address=0x4743c0
+/// --stop-address=0x47442e th10.exe`).
+#[cfg(any(test, feature = "score-files"))]
+const CARD_DIFFICULTIES: [u8; 110] = [
+    2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, //
+    2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, //
+    2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, //
+    2, 3, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, //
+    3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, //
+    3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, //
+    3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+];
+
+/// The settings (0x42add0): eight spaces of name at `+0xc` and the generator's `0x200` words from `+0x46`.
+#[cfg(any(test, feature = "score-files"))]
+const SETTINGS_NAME_AT: usize = 0xc;
+#[cfg(any(test, feature = "score-files"))]
+const SETTINGS_NAME: &[u8; 9] = b"        \0";
+#[cfg(any(test, feature = "score-files"))]
+const SETTINGS_DRAWS_AT: usize = 0x46;
+#[cfg(any(test, feature = "score-files"))]
+const SETTINGS_DRAWS: usize = 0x200;
+/// The endings seen (0x40b560): a byte an ending from `+0x16` and the flag at `+0x22`.
+#[cfg(any(test, feature = "score-files"))]
+const ENDINGS_SEEN_AT: usize = 0x16;
+#[cfg(any(test, feature = "score-files"))]
+const AN_ENDING_OF_SIX_OR_MORE_SEEN_AT: usize = 0x22;
+
+/// The practice (0x416c08's marks, read at 0x4314be): 25 entries of 8 bytes, `stage + difficulty * 6`, from `+0x4d4`
+/// — the game's own entry nought being no stage's, which `Th10`'s reading counts from `+0x4dc` instead.
+#[cfg(any(test, feature = "score-files"))]
+const PRACTICE_AT: usize = 0x4d4;
+#[cfg(any(test, feature = "score-files"))]
+const PRACTICE_STAGES: usize = 6;
+#[cfg(any(test, feature = "score-files"))]
+const PRACTICE_ENTRY_BYTES: usize = 8;
+#[cfg(any(test, feature = "score-files"))]
+const PRACTICE_CLEARED_AT: usize = 0x4;
+#[cfg(any(test, feature = "score-files"))]
+const PRACTICE_OFFERED_AT: usize = 0x5;
 
 /// A shot type's record, numbered.
 #[cfg(any(test, feature = "sim"))]
@@ -366,6 +571,60 @@ mod tests {
         let read = decode(&encode(&records)).expect("a file of th10's");
         assert_eq!(read.shot_types[3], None);
         assert_eq!(read.shot_types[6], a_file().shot_types[6]);
+    }
+
+    #[test]
+    fn a_fresh_installs_records_are_read_back_whole_and_sound() {
+        let records = the_records_of_a_fresh_install(0x1234);
+        assert_eq!(decode(&encode(&records)), Some(records));
+    }
+
+    #[test]
+    fn a_fresh_installs_rankings_go_down_from_a_million_and_its_cards_are_numbered() {
+        let records = the_records_of_a_fresh_install(0);
+        let record = records.shot_types[4]
+            .as_ref()
+            .expect("a shot type's record");
+        assert_eq!(dword(record, RECORD_NUMBER_AT), Some(4));
+        assert_eq!(dword(record, RANKING_AT), Some(1_000_000));
+        assert_eq!(
+            dword(record, RANKING_AT + 9 * RANKED_ENTRY_BYTES),
+            Some(100_000)
+        );
+        let the_last_card = CARDS_AT + 109 * CARD_BYTES;
+        assert_eq!(dword(record, the_last_card + CARD_NUMBER_AT), Some(109));
+        assert_eq!(dword(record, the_last_card + CARD_DIFFICULTY_AT), Some(4));
+    }
+
+    #[test]
+    fn a_normal_clear_with_no_continue_lights_the_byte_the_extra_is_offered_by() {
+        let mut records = the_records_of_a_fresh_install(0);
+        an_ending_seen(&mut records, 0, 0, 0, 1);
+        let read = decode(&encode(&records)).expect("a file of th10's");
+        let settings = read.settings.expect("the settings");
+        assert_eq!(settings[ENDINGS_SEEN_AT + 6], 1);
+        assert_eq!(settings[AN_ENDING_OF_SIX_OR_MORE_SEEN_AT], 1);
+    }
+
+    #[test]
+    fn an_easy_clear_lights_no_byte_the_extra_is_offered_by() {
+        let mut records = the_records_of_a_fresh_install(0);
+        an_ending_seen(&mut records, 0, 0, 0, 0);
+        let settings = records.settings.expect("the settings");
+        assert_eq!(settings[ENDINGS_SEEN_AT], 1);
+        assert_eq!(settings[ENDINGS_SEEN_AT + 6], 0);
+    }
+
+    #[test]
+    fn a_stage_cleared_is_offered_where_th10s_own_reading_finds_it() {
+        let mut records = the_records_of_a_fresh_install(0);
+        a_stage_cleared(&mut records, 0, 0, 1, 1);
+        let record = records.shot_types[0]
+            .as_ref()
+            .expect("a shot type's record");
+        // `Th10`'s reading: from `+0x4dc`, the stage counted from nought.
+        assert_eq!(record[0x4dc + 6 * 8 + 0x5], 1);
+        assert_eq!(decode(&encode(&records)), Some(records));
     }
 
     #[test]

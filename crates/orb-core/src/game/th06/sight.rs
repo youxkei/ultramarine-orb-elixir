@@ -119,6 +119,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             at: unsafe { position(bullet + bullet_manager::BULLET_POSITION) },
             step: Some((vx * scale, vy * scale)),
             half: (wx / 2.0, wy / 2.0),
+            grows: 0.0,
         });
     }
     // **And the enemies, whose bodies are as solid as a bullet in this game too.** Which is what a run on its
@@ -151,6 +152,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             at: unsafe { position(at + enemy::POSITION) },
             step: None,
             half: (sx / enemy::HALF_OF_ITS_SIZE, sy / enemy::HALF_OF_ITS_SIZE),
+            grows: 0.0,
         });
     }
     // **And the lasers, which are a line rather than a box**: the player's own test for one at 0x427190 turns

@@ -1891,9 +1891,9 @@ impl Fake {
     ///
     /// **Settable rather than the default**, which is a game that has been cleared: every e2e test that
     /// walks to the Extra needs one, and what needs this is `the_cases_the_real_game_is_tested_with` —
-    /// `cargo xtask real` takes the copy's own records aside before every case that does not continue the one
-    /// before, so the real title offers no Extra until the case that clears the game, and a title offering
-    /// one is a different walk.
+    /// `cargo xtask real` takes the copy's own records aside before every case that does not start from records
+    /// of a clear, so the real title offers no Extra until the run clears the game, and a title offering one is
+    /// a different walk.
     pub fn its_records_hold_no_clear(&self) {
         self.cleared.set(false);
         let record = Image::reached_record(the_run().shot_type, REACHED_WITHOUT_A_CLEAR);
@@ -3330,6 +3330,10 @@ impl Fake {
     /// So the scene is written settled rather than asked for, and there is no `Scene::Ending` for the
     /// supervisor to build.
     fn enters_the_ending(&self) {
+        // **The clear in the records in memory**, which is where the title reads `Extra Start` from on the same
+        // launch (0x43a736): the stage callback raises the shot's `CLRD` arrays to a clear as the last stage ends.
+        self.cleared.set(true);
+        self.image.parses_the_unlocks(&cleared());
         let front = self.image.front_end_now();
         self.image.front_end(FrontEnd { frames: 0, ..front });
         // The gameplay scene's draw jobs go with it, `g_Gui`'s among them, which is the panel off the

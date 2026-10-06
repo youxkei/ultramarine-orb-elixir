@@ -134,6 +134,8 @@ pub mod th07;
 pub mod th08;
 #[cfg(target_arch = "x86")]
 pub mod th10;
+#[cfg(target_arch = "x86")]
+pub mod th11;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;

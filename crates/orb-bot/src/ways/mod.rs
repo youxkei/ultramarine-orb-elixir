@@ -22,6 +22,7 @@ mod th06c;
 mod th06nc;
 mod th08;
 mod th10;
+mod th11;
 
 /// **The difficulties a way is written for, as every game here numbers them**: Easy 0, Normal 1, Hard 2, Lunatic 3,
 /// and the Extra 4 — each game's own `DIFFICULTY_EXTRA`.
@@ -38,6 +39,8 @@ pub(crate) fn for_a_run_of(game: &str, difficulty: i32) -> Ways {
         ("th08", EXTRA) => th08::extra(),
         ("th10", NORMAL) => th10::normal(),
         ("th10", EXTRA) => th10::extra(),
+        ("th11", NORMAL) => th11::normal(),
+        ("th11", EXTRA) => th11::extra(),
         _ => Ways::default(),
     }
 }

@@ -3,8 +3,8 @@
 # `はじめから` throws it away, and a fresh run would write over the replay the run before it was writing,
 # so orb keeps that one first.
 #
-# **This case continues the one before it**, so the chapter and the replay it answers about are that run's
-# — see `Case::continues`, and the recipe beside this one that leaves them.
+# **This case plays `a_death_answered_by_the_chapter_again.yaml` first**, so the chapter and the replay it
+# answers about are that run's — see `Case::before`.
 #
 # **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
 # run, 4 is the difficulty on Normal and 5 the team select, which takes two presses.

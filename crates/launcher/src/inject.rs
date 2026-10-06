@@ -11,7 +11,9 @@ use std::path::Path;
 use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE, WAIT_OBJECT_0};
-use windows_sys::Win32::System::Diagnostics::Debug::WriteProcessMemory;
+use windows_sys::Win32::System::Diagnostics::Debug::{
+    CheckRemoteDebuggerPresent, WriteProcessMemory,
+};
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::Memory::{
     MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
@@ -99,6 +101,23 @@ impl Process {
         let result = self.write_path_and_load(remote, &path, bytes);
         unsafe { VirtualFreeEx(self.process, remote, 0, MEM_RELEASE) };
         result
+    }
+
+    /// **Waits, the game still suspended, until a debugger is attached to it or `within` has gone**, and says
+    /// which of the two it was.
+    pub fn waits_for_a_debugger(&self, within: std::time::Duration) -> io::Result<bool> {
+        let started = std::time::Instant::now();
+        while started.elapsed() < within {
+            let mut attached = FALSE;
+            if unsafe { CheckRemoteDebuggerPresent(self.process, &mut attached) } == FALSE {
+                return Err(io::Error::last_os_error());
+            }
+            if attached != FALSE {
+                return Ok(true);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        Ok(false)
     }
 
     pub fn resume(&mut self) -> io::Result<()> {

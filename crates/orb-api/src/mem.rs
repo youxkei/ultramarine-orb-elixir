@@ -196,6 +196,20 @@ pub fn allocation_at(address: usize) -> Option<usize> {
     host::allocation_at(address)
 }
 
+/// **The run of pages about `address` that can all be read**, by [`read_committed`]'s rule, and nothing where
+/// `address` cannot be — for a caller reading many words out of a few regions, which then asks the host once a
+/// region and not once a word.
+///
+/// The pages are as they were when asked: a caller holds on to the run only while the game is stopped between
+/// frames, nothing then freeing what it read.
+pub fn readable_at(address: usize) -> Option<std::ops::Range<usize>> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.readable_at(address);
+    }
+    host::readable_at(address)
+}
+
 /// Swaps the word at `address` for `value` and answers what was there, unprotecting the page for as long
 /// as the write takes. `None` where the page could not be made writable.
 ///
@@ -616,6 +630,9 @@ mod host {
     }
     pub fn allocation_at(_address: usize) -> Option<usize> {
         no_windows("mem::allocation_at")
+    }
+    pub fn readable_at(_address: usize) -> Option<std::ops::Range<usize>> {
+        no_windows("mem::readable_at")
     }
     pub fn orbs_own() -> Vec<(usize, usize)> {
         no_windows("mem::orbs_own")

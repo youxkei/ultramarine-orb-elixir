@@ -175,6 +175,9 @@ Where a piece of writing goes:
 
 - Establish a claim about the game's behaviour by measurement. Establish where a thing is written
   plainly by a grep over the disassembly, and that a field never changes by watching it.
+- Read the strategy wiki (wikiwiki.jp/thk) with `scripts/wiki.sh <page> [<heading text>]` — `地/EX`,
+  `恋の埋火` — which prints the page's own text, every word of it, and never through WebFetch, which
+  hands back a model's summary of it. Read a card's whole section before writing or changing its way.
 - Watch and measure a launch of the real game through its trace — `scripts/watch-a-run.sh` as the
   monitor, `orb-real show` and the trace's own records afterwards — and never through `orb.log`. Read the
   `driving-orb-with-autoplay` skill's file before arming a monitor, and not a summary of it: a session

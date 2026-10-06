@@ -17,15 +17,18 @@
 //!
 //! **Nothing in that directory is deleted.** Every launch keeps orb's own files — the run it leaves, its
 //! replay, the trace — in a directory of this session's under `orb-real/`, through `--keep-in`, made fresh
-//! for each case that does not continue the one before it, so that a run left by an earlier session answers
-//! no question of this one. The settings stay the copy's own `orb.yaml`.
+//! for each case, so that a run left by an earlier session or case answers no question of this one. The
+//! settings stay the copy's own `orb.yaml`.
 //!
 //! **And the game's own records are moved aside so that a case starts from the same ones every time** — see
 //! [`Records`]: the score file, the configuration beside it and the file orb forks the first into are the
 //! copy's, are read and written by every launch, and are what decides which difficulty a select comes up on,
 //! which item the title menu is on and what the game says has been unlocked. They are taken into this
-//! session's own directory and put back when it ends, and what a launch writes is taken aside in turn before
-//! the next case that starts from nothing.
+//! session's own directory and put back when it ends, and what a case's launches write is taken aside in turn
+//! before the next case, which starts from none or from the records `orb-real records` makes for it.
+//!
+//! **No case depends on another**: a case that needs a run left or a replay kept plays the launches that leave
+//! one as its own first — `orb_real::Case::before` — so any case can be played alone.
 //!
 //! **The game is waited on by its process and not by orb's**: `orb.exe` returns as soon as it has injected,
 //! so what makes one launch one run is waiting for the game's exe to appear in the task list and then to
@@ -97,11 +100,36 @@ impl Records {
         Ok(held)
     }
 
-    /// And the ones a launch wrote taken aside in turn, which is what makes the next case's launch start
-    /// from none: a case that continues the one before keeps them instead, the run it picks up and the
-    /// unlock it needs being what that case is about.
+    /// And the ones the launches before wrote taken aside in turn, which is what makes every case start from
+    /// none, whichever cases were played before it.
     fn cleared(&self, into: &Path) -> Result<(), String> {
         self.moved(&self.copy, into)
+    }
+
+    /// Cleared, and the records `start` names laid in by `orb-real records` — see `orb_real::Start`: made
+    /// with the game's own logic, never left by a launch of another case.
+    fn started_from(
+        &self,
+        into: &Path,
+        checker: &Path,
+        game: &str,
+        start: &str,
+    ) -> Result<(), String> {
+        self.cleared(into)?;
+        if start == "nothing" {
+            return Ok(());
+        }
+        let mut lay = Command::new(checker);
+        lay.args([
+            "records".to_owned(),
+            game.to_owned(),
+            start.to_owned(),
+            windows_path(&self.copy),
+        ]);
+        match status(lay, "orb-real records") {
+            true => Ok(()),
+            false => Err(format!("{game}'s {start} records could not be laid")),
+        }
     }
 
     /// Every name that is there moved from one directory to the other, the directory made where anything
@@ -127,6 +155,10 @@ impl Records {
     }
 }
 
+/// **And the copy's own records go back only here**, so a session ended from outside — a `TaskStop`, a kill of
+/// this process — leaves them aside under its `the-copys-own-records` with the case's in their place: th11_dev's
+/// under `orb-real/1791676157` and th06nc_dev's under `orb-real/1791701034` (2026-10-11) were left so. A session
+/// is ended by its own bound and not from outside it.
 impl Drop for Records {
     fn drop(&mut self) {
         // **What the last launch wrote is moved aside and not deleted**, which is the same rule as the
@@ -158,7 +190,10 @@ impl Drop for Records {
 
 struct Case {
     name: String,
-    continues: bool,
+    /// The cases whose recipes it plays first, as launches of its own — see `orb_real::Case::before`.
+    before: Vec<String>,
+    /// The records its first launch starts from, as `orb-real records` takes them — see `orb_real::Start`.
+    starts_from: String,
     /// The most this launch may take before the session gives up on it, which is the case's own: every wait
     /// a recipe makes is bounded, so a launch still running past it is one whose step never gave up — and
     /// the case that plays a whole game is an hour and a half where the others are twenty minutes.
@@ -166,6 +201,8 @@ struct Case {
     /// How many updates a frame the case asks to be played at, which is the case's own too — see
     /// `orb_real::Case::speed`, where the rule and the measurements behind it are.
     speed: u32,
+    /// And how many times its own rate it asks to be paced to — see `orb_real::Case::pace`.
+    pace: u32,
 }
 
 pub fn real(args: Vec<String>) -> ExitCode {
@@ -173,12 +210,20 @@ pub fn real(args: Vec<String>) -> ExitCode {
     let Some(dir) = args.next() else {
         eprintln!(
             "usage: cargo xtask real <copy of the install> [--speed=N] [<case>...]\n\
+             \x20      cargo xtask real <copy of the install> --again=<recipe> --again-times=N\n\
+             \x20                       --again-records=<start> [--again-from=<kept dir>] [--again-pace=N] [--again-within=S]\n\
              \n\
              The directory holds one of the games orb runs and is a copy of the install, never the\n\
              install: the run writes the game's own records beside it. Cases are those of `orb-real`;\n\
              none named plays them all, in order, each at the speed it declares — four updates a frame\n\
              for a case that plays a whole game and the game's own for the rest. `--speed=N` overrides\n\
-             that with one speed for every launch, which is a sweep and not what a session wants."
+             that with one speed for every launch, which is a sweep and not what a session wants.\n\
+             \n\
+             `--again` is a measurement and not a case: the recipe — a file under `crates/orb-real/\n\
+             recipes/<game>/` — launched N times from the records `orb-real records <game> <start>`\n\
+             makes, and each chapter's deaths over its attempts said after each launch and over all of\n\
+             them. `--again-from` starts every launch's `--keep-in` as a copy of that directory. Nothing\n\
+             is checked."
         );
         return ExitCode::FAILURE;
     };
@@ -191,8 +236,17 @@ pub fn real(args: Vec<String>) -> ExitCode {
     //
     // The flag stays for a sweep, where what is wanted is every case at the one speed whatever it costs the
     // checks.
-    let (speed, only): (Vec<String>, Vec<String>) =
+    let (speed, rest): (Vec<String>, Vec<String>) =
         args.partition(|arg| arg.starts_with("--speed="));
+    let (again, only): (Vec<String>, Vec<String>) =
+        rest.into_iter().partition(|arg| arg.starts_with("--again"));
+    let again = match Again::from_flags(&again) {
+        Ok(again) => again,
+        Err(why) => {
+            eprintln!("xtask: {why}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     if !status(
         {
@@ -282,68 +336,71 @@ pub fn real(args: Vec<String>) -> ExitCode {
             }
         };
 
-    let mut base: Option<PathBuf> = None;
+    if let Some(again) = again {
+        return match again.measured(&dir, game, &checker, &session, &records, &speed) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                eprintln!("xtask: {why}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     for case in &game.cases {
         if !only.is_empty() && !only.iter().any(|name| name == &case.name) {
             continue;
         }
         let case_dir = session.join(&case.name);
-        let base_dir = match (&base, case.continues) {
-            (Some(base), true) => base.clone(),
-            _ => case_dir.join("base"),
-        };
-        if let Err(why) = lay_out(&game.name, case, &case_dir, &base_dir) {
+        let base_dir = case_dir.join("base");
+        // **The records the launches before wrote out of the way, and the ones this case starts from laid in.**
+        // See `orb_real::Start`: they are made with the game's own logic by `orb-real records`, never left by a
+        // launch of another case.
+        if let Err(why) = records.started_from(
+            &case_dir.join("the-records-before-it"),
+            &checker,
+            &game.name,
+            &case.starts_from,
+        ) {
             eprintln!("xtask: {why}");
             return ExitCode::FAILURE;
         }
-        // **And the records the launch before wrote out of the way too, where this case starts from none.**
-        // A case that continues the one before keeps them: the run it picks up is in orb's own directory,
-        // and what the game says has been unlocked is in these.
-        if !case.continues
-            && let Err(why) = records.cleared(&case_dir.join("the-records-before-it"))
-        {
-            eprintln!("xtask: {why}");
-            return ExitCode::FAILURE;
-        }
-        base = Some(base_dir.clone());
-
-        println!("xtask: {} {}: launching", game.name, case.name);
-        let mut launch = Command::new(dir.join("orb.exe"));
-        launch.current_dir(&dir).args([
-            format!("--game-dir={}", windows_path(&dir)),
-            format!("--keep-in={}", windows_path(&base_dir)),
-            format!("--autoplay={}", windows_path(&case_dir.join("recipe.yaml"))),
-            format!("--trace={}", windows_path(&case_dir.join("trace.msgpack"))),
-            // **And every chapter the run was hit in kept beside the trace**, because a hit is what a way is
-            // measured against and the run that took it is the one place it happens: a chapter picked up again
-            // plays the same way every time, so only the kept one says whether another way gets through it.
-            // th06c's stage 6 hit a no-hit case twice in one session and in none of fifteen attempts after it.
-            format!("--keep-hits-in={}", windows_path(&case_dir.join("hits"))),
-            "--log=verbose".to_owned(),
-            // **Pressed through the virtual pad**, so that a case plays the game the way somebody at a pad does:
-            // through the game's own read of one and through orb's menus' — and a game that takes no word as a
-            // pad has its word handed over as before, and its log says so.
-            "--through-a-pad".to_owned(),
-        ]);
-        // The flag where one was given, and the case's own otherwise.
-        match speed.is_empty() {
-            true => launch.arg(format!("--speed={}", case.speed)),
-            false => launch.args(&speed),
-        };
-        if !status(launch, "orb.exe") {
-            return ExitCode::FAILURE;
-        }
-        match wait_out(&game.exe, case.within) {
-            Ok(took) => println!(
-                "xtask: {} {}: the run is over after {}s",
-                game.name,
-                case.name,
-                took.as_secs()
-            ),
-            Err(why) => {
-                eprintln!("xtask: {} {}: {why}", game.name, case.name);
+        // **The cases it plays first, as launches of its own**, each in a directory of its own under this case's
+        // and all in this case's `--keep-in`, so that the run one leaves and the replay one keeps are the next's.
+        for (place, before) in case.before.iter().enumerate() {
+            let Some(earlier) = game.cases.iter().find(|known| &known.name == before) else {
+                eprintln!(
+                    "xtask: {} {} plays {before} first, which is no case of {}",
+                    game.name, case.name, game.name
+                );
+                return ExitCode::FAILURE;
+            };
+            let launch_dir = case_dir.join("before").join(format!("{place}-{before}"));
+            if let Err(why) = launched(
+                &dir,
+                game,
+                earlier,
+                &recipe_of(&game.name, &earlier.name),
+                &launch_dir,
+                &base_dir,
+                &speed,
+                &format!("{} (before {})", earlier.name, case.name),
+            ) {
+                eprintln!("xtask: {why}");
                 return ExitCode::FAILURE;
             }
+        }
+        if let Err(why) = launched(
+            &dir,
+            game,
+            case,
+            &recipe_of(&game.name, &case.name),
+            &case_dir,
+            &base_dir,
+            &speed,
+            &case.name,
+        ) {
+            eprintln!("xtask: {why}");
+            return ExitCode::FAILURE;
         }
     }
 
@@ -356,23 +413,329 @@ pub fn real(args: Vec<String>) -> ExitCode {
     }
 }
 
-/// The case's directory, with the recipe copied out of the tree, and the directory orb keeps its files in.
-fn lay_out(game: &str, case: &Case, case_dir: &Path, base_dir: &Path) -> Result<(), String> {
+/// **One launch of `recipe` as `case` declares it played**, the recipe, trace and kept hits in `launch_dir` and
+/// orb's own files in `base_dir`, waited out; `said` is what the lines about it call it.
+#[allow(clippy::too_many_arguments)] // Each is a separate thing a launch is made of, and a struct of them would be one named for this call alone.
+fn launched(
+    dir: &Path,
+    game: &Game,
+    case: &Case,
+    recipe: &Path,
+    launch_dir: &Path,
+    base_dir: &Path,
+    speed: &[String],
+    said: &str,
+) -> Result<(), String> {
+    lay_out(recipe, launch_dir, base_dir)?;
+    println!("xtask: {} {said}: launching", game.name);
+    let mut launch = Command::new(dir.join("orb.exe"));
+    launch.current_dir(dir).args([
+        format!("--game-dir={}", windows_path(dir)),
+        format!("--keep-in={}", windows_path(base_dir)),
+        format!(
+            "--autoplay={}",
+            windows_path(&launch_dir.join("recipe.yaml"))
+        ),
+        format!(
+            "--trace={}",
+            windows_path(&launch_dir.join("trace.msgpack"))
+        ),
+        // **And every chapter the run was hit in kept beside the trace**, because a hit is what a way is
+        // measured against and the run that took it is the one place it happens: a chapter picked up again
+        // plays the same way every time, so only the kept one says whether another way gets through it.
+        // th06c's stage 6 hit a no-hit case twice in one session and in none of fifteen attempts after it.
+        format!("--keep-hits-in={}", windows_path(&launch_dir.join("hits"))),
+        "--log=verbose".to_owned(),
+        // **Pressed through the virtual pad**, so that a case plays the game the way somebody at a pad does:
+        // through the game's own read of one and through orb's menus' — and a game that takes no word as a
+        // pad has its word handed over as before, and its log says so.
+        "--through-a-pad".to_owned(),
+    ]);
+    // The flag where one was given, and the case's own otherwise.
+    match speed.is_empty() {
+        true => launch.arg(format!("--speed={}", case.speed)),
+        false => launch.args(speed),
+    };
+    if case.pace > 1 {
+        launch.arg(format!("--pace={}", case.pace));
+    }
+    if !status(launch, "orb.exe") {
+        return Err(format!("{} {said}: orb.exe failed", game.name));
+    }
+    let took =
+        wait_out(&game.exe, case.within).map_err(|why| format!("{} {said}: {why}", game.name))?;
+    println!(
+        "xtask: {} {said}: the run is over after {}s",
+        game.name,
+        took.as_secs()
+    );
+    Ok(())
+}
+
+/// The launch's directory, with the recipe copied out of the tree, and the directory orb keeps its files in.
+fn lay_out(recipe: &Path, case_dir: &Path, base_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(case_dir)
         .map_err(|why| format!("{} cannot be made: {why}", case_dir.display()))?;
     std::fs::create_dir_all(base_dir)
         .map_err(|why| format!("{} cannot be made: {why}", base_dir.display()))?;
-    let recipe = repo_root()
-        .join("crates/orb-real/recipes")
-        .join(game)
-        .join(format!("{}.yaml", case.name));
-    std::fs::copy(&recipe, case_dir.join("recipe.yaml"))
+    std::fs::copy(recipe, case_dir.join("recipe.yaml"))
         .map_err(|why| format!("{} cannot be copied: {why}", recipe.display()))?;
     Ok(())
 }
 
-/// What `orb-real list` prints, read back: one line per case, `game exe records case continues within`,
-/// tab-separated, the records comma-separated among them.
+/// Where a recipe of `game`'s called `name` is in the tree.
+fn recipe_of(game: &str, name: &str) -> PathBuf {
+    repo_root()
+        .join("crates/orb-real/recipes")
+        .join(game)
+        .join(format!("{name}.yaml"))
+}
+
+/// **`--again`: one recipe launched again and again, and each chapter's attempts and deaths counted over all of
+/// them**, which is how a way is measured — a chapter's own hit rate, never a whole run's hits over a whole run.
+///
+/// **Over launches that differ, which a kept chapter picked up again is not**: it plays with the buttons and the
+/// generator it was played with, and orb's rules are a function of what they read, so every pick-up of one kept
+/// hit is the same attempt — th06nc's chapter 8 from `s7-c8-f8750` hit at 376.0,432.0 fifteen frames in on each
+/// of two (orb-real 1791701034). A launch from the start draws the generator from the clock, so it is the
+/// launches from nothing that count; `--again-from` is for a kept directory a run is to be played *on from*.
+struct Again {
+    /// The recipe's name under `crates/orb-real/recipes/<game>/`.
+    recipe: String,
+    /// The `--keep-in` each launch starts from a copy of, where there is one.
+    from: Option<PathBuf>,
+    times: u32,
+    /// The records each launch starts from, as `orb-real records` takes them.
+    records: String,
+    /// How many times its own rate each launch is paced to — `--again-pace`, one where it is not given.
+    pace: u32,
+    /// How long one launch is given — `--again-within`, in seconds, [`AN_ATTEMPT_WITHIN`] where it is not given.
+    within: Duration,
+}
+
+impl Again {
+    /// The flags, `--again-from` the one that may be left out.
+    fn from_flags(flags: &[String]) -> Result<Option<Self>, String> {
+        if flags.is_empty() {
+            return Ok(None);
+        }
+        let given = |name: &str| {
+            flags
+                .iter()
+                .find_map(|flag| flag.strip_prefix(&format!("{name}=")))
+                .map(str::to_owned)
+        };
+        let value = |name: &str| {
+            given(name).ok_or(format!(
+                "--again needs {name}=, with --again-times= and --again-records="
+            ))
+        };
+        let times = value("--again-times")?;
+        let pace = given("--again-pace").unwrap_or_else(|| "1".to_owned());
+        let within = match given("--again-within") {
+            Some(seconds) => Duration::from_secs(seconds.parse().map_err(|why| {
+                format!("--again-within={seconds} is no count of seconds: {why}")
+            })?),
+            None => AN_ATTEMPT_WITHIN,
+        };
+        Ok(Some(Self {
+            within,
+            pace: pace
+                .parse()
+                .map_err(|why| format!("--again-pace={pace} is no pace: {why}"))?,
+            recipe: value("--again")?,
+            from: given("--again-from").map(PathBuf::from),
+            times: times
+                .parse()
+                .map_err(|why| format!("--again-times={times} is no count: {why}"))?,
+            records: value("--again-records")?,
+        }))
+    }
+
+    /// Every launch played and what it died in said after it.
+    fn measured(
+        &self,
+        dir: &Path,
+        game: &Game,
+        checker: &Path,
+        session: &Path,
+        records: &Records,
+        speed: &[String],
+    ) -> Result<(), String> {
+        let recipe = recipe_of(&game.name, &self.recipe);
+        if !recipe.is_file() {
+            return Err(format!("{} is no recipe", recipe.display()));
+        }
+        // **At the game's own speed and at the pace asked for**: a pace is the same updates in less wall time, where a
+        // speed is more updates a frame and plays another game — see `orb_real::Case::pace`.
+        let played = Case {
+            name: self.recipe.clone(),
+            before: Vec::new(),
+            starts_from: self.records.clone(),
+            within: self.within,
+            speed: 1,
+            pace: self.pace,
+        };
+        let mut chapters = Chapters::default();
+        let mut lost = 0;
+        for time in 1..=self.times {
+            let launch_dir = session.join(format!("{}-{time}", self.recipe));
+            let base_dir = launch_dir.join("base");
+            records.started_from(
+                &launch_dir.join("the-records-before-it"),
+                checker,
+                &game.name,
+                &self.records,
+            )?;
+            if let Some(from) = &self.from {
+                copied(from, &base_dir)?;
+            }
+            // **Ten seconds after the launch before**: a launch of th11_dev straight after one played to its end
+            // read its scoreth11.dat back empty and wrote it so, on 2026-10-08 and again on 2026-10-10.
+            std::thread::sleep(BETWEEN_LAUNCHES);
+            // **A launch that does not end is counted and passed over**, where a case's stops the session: what is
+            // measured here is a rate, and a launch the game hung or died in is one of them — th11's title stood
+            // spinning at f215 on 0x44b5c0 in one launch in seven (orb-real 1791748820), and the session stopping
+            // there left the three launches after it unplayed.
+            if let Err(why) = launched(
+                dir,
+                game,
+                &played,
+                &recipe,
+                &launch_dir,
+                &base_dir,
+                speed,
+                &format!("{} {time} of {}", self.recipe, self.times),
+            ) {
+                lost += 1;
+                println!(
+                    "xtask: {} {time} of {}: lost — {why}",
+                    self.recipe, self.times
+                );
+                closed(&game.exe)?;
+                continue;
+            }
+            let launch = Chapters::of_the_last_launch(&dir.join("orb.log"));
+            println!(
+                "xtask: {} {time} of {}: {}",
+                self.recipe,
+                self.times,
+                launch.said()
+            );
+            chapters.add(&launch);
+        }
+        println!(
+            "xtask: {} over {} launches: {}; {lost} lost",
+            self.recipe,
+            self.times,
+            chapters.said()
+        );
+        Ok(())
+    }
+}
+
+/// **Each chapter's attempts and deaths**, by its number in the stage — `(stage, chapter)` keyed.
+///
+/// An attempt is a chapter begun: its own `stage S chapter C … at frame` line where the run walked into it, and
+/// once more for every death in it the run carried on from, Pointdevice mode putting that same chapter back.
+#[derive(Default)]
+struct Chapters(std::collections::BTreeMap<(u32, u32), (u32, u32)>);
+
+impl Chapters {
+    /// The launch `orb.log` holds last, which is the one just waited out.
+    fn of_the_last_launch(log: &Path) -> Self {
+        let mut chapters = Self::default();
+        let Ok(bytes) = std::fs::read(log) else {
+            return chapters;
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        let last = text.rfind("---- new run ----").unwrap_or(0);
+        let mut stage = 0;
+        for line in text[last..].lines() {
+            // **The line's own words after its time**, so that a line quoting another — the configuration
+            // carries the recipe, comments and all — is never read as what it quotes.
+            let said = line.split_once("] ").map_or(line, |(_, said)| said);
+            if let Some((walked_into, chapter)) = Self::walked_into(said) {
+                stage = walked_into;
+                chapters.0.entry((stage, chapter)).or_default().0 += 1;
+            } else if let Some(chapter) = said
+                .strip_prefix("died in chapter ")
+                .and_then(|number| number.trim().parse().ok())
+            {
+                let counts = chapters.0.entry((stage, chapter)).or_default();
+                counts.1 += 1;
+                counts.0 += 1;
+            }
+        }
+        chapters
+    }
+
+    /// `stage S chapter C at frame F (script …)` or `… (stage start) at frame …`, the line a chapter begun says —
+    /// and not the lines that say more about one, `stage 7 chapter 4 at frame 5014: the attack it began has a
+    /// name after all` among them, nor `resume:`'s, which are what a chapter put back says.
+    fn walked_into(said: &str) -> Option<(u32, u32)> {
+        let rest = said.strip_prefix("stage ")?;
+        let (stage, rest) = rest.split_once(" chapter ")?;
+        let chapter: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        (rest.contains(" at frame ")
+            && (rest.contains("(script ") || rest.contains("(stage start)")))
+        .then(|| Some((stage.parse().ok()?, chapter.parse().ok()?)))
+        .flatten()
+    }
+
+    fn add(&mut self, other: &Self) {
+        for (chapter, (attempts, deaths)) in &other.0 {
+            let counts = self.0.entry(*chapter).or_default();
+            counts.0 += attempts;
+            counts.1 += deaths;
+        }
+    }
+
+    /// Every chapter that was died in, as `s7 c8: 2 of 5`, and how many chapters were attempted besides.
+    fn said(&self) -> String {
+        let died: Vec<String> = self
+            .0
+            .iter()
+            .filter(|(_, (_, deaths))| *deaths > 0)
+            .map(|((stage, chapter), (attempts, deaths))| {
+                format!("s{stage} c{chapter}: {deaths} of {attempts}")
+            })
+            .collect();
+        let clean = self.0.len() - died.len();
+        match died.is_empty() {
+            true => format!("no death in {clean} chapter(s)"),
+            false => format!("{}; no death in {clean} chapter(s)", died.join(", ")),
+        }
+    }
+}
+
+/// A launch of `--again` given as long as a case that plays a stage through.
+const AN_ATTEMPT_WITHIN: Duration = Duration::from_secs(1800);
+const BETWEEN_LAUNCHES: Duration = Duration::from_secs(10);
+
+/// `from` copied into `to`, every file and directory under it, `to` made fresh: a kept hit is picked up from a copy
+/// so that the next launch finds it as it was kept.
+fn copied(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|why| format!("{} cannot be made: {why}", to.display()))?;
+    let entries = std::fs::read_dir(from)
+        .map_err(|why| format!("{} cannot be read: {why}", from.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|why| format!("{} cannot be read: {why}", from.display()))?;
+        let source = entry.path();
+        let destination = to.join(entry.file_name());
+        match source.is_dir() {
+            true => copied(&source, &destination)?,
+            false => {
+                std::fs::copy(&source, &destination)
+                    .map_err(|why| format!("{} cannot be copied: {why}", source.display()))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What `orb-real list` prints, read back: one line per case, `game exe records target case before starts_from
+/// within speed pace`, tab-separated, the records and the cases before comma-separated among them.
 fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
     let listed = Command::new(checker)
         .arg("list")
@@ -389,20 +752,39 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
     let mut games: Vec<Game> = Vec::new();
     for line in text.lines() {
         let fields: Vec<&str> = line.split('\t').collect();
-        let [name, exe, records, target, case, continues, within, speed] = fields[..] else {
+        let [
+            name,
+            exe,
+            records,
+            target,
+            case,
+            before,
+            starts_from,
+            within,
+            speed,
+            pace,
+        ] = fields[..]
+        else {
             return Err(format!(
                 "orb-real list printed a line of another shape: {line:?}"
             ));
         };
         let case = Case {
             name: case.to_owned(),
-            continues: continues == "1",
+            before: match before {
+                "-" => Vec::new(),
+                before => before.split(',').map(str::to_owned).collect(),
+            },
+            starts_from: starts_from.to_owned(),
             within: Duration::from_secs(within.parse().map_err(|why| {
                 format!("orb-real list printed {within:?} as a count of seconds: {why}")
             })?),
             speed: speed.parse().map_err(|why| {
                 format!("orb-real list printed {speed:?} as a count of updates a frame: {why}")
             })?,
+            pace: pace
+                .parse()
+                .map_err(|why| format!("orb-real list printed {pace:?} as a pace: {why}"))?,
         };
         match games.iter_mut().find(|game| game.name == name) {
             Some(game) => game.cases.push(case),
@@ -444,6 +826,23 @@ fn gone(exe: &str) -> bool {
     }
     std::thread::sleep(Duration::from_secs(2));
     running(exe) == 0
+}
+
+/// **The game closed where it is still up**, through `scripts/game.sh` and not a `taskkill.exe` of this file's
+/// own: that script is the one place the code-page traps of closing a game by its name are known.
+fn closed(exe: &str) -> Result<(), String> {
+    if running(exe) == 0 {
+        return Ok(());
+    }
+    let status = Command::new("bash")
+        .arg(repo_root().join("scripts/game.sh"))
+        .args(["close", exe])
+        .status()
+        .map_err(|why| format!("scripts/game.sh could not be run: {why}"))?;
+    if !status.success() || !gone(exe) {
+        return Err(format!("{exe} would not close; the session stops here"));
+    }
+    Ok(())
 }
 
 /// Waits for the game to come up and then to go, and answers how long that took. `within` is the case's

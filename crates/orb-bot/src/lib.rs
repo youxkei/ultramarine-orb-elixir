@@ -59,7 +59,7 @@ use std::ops::Range;
 use std::sync::Mutex;
 
 use orb_config::recipe::{self, Until};
-use orb_core::game::{Game, Question, Reached};
+use orb_core::game::{Game, OnTheQuestion, Question, Reached};
 use orb_core::log;
 use orb_core::runtime;
 
@@ -91,6 +91,14 @@ const A_TAP: u32 = 10;
 /// answer, so on either list after it the first item is the one.
 const WAYS: u8 = 0;
 const FURTHER_BACK: usize = 1;
+/// The list of the chapters behind, after 更に前からやり直す.
+const CHAPTERS: u8 = 1;
+/// いいえ, the confirmation's second answer, which takes a question asked about the wrong way back to the ways.
+const NO: usize = 1;
+/// **How many frames from its tap a press is waited on to move the cursor**, nothing pressed meanwhile: two seconds at
+/// the game's own rate and 125 ms at `--pace=16`, where a tap's own twenty frames were too few — and a press that does
+/// move it is gone on from at once, so the wait is only ever a press the menu let go by.
+const A_PRESS_IS_LEFT_TO_LAND_FOR: u32 = 120;
 
 /// How often a step that has not ended says how long it has been going.
 ///
@@ -147,10 +155,20 @@ struct Playing {
     following: Option<u32>,
     /// And the attempt they were last handed — see [`hands_the_rules_their_attempt`].
     attempt: u32,
-    /// **Where the last offer to retry came up**, as the stage, the chapter and the stage frame the run was lost
-    /// on, and whether the one up was lost on the same three — what has the retry go a chapter further back.
-    lost_at: Option<(i32, u32, Option<u32>)>,
-    lost_again: bool,
+    /// **The chapter the last offers to retry came up in**, as the stage and the chapter, the stage frames it has been
+    /// lost on there, and how many times one of those has been lost on again — what has the retry go a chapter further
+    /// back for each; and how many chapters back the offer up is to be taken to.
+    lost_in: Option<(i32, u32)>,
+    lost_on: Vec<Option<u32>>,
+    times_lost_again: usize,
+    lost_again: usize,
+    /// **The furthest item down the chapters behind the offer up has listed**, and whether the walk down them went
+    /// past their end and back round to the top — see [`the_word`]'s walk.
+    furthest_listed: usize,
+    past_the_chapters_end: bool,
+    /// **Where on the offer the walk last pressed, and on which of its frames**, a press being left to land before
+    /// the next is pressed — see [`A_PRESS_IS_LEFT_TO_LAND_FOR`].
+    pressed_on: Option<(OnTheQuestion, u32)>,
     /// Whether an offer to retry was up the frame before, which is what says a new one has come up.
     retry_up: bool,
 }
@@ -556,8 +574,13 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
         dodging: None,
         following: None,
         attempt: 0,
-        lost_at: None,
-        lost_again: false,
+        lost_in: None,
+        lost_on: Vec::new(),
+        times_lost_again: 0,
+        lost_again: 0,
+        furthest_listed: 0,
+        past_the_chapters_end: false,
+        pressed_on: None,
         retry_up: false,
     })
 }
@@ -1031,19 +1054,53 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
             // a chapter drawn to be hit in was drawn again and hit again — th06nc's `a_run_played_to_its_clear`
             // (2026-10-05) was hit on purpose at 134.4,252.8 in stage 1's chapter 3 and sent back to chapter 2
             // seven times before the launch was closed.
+            //
+            // **And one chapter further back each time a frame lost on before is lost on again, every frame the
+            // chapter has been lost on counted**, and not only the last: whole Pointdevice Extra 51 at `--pace=16`
+            // (2026-10-10) was lost in its chapter 5 on one frame, again on it, went back to chapter 4, was lost from
+            // there on another frame of chapter 5, again on that one, went back to chapter 4 — and so on, 75 hits over
+            // eighteen walks further back, the count started over each time the frame changed.
             let lost = (!playing.hits.drawn_to_be_hit_in()).then_some((
                 reached.stage,
                 reached.chapter,
                 reached.stage_frames,
             ));
-            playing.lost_again = lost.is_some() && playing.lost_at == lost;
-            playing.lost_at = lost;
-            if playing.lost_again {
+            playing.lost_again = match lost {
+                Some((stage, chapter, frames)) => {
+                    if playing.lost_in != Some((stage, chapter)) {
+                        playing.lost_in = Some((stage, chapter));
+                        playing.lost_on.clear();
+                        playing.times_lost_again = 0;
+                    }
+                    match playing.lost_on.contains(&frames) {
+                        true => {
+                            playing.times_lost_again += 1;
+                            playing.times_lost_again
+                        }
+                        false => {
+                            playing.lost_on.push(frames);
+                            0
+                        }
+                    }
+                }
+                None => {
+                    playing.lost_in = None;
+                    playing.lost_on.clear();
+                    playing.times_lost_again = 0;
+                    0
+                }
+            };
+            playing.furthest_listed = 0;
+            playing.past_the_chapters_end = false;
+            playing.pressed_on = None;
+            if playing.lost_again > 0 {
                 log!(
-                    "autoplay: chapter {} of stage {} lost again on the stage frame it was lost on before, \
-                     so the retry goes a chapter further back",
+                    "autoplay: chapter {} of stage {} lost again on a stage frame it was lost on before, {} time(s) \
+                     in it, so the retry goes {} chapter(s) further back",
                     reached.chapter,
                     reached.stage,
+                    playing.lost_again,
+                    playing.lost_again,
                 );
             }
         }
@@ -1054,15 +1111,58 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // left to go is lost the same way every time. th06nc's Extra began its chapter 8 eight frames before a
         // hit with the run boxed in on the floor by the left wall, and took it again thirty-five times on stage
         // frame 9231 under the same generator before the launch was closed.
-        if playing.lost_again {
+        //
+        // **And one further back for each time over**, the chapter further back being played the same way from its
+        // own start: whole Pointdevice Extra 44 of th11 (2026-10-09) was hit in chapter 14 at `56.3,223.7`, went
+        // back to chapter 13, and was hit there again some forty times over 48 minutes, the nearest chapter behind
+        // decided on every time. Past the end of the chapters behind, the last of them — the stage's own start.
+        // **And the chapter again walked to as well, rather than decided on wherever the cursor stands**: the real
+        // case `the_extra_played_to_its_clear_with_no_hit_and_no_bomb` of th11 (2026-10-10), hit in chapter 16 for
+        // the first time, had its cursor come up on the run given up and decided on it 454 times over 80 seconds,
+        // the question opening on いいえ and going back to the ways each time.
+        let back = playing.lost_again.checked_sub(1);
+        if reached.on_the_question.is_some() || back.is_some() {
+            // **A press left to land before the next**, the cursor not having moved off where it was pressed on:
+            // whole Pointdevice Normal 29 at `--pace=16` (2026-10-10), a tap's twenty frames there some 21 ms through
+            // the pad, had its confirmation answer いいえ some twenty times over 25 seconds, an up pressed again
+            // before the first had moved the cursor taking it from いいえ to はい and back.
+            let since = |when: u32| playing.frames - when;
+            let landing = matches!(
+                (playing.pressed_on, reached.on_the_question),
+                (Some((was, when)), Some(now)) if now == was && (A_TAP..A_PRESS_IS_LEFT_TO_LAND_FOR).contains(&since(when))
+            );
+            if landing {
+                return Some(0);
+            }
+            if tapped
+                && playing
+                    .pressed_on
+                    .is_none_or(|(_, when)| since(when) >= A_TAP)
+            {
+                playing.pressed_on = reached.on_the_question.map(|on| (on, playing.frames));
+            }
             return Some(match reached.on_the_question.filter(|_| tapped) {
                 None => 0,
                 Some(on) => {
-                    let towards = match (on.list, on.at) {
-                        (WAYS, at) if at < FURTHER_BACK => "down",
-                        (WAYS, at) if at > FURTHER_BACK => "up",
-                        (WAYS, _) | (_, 0) => "decide",
-                        _ => "up",
+                    if on.list == CHAPTERS {
+                        playing.past_the_chapters_end |= on.at < playing.furthest_listed;
+                        playing.furthest_listed = playing.furthest_listed.max(on.at);
+                    }
+                    let towards = match back {
+                        None => match (on.list, on.at) {
+                            (WAYS, 0) | (CHAPTERS, _) => "decide",
+                            (WAYS, _) => "up",
+                            (_, NO) => "decide",
+                            _ => "down",
+                        },
+                        Some(back) => match (on.list, on.at) {
+                            (WAYS, at) if at < FURTHER_BACK => "down",
+                            (WAYS, at) if at > FURTHER_BACK => "up",
+                            (CHAPTERS, 0) if playing.past_the_chapters_end => "up",
+                            (CHAPTERS, at) if at < back && !playing.past_the_chapters_end => "down",
+                            (CHAPTERS, _) | (WAYS, _) | (_, 0) => "decide",
+                            _ => "up",
+                        },
                     };
                     game.button_bit(towards).unwrap_or(0)
                 }
@@ -1608,7 +1708,7 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{A_TAP, FURTHER_BACK, Playing, WAYS, read_the_recipe, steer, the_word};
+    use super::{A_TAP, CHAPTERS, FURTHER_BACK, Playing, WAYS, read_the_recipe, steer, the_word};
     use orb_core::game::{Game, OnTheQuestion, Question, Reached, th07::Th07};
 
     /// The game these are read against, which is th07 for the reason every recipe test uses it: what a button
@@ -1852,6 +1952,205 @@ mod tests {
                 .map(|name| Some(button(name)))
                 .to_vec(),
             "the offer lost again was not walked to the chapter behind",
+        );
+    }
+
+    /// **A chapter lost on two frames by turns goes back one chapter more each time one of them is lost on again**:
+    /// lost on one frame and then on it again goes back one; lost then on another, the chapter is taken again; and on
+    /// that one again, back two — and not back one over and over, the count started over with the frame.
+    #[test]
+    fn a_chapter_lost_on_two_frames_by_turns_goes_back_one_chapter_more_each_time_one_is_lost_on_again()
+     {
+        let mut playing = playing_to("- wait_until: { frames: 1000 }\n");
+        let button = |name: &str| Some(GAME.button_bit(name).expect("th07 has the button"));
+        let lost_on = |frame: u32, list: u8, at: usize| Reached {
+            stage_frames: Some(frame),
+            on_the_question: Some(OnTheQuestion { list, at }),
+            ..reached(Some(Question::Retry))
+        };
+        let gone = reached(None);
+        let offered = |playing: &mut Playing, frame: u32, at: (u8, usize)| {
+            playing.frames = 0;
+            let word = the_word(playing, GAME, lost_on(frame, at.0, at.1));
+            the_word(playing, GAME, gone);
+            word
+        };
+        assert_eq!(
+            offered(&mut playing, 9300, (WAYS, 0)),
+            button("decide"),
+            "the first loss was not taken again"
+        );
+        assert_eq!(
+            offered(&mut playing, 9300, (WAYS, 0)),
+            button("down"),
+            "lost again, not walked further back"
+        );
+        assert_eq!(
+            offered(&mut playing, 9450, (WAYS, 0)),
+            button("decide"),
+            "a frame of its own, not taken again"
+        );
+        playing.frames = 0;
+        let walked: Vec<_> = [
+            (WAYS, 0),
+            (WAYS, FURTHER_BACK),
+            (CHAPTERS, 0),
+            (CHAPTERS, 1),
+        ]
+        .map(|(list, at)| the_word(&mut playing, GAME, lost_on(9450, list, at)))
+        .to_vec();
+        assert_eq!(
+            walked,
+            [
+                button("down"),
+                button("decide"),
+                button("down"),
+                button("decide")
+            ],
+            "lost again on the second frame, not walked to the second chapter behind"
+        );
+    }
+
+    /// **A press on the walk further back is left to land before the next**: with the cursor not yet moved off the
+    /// item it was pressed on, nothing is pressed until it moves or the press is given up on, and then it is pressed
+    /// again.
+    #[test]
+    fn a_press_on_the_walk_further_back_is_left_to_land_before_the_next() {
+        let mut playing = playing_to("- wait_until: { frames: 1000 }\n");
+        let down = Some(GAME.button_bit("down").expect("th07 has the button"));
+        let lost_on_the_first = Reached {
+            stage_frames: Some(9300),
+            on_the_question: Some(OnTheQuestion { list: WAYS, at: 0 }),
+            ..reached(Some(Question::Retry))
+        };
+        the_word(&mut playing, GAME, lost_on_the_first);
+        the_word(&mut playing, GAME, reached(None));
+        playing.frames = 0;
+        let pressed: Vec<_> = (0..super::A_PRESS_IS_LEFT_TO_LAND_FOR + 1)
+            .map(|_| the_word(&mut playing, GAME, lost_on_the_first))
+            .collect();
+        let downs: Vec<usize> = pressed
+            .iter()
+            .enumerate()
+            .filter(|(_, word)| **word == down)
+            .map(|(frame, _)| frame)
+            .collect();
+        assert_eq!(
+            downs,
+            (0..A_TAP as usize)
+                .chain([super::A_PRESS_IS_LEFT_TO_LAND_FOR as usize])
+                .collect::<Vec<_>>(),
+            "the cursor not moving, down was pressed again before the press was given up on"
+        );
+    }
+
+    /// **A chapter lost for the first time with the cursor come up off the chapter again is walked back up to it**, and
+    /// a question asked about the wrong way on is answered いいえ.
+    #[test]
+    fn a_chapter_lost_with_the_cursor_on_the_run_given_up_is_walked_up_to_the_chapter_again() {
+        let mut playing = playing_to("- wait_until: { frames: 1000 }\n");
+        let button = |name: &str| Some(GAME.button_bit(name).expect("th07 has the button"));
+        let lost_on = |list: u8, at: usize| Reached {
+            stage_frames: Some(9300),
+            on_the_question: Some(OnTheQuestion { list, at }),
+            ..reached(Some(Question::Retry))
+        };
+        playing.frames = 0;
+        let walked: Vec<_> = [
+            (2, 0),
+            (2, super::NO),
+            (WAYS, 3),
+            (WAYS, 2),
+            (WAYS, FURTHER_BACK),
+            (WAYS, 0),
+        ]
+        .map(|(list, at)| the_word(&mut playing, GAME, lost_on(list, at)))
+        .to_vec();
+        assert_eq!(
+            walked,
+            [
+                button("down"),
+                button("decide"),
+                button("up"),
+                button("up"),
+                button("up"),
+                button("decide")
+            ],
+            "the cursor off the chapter again, the offer was not walked back up to it",
+        );
+    }
+
+    /// **Lost on that frame once more from the chapter behind, the retry goes back one chapter more**, and walked
+    /// down past the end of the chapters behind, to the last of them: the chapter behind is played the same way
+    /// from its own start, and decided on again it is lost again.
+    #[test]
+    fn a_chapter_lost_on_the_same_frame_from_the_chapter_behind_is_retried_from_one_further_back() {
+        let mut playing = playing_to("- wait_until: { frames: 1000 }\n");
+        let button = |name: &str| Some(GAME.button_bit(name).expect("th07 has the button"));
+        let lost_on = |list: u8, at: usize| Reached {
+            stage_frames: Some(9300),
+            on_the_question: Some(OnTheQuestion { list, at }),
+            ..reached(Some(Question::Retry))
+        };
+        let gone = reached(None);
+        // One offer, a frame on each place its walk comes to, and then gone.
+        let walked = |playing: &mut Playing, at: Vec<(u8, usize)>| -> Vec<_> {
+            let words = at
+                .into_iter()
+                .map(|(list, at)| the_word(playing, GAME, lost_on(list, at)))
+                .collect();
+            the_word(playing, GAME, gone);
+            words
+        };
+
+        walked(&mut playing, vec![(WAYS, 0)]);
+        walked(&mut playing, vec![(WAYS, 0)]);
+        // Each walk looked at from the first frame of a tap, every place it comes to on a frame pressed.
+        playing.frames = 0;
+        assert_eq!(
+            walked(
+                &mut playing,
+                vec![
+                    (WAYS, 0),
+                    (WAYS, FURTHER_BACK),
+                    (CHAPTERS, 0),
+                    (CHAPTERS, 1),
+                    (2, 0)
+                ]
+            ),
+            [
+                button("down"),
+                button("decide"),
+                button("down"),
+                button("decide"),
+                button("decide")
+            ],
+            "lost a third time, the offer was not walked to the second chapter behind",
+        );
+        playing.frames = 0;
+        assert_eq!(
+            walked(
+                &mut playing,
+                vec![
+                    (WAYS, 0),
+                    (WAYS, FURTHER_BACK),
+                    (CHAPTERS, 0),
+                    (CHAPTERS, 1),
+                    (CHAPTERS, 0),
+                    (CHAPTERS, 1),
+                    (2, 0)
+                ]
+            ),
+            [
+                button("down"),
+                button("decide"),
+                button("down"),
+                button("down"),
+                button("up"),
+                button("decide"),
+                button("decide")
+            ],
+            "with two chapters behind, the walk past their end was not taken back to the last of them",
         );
     }
 

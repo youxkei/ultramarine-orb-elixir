@@ -299,6 +299,12 @@ pub struct Options {
     #[arg(long, help_heading = FAULT)]
     trace_the_world: bool,
 
+    /// hold the game, made and with orb in it but not yet started, until a debugger is attached to it —
+    /// for a breakpoint the game's first moments run past before an attach to a running launch lands,
+    /// th11's title loading `title.anm` within some 350 ms of orb's attach at `--pace=16`
+    #[arg(long, help_heading = FAULT)]
+    hold_for_a_debugger: bool,
+
     /// keep the files orb writes of its own — the run left unfinished, its replay, the name it
     /// remembers, and a trace naming no directory — under this directory rather than beside the
     /// game. For a launch that is a test: what an earlier session left beside the game then
@@ -521,6 +527,9 @@ impl Config {
         if let Some(card) = options.trace_the_field_in {
             self.trace_the_field_in = Some(card);
         }
+        if options.hold_for_a_debugger {
+            self.hold_for_a_debugger = true;
+        }
         if options.trace_the_world {
             self.trace_the_world = true;
         }
@@ -646,6 +655,8 @@ mod tests {
     fn the_world_in_the_trace_is_only_ever_asked_for() {
         assert!(!with("").trace_the_world);
         assert!(with("--trace-the-world").trace_the_world);
+        assert!(!with("").hold_for_a_debugger);
+        assert!(with("--hold-for-a-debugger").hold_for_a_debugger);
     }
 
     /// Asking for both passes at once is a mistake rather than the later one winning: they are

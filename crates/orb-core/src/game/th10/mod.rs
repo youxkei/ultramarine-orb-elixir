@@ -1274,6 +1274,7 @@ impl Game for Th10 {
                 target: RENDER,
                 prologue: RENDER_PROLOGUE,
             }),
+            renders_too: &[],
             save_replay: None,
             stop_recording: None,
             stage_begun: None,
@@ -1312,6 +1313,8 @@ impl Game for Th10 {
             takes_its_memory: Memory::Kernel32Imports,
             // `CreateThread` of the same table, which its CRT's `_beginthreadex` (0x453683) ends in too.
             makes_its_threads: Threads::CreateThread,
+            unloads_beside_its_frame: None,
+            decodes_through_one_window: None,
             opens_its_files: FileOpen::CreateFileA,
         }
     }

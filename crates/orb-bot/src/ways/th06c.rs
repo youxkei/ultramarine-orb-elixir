@@ -34,6 +34,13 @@ pub(super) fn extra() -> Ways {
         // one moment of the stage, script frames 5384 to 5441, where two columns of fairies fly in from outside both
         // walls, taken on whichever wall the fire had pushed the run to; with the x the rules' own, all eight reached
         // chapter 9 with no death (2026-09-27).
+        //
+        // **And not th06nc's middle of the floor from chapter 7's frame 450**, though the same stage 100 script frames
+        // on: those eight were pick-ups of kept chapters, each one attempt over again, so launched from nothing it was
+        // measured, and it moved nothing — chapter 7 lost 4 of 24 and chapter 8 5 of 26 over 20 launches of
+        // `recipes/th06c/measured/the_extra_played_through_its_second_midstage` at pace 4 (orb-real 1791746835), where
+        // the x the rules' own lost 3 of 13 and 2 of 13 over ten whole Extras (1791744628), its hits in chapter 7 on
+        // the left wall, 21.7,432.0 and 8.0,276.9. th06nc's chapter 8 went from 11 of 36 lost to 3 of 24 by it.
         for_chapters: vec![
             (EXTRA, 7, Some(300..CHAPTER_7), ON_THE_FLOOR),
             (EXTRA, 8, None, ON_THE_FLOOR),

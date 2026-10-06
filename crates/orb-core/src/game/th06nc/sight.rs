@@ -83,6 +83,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             at: unsafe { position(bullet + bullet_manager::POSITION) },
             step: Some((vx * scale, vy * scale)),
             half: (half, half),
+            grows: 0.0,
         });
     }
     // **And the lasers, which are a line rather than a box**: the player's own test for one at
@@ -145,6 +146,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
                 sx / enemy::A_THIRD_OF_ITS_SIZE,
                 sy / enemy::A_THIRD_OF_ITS_SIZE,
             ),
+            grows: 0.0,
         });
     }
     // **Every slot walked and not the live count taken**, the same walk `0x1400443a0` makes.

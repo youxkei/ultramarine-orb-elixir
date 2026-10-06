@@ -3003,6 +3003,7 @@ impl Game for Th06nc {
                 target: at(THE_FRAME),
                 prologue: THE_FRAME_PROLOGUE,
             }),
+            renders_too: &[],
             input: Some(Read::LookedUp(Lookup {
                 name: KEYBOARD_READ,
             })),
@@ -3036,6 +3037,8 @@ impl Game for Th06nc {
             // stands in front of.
             takes_its_memory: Memory::ProcessHeapImport,
             makes_its_threads: Threads::CreateThread,
+            unloads_beside_its_frame: None,
+            decodes_through_one_window: None,
             opens_its_files: FileOpen::CreateFileW,
         }
     }
