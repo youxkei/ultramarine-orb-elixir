@@ -718,6 +718,16 @@ static FRAMES: AtomicU32 = AtomicU32::new(0);
 /// opened.
 static WAS_HIT: AtomicBool = AtomicBool::new(false);
 
+/// Whether a hit in a chapter drawn to be hit in is answered with one press of the bomb button — see
+/// [`press_the_bomb_on_a_hit`].
+static PRESS_ON_A_HIT: AtomicBool = AtomicBool::new(false);
+
+/// Says whether the rules press the bomb button once as a hit they were drawn to take lands, which a
+/// `take_hits` step sets for every frame after it.
+pub fn press_the_bomb_on_a_hit(on: bool) {
+    PRESS_ON_A_HIT.store(on, Ordering::Relaxed);
+}
+
 /// And whether the player had a border up on the frame before, so that its going down is said once.
 static HAD_A_BORDER: AtomicBool = AtomicBool::new(false);
 
@@ -1489,6 +1499,20 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // hit stands and takes the life — see `recipe::Step::Bombs`.
     if frame.hit && hazards == Hazards::Dodged && bombs {
         word |= keys.bomb;
+    }
+    // **And in a chapter drawn to be hit in, the button pressed once as the hit lands, where the recipe asks**
+    // — see `recipe::Step::TakeHits`. The first frame of the window and that one alone: a press and not a
+    // hold, and a single one, which 完全無欠ボムモード takes as a press in time where a pair would set a bomb
+    // off and take the hit back. Said to the runtime as a single press, which is what keeps it from doubling
+    // it the way it doubles a bomb of these rules.
+    if frame.hit
+        && hazards != Hazards::Dodged
+        && PRESS_ON_A_HIT.load(Ordering::Relaxed)
+        && !WAS_HIT.load(Ordering::Relaxed)
+    {
+        word |= keys.bomb;
+        orb_core::runtime::a_single_press_of_the_bomb();
+        detail!("autoplay: the bomb pressed once as the hit lands");
     }
     // A dialogue read at the game's own pace is the afternoon this was written to save.
     //

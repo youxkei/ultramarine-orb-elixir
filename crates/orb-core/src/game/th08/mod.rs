@@ -3133,6 +3133,30 @@ impl Game for Th08 {
         LIVES_ROW
     }
 
+    /// **The panel's star for each life**, one 16 pixels on from the last: the loop in the panel's draw
+    /// `0x43625d`, which draws vm `+0x1a68` of the panel once per life (`0x42f2b0`'s count, `[run+0x74]`) from x
+    /// `[0x4b4cfc]` = 488.0 at 0x436969 by `[0x4b42d4]` = 16.0 at 0x43697e, with y `[0x4b452c]` = 88.0 at
+    /// 0x4369a0 — the bombs the same loop 16 under it. In 640x480, the viewport that draw sets at 0x436279.
+    ///
+    /// The star's 16x16 and its corner being the position are th07's, the same author's same loop, and not read
+    /// off this exe: both are `front.anm`'s script 10, inside `th08.dat`. A picture of the panel is what holds
+    /// them to the game.
+    /// (22, 11, 12): the mean of the 1,120 pixels of the lives row past the second star, x 530 to 600 and y 88 to
+    /// 104, of `snapshot/a_part_of_a_life_gone-57339073.bmp` — a picture of a run with two lives. orb's own flat
+    /// colour, painted there before this was measured, came out as a grey square on the panel's dark red.
+    fn panel_colour(&self) -> Option<u32> {
+        Some(0xff16_0b0c)
+    }
+
+    fn life_star(&self, index: u32) -> Option<Rect> {
+        Some(Rect {
+            left: 488.0 + 16.0 * index as f32,
+            top: 88.0,
+            width: 16.0,
+            height: 16.0,
+        })
+    }
+
     fn content_size(&self) -> (u32, u32) {
         BACK_BUFFER
     }
@@ -3898,6 +3922,19 @@ impl Game for Th08 {
 
     unsafe fn run_state(&self) -> Vec<u8> {
         resume::encode_state(&unsafe { self.numbers() })
+    }
+
+    /// The run's float [`State::lives`] is read from, and the run sealed again after it, which is what the
+    /// game manager's own setter of the lives (0x406e20) does — see `put_the_numbers_back`.
+    unsafe fn set_lives(&self, lives: i8) -> bool {
+        let Some(run) = (unsafe { self.run_numbers() }) else {
+            return false;
+        };
+        unsafe {
+            mem::write::<f32>(run + LIVES, f32::from(lives));
+            self.seal_the_run(run);
+        }
+        true
     }
 
     unsafe fn set_run_state(&self, state: &[u8]) {

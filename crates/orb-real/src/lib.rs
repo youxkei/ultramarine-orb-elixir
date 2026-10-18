@@ -459,6 +459,34 @@ fn the_cases_of_th11() -> Vec<Case> {
             within: WITHIN,
             check: checks::a_death_of_th11_answered_by_the_chapter_again,
         },
+        // **完全無欠ボムモード's own case** — see the one of the three games the first list holds.
+        Case {
+            game: Game::Th11,
+            name: "a_bomb_mode_run_hit_without_the_press",
+            recipe: include_str!("../recipes/th11/a_bomb_mode_run_hit_without_the_press.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_without_the_press,
+        },
+        Case {
+            game: Game::Th11,
+            name: "a_bomb_mode_run_hit_with_the_press",
+            recipe: include_str!("../recipes/th11/a_bomb_mode_run_hit_with_the_press.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_with_the_press,
+        },
+        Case {
+            game: Game::Th11,
+            name: "a_part_of_a_life_gone",
+            recipe: include_str!("../recipes/th11/a_part_of_a_life_gone.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_part_of_a_life_gone_and_pictured,
+        },
         // **And the run that case left, started over from its own beginning with its replay kept**, and the attempt
         // of that replay the death rewound the run from watched, off orb's own list behind the main menu's item 3 —
         // the first chapter's first of two, which nothing but orb's replay keeps.
@@ -741,6 +769,34 @@ fn the_cases_of_th08() -> Vec<Case> {
             starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_of_th08_answered_by_the_chapter_again,
+        },
+        // **完全無欠ボムモード's own case** — see the one of the three games the first list holds.
+        Case {
+            game: Game::Th08,
+            name: "a_bomb_mode_run_hit_without_the_press",
+            recipe: include_str!("../recipes/th08/a_bomb_mode_run_hit_without_the_press.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_without_the_press,
+        },
+        Case {
+            game: Game::Th08,
+            name: "a_bomb_mode_run_hit_with_the_press",
+            recipe: include_str!("../recipes/th08/a_bomb_mode_run_hit_with_the_press.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_with_the_press,
+        },
+        Case {
+            game: Game::Th08,
+            name: "a_part_of_a_life_gone",
+            recipe: include_str!("../recipes/th08/a_part_of_a_life_gone.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_part_of_a_life_gone_and_pictured,
         },
         // **And the run that case left, started over from its own beginning with its replay kept**, which is
         // the other half of what the question at the title offers — and the replay it keeps is one of a run
@@ -1029,6 +1085,34 @@ fn the_cases_of_th10() -> Vec<Case> {
             within: WITHIN,
             check: checks::a_death_of_th10_answered_by_the_chapter_again,
         },
+        // **完全無欠ボムモード's own case** — see the one of the three games the first list holds.
+        Case {
+            game: Game::Th10,
+            name: "a_bomb_mode_run_hit_without_the_press",
+            recipe: include_str!("../recipes/th10/a_bomb_mode_run_hit_without_the_press.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_without_the_press,
+        },
+        Case {
+            game: Game::Th10,
+            name: "a_bomb_mode_run_hit_with_the_press",
+            recipe: include_str!("../recipes/th10/a_bomb_mode_run_hit_with_the_press.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_with_the_press,
+        },
+        Case {
+            game: Game::Th10,
+            name: "a_part_of_a_life_gone",
+            recipe: include_str!("../recipes/th10/a_part_of_a_life_gone.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_part_of_a_life_gone_and_pictured,
+        },
         // **And the run that case left, started over from its own beginning with its replay kept**, and the
         // attempt of that replay the death rewound the run from watched, off orb's own list behind the main
         // menu's item 3 — the first chapter's first of two, which nothing but orb's replay keeps. Both are
@@ -1281,6 +1365,35 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_answered_by_the_chapter_again,
+        },
+        // **完全無欠ボムモード's own case** — see the one of the three games before this.
+        Case {
+            game: Game::Th06nc,
+            name: "a_bomb_mode_run_hit_without_the_press",
+            recipe: include_str!("../recipes/th06nc/a_bomb_mode_run_hit_without_the_press.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_without_the_press,
+        },
+        Case {
+            game: Game::Th06nc,
+            name: "a_bomb_mode_run_hit_with_the_press",
+            recipe: include_str!("../recipes/th06nc/a_bomb_mode_run_hit_with_the_press.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_with_the_press,
+        },
+        // Pictured from outside, the game drawing through a swapchain.
+        Case {
+            game: Game::Th06nc,
+            name: "a_part_of_a_life_gone",
+            recipe: include_str!("../recipes/th06nc/a_part_of_a_life_gone.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_part_of_a_life_gone,
         },
         // **And the run that case left, started over rather than picked up**, which is the other answer
         // the resume question takes: the replay of the run being written over is asked about and kept,
@@ -1628,6 +1741,41 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
             starts_from: Start::Nothing,
             within: WITHIN,
             check: checks::a_death_answered_by_the_chapter_again,
+        },
+        // **完全無欠ボムモード's own case**: a hit with the bomb button never pressed, judged, and a life taken
+        // that the chapter put back does not give back.
+        Case {
+            game,
+            name: "a_bomb_mode_run_hit_without_the_press",
+            recipe: recipe!(game, "a_bomb_mode_run_hit_without_the_press"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_without_the_press,
+        },
+        // **And the hit taken with the press in time**, which keeps every life the run had.
+        Case {
+            game,
+            name: "a_bomb_mode_run_hit_with_the_press",
+            recipe: recipe!(game, "a_bomb_mode_run_hit_with_the_press"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::a_bomb_mode_run_hit_with_the_press,
+        },
+        // **And a part of a life gone, pictured** — the shaved star — where orb can take the frame: th06c draws
+        // through a swapchain, so its picture is taken from outside and the trace holds none.
+        Case {
+            game,
+            name: "a_part_of_a_life_gone",
+            recipe: recipe!(game, "a_part_of_a_life_gone"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: match game {
+                Game::Th06c => checks::a_part_of_a_life_gone,
+                _ => checks::a_part_of_a_life_gone_and_pictured,
+            },
         },
         // The two that watch what that death left: the run it gave up is what はじめから is answered about,
         // and the replay kept there is the one with two attempts at the chapter it died in.
@@ -3723,6 +3871,178 @@ pub mod checks {
                 "the run came back on frame {} of the stage, where chapter {chapter} began on frame {began}",
                 after.stage_frames
             )
+        })
+    }
+
+    /// **The state of the first record after `from` whose stage clock is behind the one at `from`**, which is the
+    /// chapter a retry put back. Not the next record of a run: those are the frame the death was settled on,
+    /// frozen under the retry menu with whatever the game had already done to its lives for the death — th07,
+    /// th10 and th11 take a life before orb's restore puts the chapter's back. Nor the next settled one: a
+    /// laid-out th06 puts its player back unsettled, and is hit again before it settles.
+    fn put_back_after(trace: &Trace, from: usize) -> Option<orb_core::game::State> {
+        let died_on = trace.records.get(from)?.state?.stage_frames;
+        trace.records[(from + 1).min(trace.records.len())..]
+            .iter()
+            .find_map(|record| {
+                record
+                    .state
+                    .filter(|state| state.in_run && state.stage_frames < died_on)
+            })
+    }
+
+    /// **A run of 完全無欠ボムモード on Lunatic hit with the bomb button never pressed**: the bomb mode chosen with
+    /// its difficulty, the hit judged at the death it settled as and a whole life taken for it, and the chapter
+    /// put back with the lives the run has written over the ones the snapshot held — so the run plays on a life
+    /// short of what it started with.
+    pub fn a_bomb_mode_run_hit_without_the_press(trace: &Trace) -> Result<(), String> {
+        let chosen = trace
+            .line_from(0, "bomb: the difficulty is lunatic")
+            .ok_or("the bomb mode was not answered with Lunatic")?;
+        trace
+            .line_from(chosen, "mode: pointdevice-bomb")
+            .ok_or("the mode the answer chose is not the bomb mode")?;
+        // The lives as the stage's first chapter has them, and not the run's first record's: a stage being built
+        // reads nought there.
+        let started = trace
+            .chapter_from(chosen, 1, 1)
+            .ok_or("the run never reached its first chapter")?;
+        let lives = trace.records[started]
+            .state
+            .ok_or("the first chapter stood over no state")?
+            .lives;
+        let taken = trace
+            .line_from(started, "not pressed in time, and a life is taken")
+            .ok_or("no hit was judged as one without the press that cost a life")?;
+        trace
+            .line_from(taken, "bomb: the lives put back to")
+            .ok_or("the restore's lives were not written over with the run's own")?;
+        // From the judgement's record and not the write's, which in th06c and th06nc is already the chapter put
+        // back and so has no clock to be behind of.
+        let after = put_back_after(trace, taken)
+            .ok_or("the run never came back after the retry")?
+            .lives;
+        expect(after == lives - 1, || {
+            format!(
+                "the run came back with {after} lives where it started with {lives}: the life the hit \
+                 took is not the one it is short of"
+            )
+        })?;
+        // And still a life short at the end of the launch, the restore having put nothing back.
+        let last = trace
+            .records
+            .iter()
+            .rev()
+            .find_map(|record| record.state.filter(|state| state.in_run))
+            .ok_or("the trace ends with no run in it")?;
+        expect(last.lives < lives, || {
+            format!(
+                "the run ended with {} lives, more than the {} the hit left it",
+                last.lives,
+                lives - 1
+            )
+        })
+    }
+
+    /// **A run of 完全無欠ボムモード on Lunatic hit with the bomb button pressed once as the hit lands**: the hit
+    /// judged as one with the press in time, no life taken for it, no bomb set off by the one press — the hit is
+    /// a death the retry menu answers — and the run carried on with every life it started with.
+    pub fn a_bomb_mode_run_hit_with_the_press(trace: &Trace) -> Result<(), String> {
+        let chosen = trace
+            .line_from(0, "bomb: the difficulty is lunatic")
+            .ok_or("the bomb mode was not answered with Lunatic")?;
+        let started = trace
+            .chapter_from(chosen, 1, 1)
+            .ok_or("the run never reached its first chapter")?;
+        let lives = trace.records[started]
+            .state
+            .ok_or("the first chapter stood over no state")?
+            .lives;
+        trace
+            .line_from(started, "autoplay: the bomb pressed once as the hit lands")
+            .ok_or("the rules never pressed the bomb as a hit landed")?;
+        // The first hit judged and not every one: a laid-out th06nc is hit again after the retry on a frame the
+        // rules cannot dodge, and nothing presses for a hit nobody drew.
+        let judged = trace
+            .line_from(started, "bomb: a hit settled")
+            .ok_or("no hit was judged")?;
+        expect(
+            trace.records[judged]
+                .lines
+                .iter()
+                .any(|line| line.contains(": pressed in time;")),
+            || "the first hit judged was not judged as one with the press in time".to_string(),
+        )?;
+        let after = put_back_after(trace, judged)
+            .ok_or("the run never came back after the retry")?
+            .lives;
+        expect(after == lives, || {
+            format!(
+                "the run came back with {after} lives where it started with {lives}, the hit having been \
+                 pressed for in time"
+            )
+        })
+    }
+
+    /// **A run of 完全無欠ボムモード on Normal hit with the bomb button never pressed, with a part of a life
+    /// gone and no whole one**: the hit judged as one without the press, a quarter of a life gone and the run
+    /// back from the retry with every whole life it had — which is the run whose last star is shown shaved, see
+    /// `orb_core::lives_ui::shave`.
+    pub fn a_part_of_a_life_gone(trace: &Trace) -> Result<(), String> {
+        let chosen = trace
+            .line_from(0, "bomb: the difficulty is normal")
+            .ok_or("the bomb mode was not answered with Normal")?;
+        let started = trace
+            .chapter_from(chosen, 1, 1)
+            .ok_or("the run never reached its first chapter")?;
+        let lives = trace.records[started]
+            .state
+            .ok_or("the first chapter stood over no state")?
+            .lives;
+        let judged = trace
+            .line_from(started, "bomb: a hit settled")
+            .ok_or("no hit was judged")?;
+        expect(
+            trace.records[judged]
+                .lines
+                .iter()
+                .any(|line| line.contains(": not pressed in time;")),
+            || "the first hit judged was not judged as one without the press".to_string(),
+        )?;
+        let after = put_back_after(trace, judged)
+            .ok_or("the run never came back after the retry")?
+            .lives;
+        expect(after == lives, || {
+            format!(
+                "the run came back with {after} lives where it started with {lives}, a quarter of a life \
+                 being no whole one"
+            )
+        })
+    }
+
+    /// **And a picture of the panel taken with that part gone**, for a game whose frame orb can take — the
+    /// recipe's `screenshot` after the hit — which is what the shaved star is held to.
+    ///
+    /// By the line `orb_core::shot` says once the file holds the frame, and not by a picture in the trace's
+    /// records: a launch of this on th06 wrote `snapshot\a_part_of_a_life_gone-….bmp` and left no record with a
+    /// picture in it.
+    ///
+    /// By the file's own name and not by the words anywhere in the line: the laid-out game's directory is
+    /// named after the case, `th08-real-a_part_of_a_life_gone-a_part_of_a_life_gone`, so every line naming a
+    /// file of that run — the replay written at the hit, the `hit-….bmp` taken of it — holds the words too.
+    pub fn a_part_of_a_life_gone_and_pictured(trace: &Trace) -> Result<(), String> {
+        a_part_of_a_life_gone(trace)?;
+        let judged = trace
+            .line_from(0, "bomb: a hit settled")
+            .ok_or("no hit was judged")?;
+        let pictured = trace.records[judged..].iter().any(|record| {
+            record.lines.iter().any(|line| {
+                line.split_once(" holds the frame")
+                    .and_then(|(path, _)| path.rsplit(['\\', '/']).next())
+                    .is_some_and(|file| file.starts_with("a_part_of_a_life_gone-"))
+            })
+        });
+        expect(pictured, || {
+            "no picture of the panel was taken after the hit".to_string()
         })
     }
 

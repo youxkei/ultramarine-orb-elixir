@@ -306,6 +306,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::game::{Game, RunStart};
+use crate::mode::Mode;
 use crate::sync::MainThread;
 use crate::{detail, log, writer};
 
@@ -321,6 +322,90 @@ const ABOUT: &str = "resume";
 /// chapter begins: with every run in it, that write would be every run's buttons a few seconds
 /// apart, and what it is written for is one of them.
 const DIRECTORY: &str = "pointdevice_resume";
+/// **And the bomb mode's beside it**, because a chapter written down in one of the two carries lives the
+/// other does not count: the bomb mode carries its lives across a rewind and Pointdevice mode puts them
+/// back, so a run of one picked up in the other would start with lives it never had.
+const BOMB_DIRECTORY: &str = "pointdevice_bomb_resume";
+/// Whether the runs being kept are the bomb mode's — see [`for_the_mode`].
+static IN_THE_BOMBS: AtomicBool = AtomicBool::new(false);
+
+/// Says which mode's directory the chapters of the runs to come are kept in and offered from, wherever the
+/// mode is settled.
+pub fn for_the_mode(mode: Mode) {
+    IN_THE_BOMBS.store(mode == Mode::PointdeviceBomb, Ordering::Relaxed);
+}
+
+fn directory() -> &'static str {
+    match IN_THE_BOMBS.load(Ordering::Relaxed) {
+        true => BOMB_DIRECTORY,
+        false => DIRECTORY,
+    }
+}
+
+/// **What the bomb mode's run owes towards its next life, in a file beside its chapter** — one number, the
+/// eighths — so that a run picked up in a later launch owes what it owed when the earlier one closed.
+///
+/// A file of its own and not a field of the chapter's, because the chapter's file is each game's own format
+/// ([`Game::encode_resume`]) and the parts are orb's alone: seven formats would each carry a number none of
+/// their games has, and a field added to a format is every file of it on a disk refused or misread.
+const OWED_EXTENSION: &str = "owed";
+
+/// The parts the run owes, as the bomb mode last said them — see [`owe`].
+static OWED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Says what the bomb mode's run in progress owes, and keeps it beside the run's chapter now: a retry into the
+/// chapter the run is already in writes no chapter again, so what a hit there made owed would otherwise wait
+/// for the next chapter to be kept.
+///
+/// # Safety
+/// Must run on the game's main thread, with a run in progress.
+pub unsafe fn owe(dir: &Path, game: &dyn Game, parts: u8) {
+    OWED.store(parts, Ordering::Relaxed);
+    if !IN_THE_BOMBS.load(Ordering::Relaxed) {
+        return;
+    }
+    let run = unsafe { game.run_start() };
+    if let Some(path) = slot(dir, game, &run) {
+        unsafe { keep_what_is_owed(&path) };
+    }
+}
+
+/// And what is owed said without anything written: for a run that has ended or not begun, there being no
+/// run's file to touch, and for a run picked up, whose file already says it.
+pub fn owing(parts: u8) {
+    OWED.store(parts, Ordering::Relaxed);
+}
+
+/// What is owed, written beside the chapter at `path`. A failure is said and not fatal: the chapter is the
+/// file that matters.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn keep_what_is_owed(path: &Path) {
+    let owed = path.with_extension(OWED_EXTENSION);
+    let parts = OWED.load(Ordering::Relaxed).to_string();
+    // The directory made here as well and not left to the writer's thread, which makes it for the chapter: this
+    // is written now, so the first chapter of a run in a fresh directory got here first — a laid-out th08 said
+    // `cannot write …normal-0-ply00a.owed: …pointdevice_bomb_resume is not there`.
+    if let Some(parent) = owed.parent()
+        && let Err(error) = orb_api::fs::create_dir_all(parent)
+    {
+        log!("resume: cannot make {}: {error}", parent.display());
+        return;
+    }
+    if let Err(error) = orb_api::fs::write(&owed, parts.as_bytes()) {
+        log!("resume: cannot write {}: {error}", owed.display());
+    }
+}
+
+/// What the run named by `run` owed when its chapter was last written down, and nought where nothing was
+/// kept beside it — every run of Pointdevice mode, and a bomb mode's run that owed nothing.
+pub fn owed(dir: &Path, game: &dyn Game, run: &RunStart) -> u8 {
+    slot(dir, game, run)
+        .and_then(|path| orb_api::fs::read_to_string(&path.with_extension(OWED_EXTENSION)).ok())
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(0)
+}
 /// MessagePack, with the field names in it — `to_vec_named`, not the positional arrays rmp-serde
 /// writes by default. What that buys is that the file needs nothing but itself to be read, so **nothing here
 /// reads one out for anybody**: a converter does, and reading one beside the log is what has caught every fault
@@ -1393,6 +1478,11 @@ pub unsafe fn write(
             .filter(|again| again.frame < at)
             .collect(),
     };
+    // And what the bomb mode's run owes, beside it — see [`OWED_EXTENSION`]. Written where it stands rather than
+    // handed to the writer's thread, being a few bytes.
+    if IN_THE_BOMBS.load(Ordering::Relaxed) {
+        unsafe { keep_what_is_owed(&path) };
+    }
     // The game's own file, asked for here where the game is at hand: the thread that writes it has none.
     writer::hand_over(writer::Handed {
         about: ABOUT,
@@ -1440,7 +1530,7 @@ pub unsafe fn keep_a_copy(dir: &Path, game: &dyn Game) -> Option<PathBuf> {
 /// that run. `None` for a run the game keeps no slot for, which is a run nothing here is about.
 fn slot(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<PathBuf> {
     Some(
-        dir.join(DIRECTORY)
+        dir.join(directory())
             .join(game.run_slot(run)?)
             .with_extension(EXTENSION),
     )
@@ -1502,7 +1592,7 @@ pub fn load(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<Kept> {
 /// about a file it cannot read, unlike [`load`]: the front end is not the place to say so, and the
 /// answer is the same either way — nothing to offer.
 pub fn peek(dir: &Path, game: &dyn Game, slot: &str) -> Option<String> {
-    let path = dir.join(DIRECTORY).join(slot).with_extension(EXTENSION);
+    let path = dir.join(directory()).join(slot).with_extension(EXTENSION);
     let bytes = orb_api::fs::read(&path).ok()?;
     Some(game.decode_resume(&bytes)?.describe())
 }
@@ -1511,7 +1601,7 @@ pub fn peek(dir: &Path, game: &dyn Game, slot: &str) -> Option<String> {
 /// of them the question will offer depends on what is chosen, and this is what says none of them was
 /// there to be offered.
 pub fn left(dir: &Path) -> Vec<String> {
-    let mut slots: Vec<String> = orb_api::fs::files_in(&dir.join(DIRECTORY))
+    let mut slots: Vec<String> = orb_api::fs::files_in(&dir.join(directory()))
         .into_iter()
         .flatten()
         .filter(|path| path.extension().is_some_and(|it| it == EXTENSION))
@@ -1526,6 +1616,8 @@ pub fn left(dir: &Path) -> Vec<String> {
 /// back to, and an offer to pick up a run that is over is worse than no offer.
 pub fn discard(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<PathBuf> {
     let path = slot(dir, game, run)?;
+    // What the run owed goes with its chapter, quietly: most runs never had one.
+    let _ = orb_api::fs::remove_file(&path.with_extension(OWED_EXTENSION));
     match orb_api::fs::remove_file(&path) {
         Ok(()) => {
             log!("resume: {} removed", path.display());

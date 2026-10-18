@@ -352,7 +352,7 @@ fn keys_are_not_read_with_another_window_in_front_or_a_host_that_will_not_say() 
 /// The ranking is asked the same way and with the same two modes: one choice for both, because the
 /// ranking of pointdevice runs and a pointdevice run are the same file.
 ///
-/// A different question, and it says so — `どちらのスコアを見る` where a run gets `モードを選ぶ` — and the
+/// A different question, and it says so — `どのスコアを見る` where a run gets `モードを選ぶ` — and the
 /// screen it lets through is the ranking rather than a run.
 #[test]
 fn the_ranking_is_asked_the_same_way_and_says_it_is_about_a_ranking() {

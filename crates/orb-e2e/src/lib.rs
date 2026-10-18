@@ -293,6 +293,10 @@ mod a_death_of_th11;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_pad_the_game_has_no_device_for;
 #[cfg(all(test, target_arch = "x86"))]
+mod a_pointdevice_bomb_run;
+#[cfg(all(test, target_arch = "x86"))]
+mod a_pointdevice_bomb_run_to_its_game_over;
+#[cfg(all(test, target_arch = "x86"))]
 mod a_pointdevice_run_of_th07;
 #[cfg(all(test, target_arch = "x86"))]
 mod a_pointdevice_run_of_th08;

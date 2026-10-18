@@ -1892,6 +1892,17 @@ impl Game for Th06 {
         }
     }
 
+    /// The `index`-th of those 16x16 stars, 16 pixels on from the one before.
+    fn life_star(&self, index: u32) -> Option<Rect> {
+        let row = self.lives_row();
+        Some(Rect {
+            left: row.left + 16.0 * index as f32,
+            top: row.top,
+            width: 16.0,
+            height: 16.0,
+        })
+    }
+
     /// And 8 pixels of panel either side of that row, which is the nearer of its two neighbours: the y's the
     /// panel's own rows are drawn from sit at 0x46ac40 and around it — 58, 82, **122**, 146, 186, 206, 226 —
     /// so with rows 16 tall there are 24 pixels free above this one and 8 below.
@@ -2279,6 +2290,12 @@ impl Game for Th06 {
 
     unsafe fn run_state(&self) -> Vec<u8> {
         resume::encode_state(&unsafe { self.numbers() })
+    }
+
+    /// The byte [`State::lives`] is read from, which the restore of a stage writes too.
+    unsafe fn set_lives(&self, lives: i8) -> bool {
+        unsafe { mem::write::<i8>(G_GAME_MANAGER + game_manager::LIVES_REMAINING, lives) };
+        true
     }
 
     unsafe fn set_run_state(&self, state: &[u8]) {

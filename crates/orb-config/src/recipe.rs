@@ -179,10 +179,16 @@ pub enum Step {
     /// **And `gives_up` is the chance that a death is answered by going back to the title** rather than by
     /// taking the chapter again, which is the other thing somebody who has just died does — and the one that
     /// leaves a run in a file for the next launch to pick up.
+    ///
+    /// **And `presses_the_bomb` is the bomb button pressed once on the frame such a hit lands**, inside the
+    /// window the game opens for a deathbomb: what 完全無欠ボムモード judges a hit by, and what that mode takes as a
+    /// press in time rather than a bomb — so a run of it can be shown keeping its lives. Nothing said is no
+    /// press, which is every recipe written before this.
     TakeHits {
         chance: f32,
         times_each_retry: f32,
         gives_up: f32,
+        presses_the_bomb: bool,
     },
     /// **Whether the rules may press the bomb**, from the step it is written at onwards.
     ///
@@ -798,6 +804,8 @@ struct WrittenHits {
     /// And nothing said is a run that always takes the chapter again, which is what every recipe written
     /// before this got and what a bot that never gave up did.
     gives_up: Option<f32>,
+    /// And nothing said is no press — see [`Step::TakeHits`].
+    presses_the_bomb: Option<bool>,
 }
 
 /// One of those two numbers, or what is wrong with it: a chance is a chance, and a factor a chance is
@@ -1138,6 +1146,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                     at,
                 )?,
                 gives_up: a_chance("a chance of giving up", hits.gives_up.unwrap_or(0.0), at)?,
+                presses_the_bomb: hits.presses_the_bomb.unwrap_or(false),
             },
             Written {
                 press: None,
@@ -1560,6 +1569,21 @@ mod tests {
                 chance: 0.25,
                 times_each_retry: 0.5,
                 gives_up: 0.1,
+                presses_the_bomb: false,
+            }]),
+        );
+    }
+
+    /// And the bomb button pressed on the frame such a hit lands, where a recipe asks for it.
+    #[test]
+    fn a_step_can_have_the_rules_press_the_bomb_as_they_are_hit() {
+        assert_eq!(
+            read("- take_hits: { chance: 1.0, presses_the_bomb: true }\n"),
+            Ok(vec![Step::TakeHits {
+                chance: 1.0,
+                times_each_retry: 1.0,
+                gives_up: 0.0,
+                presses_the_bomb: true,
             }]),
         );
     }
@@ -1574,6 +1598,7 @@ mod tests {
                 chance: 0.1,
                 times_each_retry: 1.0,
                 gives_up: 0.0,
+                presses_the_bomb: false,
             }]),
         );
     }

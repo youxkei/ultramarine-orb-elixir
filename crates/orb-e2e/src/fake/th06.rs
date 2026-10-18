@@ -2105,6 +2105,34 @@ impl Fake {
         self.started_at_the_games_own_screens();
     }
 
+    /// And in a run of the bomb mode, on the difficulty `downs` presses below the one its page comes up on —
+    /// Normal, where nothing has been chosen yet. The mode is the question's third item, two presses down;
+    /// choosing it puts the difficulty up as a page of the same question, which reads nothing for frames of
+    /// its own the way the question does.
+    ///
+    /// # Panics
+    /// Naming whichever step the run did not get past.
+    pub fn in_a_pointdevice_bomb_run(&self, downs: u32) {
+        let log = self.log();
+        self.at_the_title_menu();
+        self.press(keys::Z);
+        self.frames(READS_KEYS_AFTER);
+        self.press(keys::DOWN);
+        self.press(keys::DOWN);
+        self.press(keys::Z);
+        self.frames(READS_KEYS_AFTER);
+        for _ in 0..downs {
+            self.press(keys::DOWN);
+        }
+        self.press_until(keys::Z, "the difficulty answered", || {
+            log.said("mode: answered on the keyboard")
+        });
+        self.started_at_the_games_own_screens();
+        self.frames_until("the stage's first chapter", 400, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+    }
+
     /// And in a run nobody was asked about, which is what a launch that fixes the mode is: `--clear` and
     /// a pass over a replay take the mode they are given, so the press at the title menu is never held
     /// back and goes straight to the game's own screens.
@@ -2118,7 +2146,7 @@ impl Fake {
     }
 
     /// The shot answered at the game's own select, and the stage built out of it.
-    fn started_at_the_games_own_screens(&self) {
+    pub fn started_at_the_games_own_screens(&self) {
         self.frames_until("the shot type select ready to act on a press", 90, || {
             let front = self.image.front_end_now();
             front.screen == Screen::ShotType && front.acts_on_a_press()

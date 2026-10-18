@@ -1,0 +1,48 @@
+# **A run of th08 in 完全無欠ボムモード on Lunatic, hit in its second chapter with the bomb button never pressed**,
+# which is what the mode adds over this game: the hit judged at the death it settles as, a whole life taken
+# for it, and the chapter put back with the life still taken.
+#
+# **The walk is `a_death_answered_by_the_chapter_again.yaml`'s**, with the mode question answered twice: the
+# bomb mode, its third item, and then the difficulty its second page asks, Lunatic being that page's fourth.
+# And the rules kept off the bomb, which would take the hit back and leave nothing to judge.
+#
+# **The hits held to the one chapter**, where that case takes them for six thousand frames: every chapter is a
+# chance of one again, and on Lunatic a third hit is the game's own game over and its continue screen, which a
+# `play` step waits at for ever.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 2 }
+  give_up_after: 300
+- answer: { question: difficulty, item: 3 }
+  give_up_after: 300
+- bombs: false
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 3600
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 36000
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { frames: 600 }
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

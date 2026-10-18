@@ -362,7 +362,7 @@ const TITLE_ITEM_SCORE: i32 = 4;
 /// **The ranking is asked the same way and with the same two modes**: one choice for both, because the ranking of
 /// pointdevice runs and a pointdevice run are the same file — the question `mode_question.rs` asks of th06.
 ///
-/// A different question, and it says so — `どちらのスコアを見る` where a run gets `モードを選ぶ` — and what the
+/// A different question, and it says so — `どのスコアを見る` where a run gets `モードを選ぶ` — and what the
 /// answer lets through is the game's own Score item, which asks the supervisor for the ranking's scene: the same
 /// scene orb asks for after a run, and the one the game builds the ranking on.
 #[test]

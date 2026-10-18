@@ -144,10 +144,13 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
 /// [`every_case_of_th06c_has_a_test_of_its_own`], so a case added there fails this file rather than going
 /// unrun. **A test per case**, so that they are played at once rather than one after another: one test for
 /// all sixteen once took 181s of a 181s run, eleven tests on eight threads.
-const CASES: [&str; 20] = [
+const CASES: [&str; 23] = [
     "a_run_left_in_its_second_chapter",
     "the_run_picked_up_where_it_was_left",
     "a_death_answered_by_the_chapter_again",
+    "a_bomb_mode_run_hit_without_the_press",
+    "a_bomb_mode_run_hit_with_the_press",
+    "a_part_of_a_life_gone",
     "the_run_started_over_and_its_replay_kept",
     "an_attempt_of_the_kept_replay_watched",
     "a_chapter_taken_again_without_a_death",
@@ -249,6 +252,9 @@ a_test_per_case!(
     a_run_of_th06c_left_in_its_second_chapter => "a_run_left_in_its_second_chapter",
     the_run_of_th06c_picked_up_where_it_was_left => "the_run_picked_up_where_it_was_left",
     a_death_of_th06c_answered_by_the_chapter_again => "a_death_answered_by_the_chapter_again",
+    a_bomb_mode_run_of_th06c_hit_without_the_press => "a_bomb_mode_run_hit_without_the_press",
+    a_bomb_mode_run_of_th06c_hit_with_the_press => "a_bomb_mode_run_hit_with_the_press",
+    a_part_of_a_life_of_th06c_gone => "a_part_of_a_life_gone",
     the_run_of_th06c_started_over_and_its_replay_kept => "the_run_started_over_and_its_replay_kept",
     an_attempt_of_th06cs_kept_replay_watched => "an_attempt_of_the_kept_replay_watched",
     a_chapter_of_th06c_taken_again_without_a_death => "a_chapter_taken_again_without_a_death",

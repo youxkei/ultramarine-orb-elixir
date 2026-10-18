@@ -1,0 +1,79 @@
+# **A run of th06nc in 完全無欠ボムモード on Lunatic, hit with the bomb button never pressed**, which is what the
+# mode adds over this game: the hit judged at the death it settles as, a whole life taken for it, and the
+# chapter put back with the life still taken.
+#
+# **The walk is `a_death_answered_by_the_chapter_again.yaml`'s**, with the mode question answered twice: the
+# bomb mode, its third item, and then the difficulty its second page asks, Lunatic being that page's fourth.
+# And the rules kept off the bomb, which would take the hit back and leave nothing to judge.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 2 }
+  give_up_after: 300
+- answer: { question: difficulty, item: 3 }
+  give_up_after: 300
+- bombs: false
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 9, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { frames: 1800 }
+  give_up_after: 7200
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { stage: 1, chapter: 4 }
+  give_up_after: 36000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

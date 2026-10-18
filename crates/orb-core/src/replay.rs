@@ -159,6 +159,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use orb_api::clock::LocalTime;
 
 use crate::game::{Game, RunStart};
+use crate::mode::Mode;
 use crate::resume::{Kept, MAX_STAGE_FRAMES};
 use crate::sync::MainThread;
 use crate::{detail, log, writer};
@@ -170,6 +171,24 @@ const ABOUT: &str = "replay";
 /// The directory beside the game, which holds both the run being played and the ones that were kept: they
 /// are the same file at two moments, and a directory apiece would be two places to look for one run's.
 const DIRECTORY: &str = "pointdevice_replay";
+/// **And the bomb mode's beside it**, which is the list its own answer at the replays item opens: a run of
+/// it is played under rules a Pointdevice one is not, and the two lists are two modes' runs.
+const BOMB_DIRECTORY: &str = "pointdevice_bomb_replay";
+/// Whether the replays being written and listed are the bomb mode's — see [`for_the_mode`].
+static IN_THE_BOMBS: AtomicBool = AtomicBool::new(false);
+
+/// Says which mode's directory the replays to come are written to and listed from, wherever the mode is
+/// settled.
+pub fn for_the_mode(mode: Mode) {
+    IN_THE_BOMBS.store(mode == Mode::PointdeviceBomb, Ordering::Relaxed);
+}
+
+fn directory() -> &'static str {
+    match IN_THE_BOMBS.load(Ordering::Relaxed) {
+        true => BOMB_DIRECTORY,
+        false => DIRECTORY,
+    }
+}
 /// What a replay somebody kept is called. MessagePack with the field names in it, for the reasons the
 /// chapter file's own extension gives: the file is the machine's own, nobody reads a button mask by eye, and
 /// a file carrying its own field names needs nothing but itself and a msgpack-to-YAML converter to read.
@@ -859,7 +878,7 @@ pub fn keep_what_was_being_played(
         false => replay.started.clone(),
     };
     let into = dir
-        .join(DIRECTORY)
+        .join(directory())
         .join(format!("{slot}-{stamp}"))
         .with_extension(EXTENSION);
     // Written where it stands rather than handed to the writer's thread: this is the one moment there is to
@@ -914,7 +933,9 @@ fn display_beside(dir: &Path, path: &Path) -> String {
 
 /// Where the run of a slot that is being played is written.
 fn being_played_at(dir: &Path, slot: &str) -> PathBuf {
-    dir.join(DIRECTORY).join(slot).with_extension(WHILE_PLAYING)
+    dir.join(directory())
+        .join(slot)
+        .with_extension(WHILE_PLAYING)
 }
 
 /// The runs there is a replay of in progress, as the slots naming them.
@@ -937,7 +958,7 @@ pub fn saved(dir: &Path) -> Vec<String> {
 }
 
 fn stems(dir: &Path, extension: &str) -> Vec<String> {
-    let mut names: Vec<String> = orb_api::fs::files_in(&dir.join(DIRECTORY))
+    let mut names: Vec<String> = orb_api::fs::files_in(&dir.join(directory()))
         .into_iter()
         .flatten()
         .filter(|path| path.extension().is_some_and(|it| it == extension))
@@ -955,7 +976,7 @@ fn stems(dir: &Path, extension: &str) -> Vec<String> {
 /// file rather than asking orb about the launch it is in.
 pub fn read_saved(dir: &Path, name: &str, game: &dyn Game) -> Option<Replay> {
     read(
-        &dir.join(DIRECTORY).join(name).with_extension(EXTENSION),
+        &dir.join(directory()).join(name).with_extension(EXTENSION),
         game,
     )
 }

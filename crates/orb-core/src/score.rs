@@ -306,8 +306,9 @@ use std::ffi::{CStr, c_void};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::log;
+use crate::mode::Mode;
 
-/// **The two files a game's scores go to**: the game's own, as the game asks for it, and orb's beside it.
+/// **The files a game's scores go to**: the game's own, as the game asks for it, and orb's two beside it.
 ///
 /// Terminated, because one open of the game's is orb's own — see [`asked_for`] — and `CreateFileA` takes a
 /// terminated string.
@@ -316,6 +317,9 @@ pub struct Files {
     pub theirs: &'static CStr,
     /// Named for the mode whose runs are in it, so that a directory listing says which is which.
     pub ours: &'static CStr,
+    /// **And the bomb mode's beside it**, which is a ranking of its own for the reason
+    /// [`crate::mode`] gives: what a hit costs a run of it is not what it costs a Pointdevice one.
+    pub bombs: &'static CStr,
 }
 
 /// The names every game before th10 keeps its scores under, th10 naming its own `scoreth10.dat`.
@@ -327,6 +331,7 @@ pub struct Files {
 pub const SCORE_DAT: Files = Files {
     theirs: c"score.dat",
     ours: c"pointdevice_score.dat",
+    bombs: c"pointdevice_bomb_score.dat",
 };
 
 /// The same name as text, for a game that reads the file itself rather than asking the game's open for
@@ -385,6 +390,9 @@ static WATCHED: AtomicBool = AtomicBool::new(false);
 /// this file. Off until orb says, so a run started before anything was chosen is the game's own
 /// file — the same answer as no orb at all.
 static FORKED: AtomicBool = AtomicBool::new(false);
+/// And whether what it is forked to is the bomb mode's file rather than Pointdevice mode's — see
+/// [`Files::bombs`].
+static TO_THE_BOMBS: AtomicBool = AtomicBool::new(false);
 /// Whether the read now happening is the one the front end's unlocks come out of, which is the one
 /// read that is the game's own file whatever the mode.
 ///
@@ -392,13 +400,28 @@ static FORKED: AtomicBool = AtomicBool::new(false);
 /// which is where the bracket is set and cleared, and nothing else in the process opens it.
 static UNLOCKS: AtomicBool = AtomicBool::new(false);
 
-/// Sends the score file to orb's own, or leaves it as the game's.
+/// Sends the score file to the file of `mode`: one of orb's own for a mode whose runs are rewound, and
+/// the game's for the game's own.
 ///
 /// Called whenever the mode is settled, which is before anything opens the file: the ranking's
 /// own screen opens it as it is built, and so does the title menu — which is where the mode is
 /// chosen, one screen earlier.
-pub fn fork(ours: bool) {
-    FORKED.store(ours, Ordering::Relaxed);
+pub fn fork(mode: Mode) {
+    FORKED.store(mode.rewinds(), Ordering::Relaxed);
+    TO_THE_BOMBS.store(mode == Mode::PointdeviceBomb, Ordering::Relaxed);
+}
+
+/// orb's file of the two that a fork lands in now.
+fn ours_now(files: Files) -> &'static CStr {
+    ours_of(files, TO_THE_BOMBS.load(Ordering::Relaxed))
+}
+
+/// orb's file of the two, for the bomb mode or for Pointdevice mode.
+fn ours_of(files: Files, bombs: bool) -> &'static CStr {
+    match bombs {
+        true => files.bombs,
+        false => files.ours,
+    }
 }
 
 /// Says that the read about to happen is the one the front end's unlocks come out of, or that it is
@@ -519,7 +542,7 @@ pub fn asked_for() -> *const u8 {
 pub fn the_file_now_opened() -> &'static str {
     let files = files();
     let name = match FORKED.load(Ordering::Relaxed) {
-        true => files.ours,
+        true => ours_now(files),
         false => files.theirs,
     };
     // Every name a game gives is ASCII, so nothing reaches the empty answer.
@@ -532,7 +555,7 @@ pub fn forked(directory: &[u8]) -> Vec<u8> {
 }
 
 fn forked_among(files: Files, directory: &[u8]) -> Vec<u8> {
-    let ours = files.ours.to_bytes();
+    let ours = ours_now(files).to_bytes();
     let mut forked = Vec::with_capacity(directory.len() + ours.len() + 1);
     forked.extend_from_slice(directory);
     forked.extend_from_slice(ours);
@@ -780,7 +803,7 @@ pub fn theirs_wide(path: &[u16]) -> Option<&[u16]> {
 
 /// [`forked`] in UTF-16: orb's file in that directory, terminated.
 pub fn forked_wide(directory: &[u16]) -> Vec<u16> {
-    let ours = files().ours.to_bytes();
+    let ours = ours_now(files()).to_bytes();
     let mut forked = Vec::with_capacity(directory.len() + ours.len() + 1);
     forked.extend_from_slice(directory);
     forked.extend(ours.iter().map(|byte| u16::from(*byte)));
@@ -833,6 +856,7 @@ mod tests {
         GENERIC_WRITE, fork, forked, forked_wide, reading_unlocks, redirected, refuse_writes,
         refused, text, theirs, theirs_wide,
     };
+    use crate::mode::Mode;
 
     /// `GENERIC_READ`, the other of the two access bits the game asks with.
     const GENERIC_READ: u32 = 0x8000_0000;
@@ -873,14 +897,29 @@ mod tests {
     #[test]
     fn everything_but_the_unlocks_follows_the_mode() {
         assert!(!redirected(), "nothing until the mode says so");
-        fork(true);
+        fork(Mode::Pointdevice);
         assert!(redirected());
         reading_unlocks(true);
         assert!(!redirected(), "what the front end offers");
         reading_unlocks(false);
         assert!(redirected());
-        fork(false);
+        fork(Mode::Normal);
         assert!(!redirected(), "a normal run is the game's own file");
+    }
+
+    /// The bomb mode's runs are ranked in a file of their own beside Pointdevice mode's, and that file is
+    /// not taken for the game's and forked again.
+    #[test]
+    fn the_bomb_mode_has_a_file_of_its_own() {
+        assert_eq!(
+            super::ours_of(super::SCORE_DAT, true),
+            c"pointdevice_bomb_score.dat"
+        );
+        assert_eq!(
+            super::ours_of(super::SCORE_DAT, false),
+            c"pointdevice_score.dat"
+        );
+        assert!(theirs(b"pointdevice_bomb_score.dat").is_none());
     }
 
     /// The path orb's file is opened at, for a path the game asked for.
@@ -937,6 +976,7 @@ mod tests {
         let th10 = super::Files {
             theirs: c"scoreth10.dat",
             ours: c"pointdevice_scoreth10.dat",
+            bombs: c"pointdevice_bomb_scoreth10.dat",
         };
         assert_eq!(
             super::theirs_among(th10, br"C:\game\scoreth10.dat")

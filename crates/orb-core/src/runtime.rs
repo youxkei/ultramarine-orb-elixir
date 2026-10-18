@@ -77,6 +77,7 @@ use std::sync::atomic::{
 
 use orb_config::{Config, Language};
 
+use crate::bomb::{self, Judged, Run as BombRun};
 use crate::find;
 use crate::game::{CountedDeath, Game, Menu, Pad, Question, Reached, RunStart, State};
 use crate::input::{Keyboard, Pads};
@@ -450,8 +451,13 @@ pub struct Runtime {
     marked: bool,
     /// How many frames it has been kept for on that second count, for the line that says so.
     marked_after: u32,
-    /// Which of the two things a run is, and which of the two rankings is being looked at.
+    /// Which of the three things a run is, and which of the three rankings is being looked at.
     mode: Mode,
+    /// The bomb mode's difficulty, answered with that mode and where its question comes up next time — see
+    /// [`crate::bomb`].
+    difficulty: bomb::Difficulty,
+    /// What the bomb mode keeps of the run in progress across its rewinds — see [`BombRun`].
+    bombs: BombRun,
     /// Whether anybody is there to be asked which. A pass over a replay is not, and a menu
     /// frozen on a question nobody answers is a pass that never ends.
     asks_mode: bool,
@@ -981,6 +987,25 @@ pub static HOLD_CANCEL: AtomicBool = AtomicBool::new(false);
 /// Whether the next read is the first after one of orb's questions came down, on which nothing the
 /// game was not already holding is let through — see [`held_back`].
 pub static SETTLE_KEYS: AtomicBool = AtomicBool::new(false);
+/// **Whether the bomb button is taken out of the word the game reads**, which is the bomb mode's run — see
+/// [`the_bomb_button`]. Settled with the mode, in [`choose`].
+static THE_BOMB_IS_JUDGED: AtomicBool = AtomicBool::new(false);
+/// **The bomb button between the player and the game**, in a static of its own rather than in [`Runtime`]:
+/// it is read in the input hook, which runs inside the game's update while the frame hook has the runtime.
+static THE_BOMB_BUTTON: MainThread<bomb::Button> = MainThread::new(bomb::Button::NONE);
+/// **The bot's bomb, pressed twice where the mode wants a pair** — see [`bomb::Twice`].
+static THE_BOTS_BOMB: MainThread<bomb::Twice> = MainThread::new(bomb::Twice::NONE);
+/// Whether the bot's bomb on this frame is a single press and not a bomb — see
+/// [`a_single_press_of_the_bomb`].
+static A_SINGLE_PRESS: AtomicBool = AtomicBool::new(false);
+
+/// **Says that the bot's bomb on the frame it is choosing is one press of the button and not a bomb**, which the
+/// bomb mode then hands on as it is instead of pressing it twice: a recipe showing a hit taken with the press
+/// in time — see `orb_config::recipe::Step::TakeHits` — has the rules press once, and a pair would set the bomb
+/// off and take the hit away.
+pub fn a_single_press_of_the_bomb() {
+    A_SINGLE_PRESS.store(true, Ordering::Relaxed);
+}
 /// The word the game was handed on the read before, which is what the game's own idea of the frame
 /// before still says while a question of orb's is up: no frame of one runs its chain, so nothing
 /// assigns `g_LastFrameInput`.
@@ -1422,7 +1447,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     // Whether this launch keeps what it plays, and which runs an earlier one left unfinished. The
     // names only: which of them is offered depends on what is chosen at the character select, and
     // this is the line that says whether there was anything there to offer at all.
-    let keeping = config.chapters && config.resume && mode == Mode::Pointdevice;
+    let keeping = config.chapters && config.resume && mode.rewinds();
     resume::keep(keeping);
     // And the replay of the whole run beside it, which is the same answer and one thing more: a launch that
     // refuses to write a replay refuses this one — see [`Runtime::keeping_the_replay`], where the reason is.
@@ -1473,7 +1498,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     // went in: with nothing able to rewind, the mode is normal and this is the game's own file, which
     // is where it was anyway. By the game's own names for the two files, which differ from game to game.
     score::name_the_files(game.score_files());
-    score::fork(mode == Mode::Pointdevice);
+    score::fork(mode);
     // A game that reads the file once, at startup, makes the front end's read of its unlocks there — before
     // any callback a bracket could go round — so the bracket goes up now and comes down where the mode is
     // first settled, in [`choose`]. See [`Game::reads_its_file_once_at_startup`].
@@ -1563,6 +1588,8 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             marked: false,
             marked_after: 0,
             mode,
+            difficulty: bomb::Difficulty::Normal,
+            bombs: BombRun::default(),
             asks_mode,
             startup_read_bracketed: game.reads_its_file_once_at_startup() && !asks_mode,
             asking: None,
@@ -1596,7 +1623,7 @@ impl Runtime {
     /// here: a snapshot to send the player back to, an offer to retry a death that already happened, a
     /// chapter written down over the file of the run this attempt came out of, and a replay of a replay.
     fn chaptering(&self) -> bool {
-        self.config.chapters && self.mode == Mode::Pointdevice && self.watching.is_none()
+        self.config.chapters && self.mode.rewinds() && self.watching.is_none()
     }
 
     /// **And whether a run with no chapters of its own has them counted anyway**: a legacy run orb plays, whose
@@ -1759,6 +1786,21 @@ unsafe fn what_is_reached(runtime: &Runtime) {
             false => 0,
         });
     }
+    // **And the bot's bomb pressed twice, in the bomb mode**, where one press sets none off — see
+    // [`bomb::Twice`]. Here, before the word is handed over or pushed on the virtual pad, so that both ways a
+    // bot's word reaches the game carry the pair.
+    if !A_SINGLE_PRESS.swap(false, Ordering::Relaxed)
+        && THE_BOMB_IS_JUDGED.load(Ordering::Relaxed)
+        && let Some(bit) = runtime.game.button_bit("bomb")
+        && let Some(frame) = unsafe { runtime.game.stage_frame() }
+        && let Some(word) = playing.pressing
+    {
+        let down = unsafe { THE_BOTS_BOMB.get() }.down(frame, word & bit != 0);
+        playing.pressing = Some(match down {
+            true => word | bit,
+            false => word & !bit,
+        });
+    }
     unsafe { profile::record(profile::Phase::Steering, started) };
     // **And pushed on the virtual pad rather than handed over, for a launch pressing through one**, before the
     // game's read of the frame: the device the game holds stood in front of once it has one, and the pad let go
@@ -1836,8 +1878,11 @@ pub unsafe fn presses_through_a_pad(game: &dyn Game) -> bool {
 }
 
 fn question_up(runtime: &Runtime) -> Option<Question> {
-    if runtime.asking.is_some() {
-        Some(Question::Mode)
+    if let Some(asking) = &runtime.asking {
+        Some(match asking.on_the_cursor().list {
+            0 => Question::Mode,
+            _ => Question::Difficulty,
+        })
     } else if runtime.asking_resume.is_some() {
         Some(Question::Resume)
     } else if runtime.retry.is_some() {
@@ -1993,7 +2038,19 @@ const NO_WORD: i32 = -1;
 /// Must run on the game's main thread, between frames: that read goes through the game's own code.
 unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
-    score::fork(mode == Mode::Pointdevice);
+    score::fork(mode);
+    // The two Pointdevice modes keep their chapters and their replays apart, the way they keep their
+    // rankings apart — see `resume::BOMB_DIRECTORY` — so the directory is settled with the file.
+    resume::for_the_mode(mode);
+    replay::for_the_mode(mode);
+    // And the bomb button taken out of the word, where the mode judges it, with nothing pressed before.
+    THE_BOMB_IS_JUDGED.store(
+        runtime.config.chapters && mode == Mode::PointdeviceBomb,
+        Ordering::Relaxed,
+    );
+    unsafe { THE_BOMB_BUTTON.get() }.forget();
+    runtime.bombs = BombRun::default();
+    resume::owing(0);
     // The bracket a game whose one read is at startup had up since the attach comes down here, the mode
     // being settled: nothing inside one is running between frames, so this is nought for every other game.
     score::reading_unlocks(false);
@@ -3865,6 +3922,7 @@ fn held_back(game: &dyn Game, buttons: u16) -> u16 {
 /// # Safety
 /// Only ever called from the input hook, on the game's main thread.
 unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
+    let buttons = unsafe { the_bomb_button(game, frame, buttons) };
     trace::the_word(buttons);
     // **And the word kept for the `resume:` line to carry** — see [`WORD_THIS_FRAME`], which
     // [`the_frames_word`] is the other writer of.
@@ -3908,6 +3966,30 @@ unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
         unsafe { find::a_frame(&runtime.data, the_way(game, Some(buttons))) };
     }
     buttons
+}
+
+/// **The bomb mode's bomb button, taken out of the word the game reads** on a stage's frames and handed over
+/// on a second press — see [`bomb::Button`]. The word as it came everywhere else: the front end reads the
+/// same bit as back, and a run of another mode reads it as the bomb it is.
+///
+/// **In [`noted`] and not in front of each of its callers**, because every way out of the input hook comes
+/// through there: what is written down for a resume and a replay is then the word the game acted on, and a
+/// playback of either plays the bomb back on the frame the game saw it go off. A gate in front of the
+/// game's own read instead would have written the press down where nothing went off.
+///
+/// # Safety
+/// Only ever called from the input hook, on the game's main thread.
+unsafe fn the_bomb_button(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
+    let Some(frame) = frame.filter(|_| THE_BOMB_IS_JUDGED.load(Ordering::Relaxed)) else {
+        return buttons;
+    };
+    let Some(bit) = game.button_bit("bomb") else {
+        return buttons;
+    };
+    match unsafe { THE_BOMB_BUTTON.get() }.read(frame, buttons & bit != 0) {
+        true => buttons,
+        false => buttons & !bit,
+    }
 }
 
 /// Whether this read is the first one of a frame of the run, which is the half of the hand-over that a run
@@ -4606,6 +4688,20 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 // run was given up — so nothing about it should be compared against that
                 // frame.
                 runtime.previous = None;
+                // **The bomb mode's lives over the chapter's own**, which the restore has just put back: a life
+                // a hit took stays taken. Before the chapter is written down below, so that the file a session
+                // closed now leaves offers the lives the run has and not the ones the chapter began with.
+                if ended.is_some()
+                    && runtime.mode == Mode::PointdeviceBomb
+                    && let Some(lives) = runtime.bombs.lives
+                {
+                    match unsafe { runtime.game.set_lives(lives) } {
+                        true => log!("bomb: the lives put back to {lives} over the chapter's own"),
+                        false => log!(
+                            "bomb: this game's lives cannot be written; the chapter's own stand"
+                        ),
+                    }
+                }
                 // The chapter written down follows the run back, so that a session closed after going
                 // back offers the chapter the run is standing in rather than the one it left. Here
                 // because this is the chapter's own frame: the restore has just put the game on it, and
@@ -4647,6 +4743,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             None => asking.update(&runtime.keyboard, pad),
         };
         if let Some((answer, by)) = answered {
+            // The bomb mode's difficulty, where that is what was answered: chosen per run, and where the
+            // question comes up the next time it is asked.
+            if let Some(difficulty) = asking.difficulty() {
+                runtime.difficulty = difficulty;
+                log!(
+                    "bomb: the difficulty is {difficulty}, a hit without the press costing {}/{} of a life",
+                    difficulty.part(),
+                    bomb::A_LIFE
+                );
+            }
             runtime.asking = None;
             // Whichever way it was answered: the keys that answered it are the title menu's own keys
             // too, and the frame it carries on into is one where nothing of orb's has moved its
@@ -4662,8 +4768,8 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                     // game's own replays are on the game's own screen, so that answer is the item being
                     // chosen; a pointdevice run's are orb's own — the game has no screen for them — so
                     // that answer is a list of orb's over an item the game never acted on.
-                    match (asked, mode) {
-                        (Menu::Replays, Mode::Pointdevice) => {
+                    match (asked, mode.rewinds()) {
+                        (Menu::Replays, true) => {
                             the_replays_to_watch(runtime);
                         }
                         _ => FEED_DECIDE.store(true, Ordering::Relaxed),
@@ -5111,7 +5217,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // screen — the two screens whoever just finished the run reads and orb has no business over. Asked here
     // rather than where the chapter file is taken away, which is the frame the result screen comes up on:
     // a question there covers the name entry.
-    if runtime.mode == Mode::Pointdevice && unsafe { runtime.game.skip_replay_prompt() } {
+    if runtime.mode.rewinds() && unsafe { runtime.game.skip_replay_prompt() } {
         log!("result: no replay of the game's own is offered for a run with chapters");
         let run = unsafe { runtime.game.run_start() };
         if let Some(slot) = runtime.game.run_slot(&run) {
@@ -5352,6 +5458,30 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // held here while the game says the window is open, and a bomb inside it leaves the run playing with no
     // offer ever made — which is the whole of the window: an offer raised inside it freezes the game on the
     // frame the player would have bombed on, and takes the death th06 was going to give back.
+    // **The bomb mode's run**: the frame a hit lands on, which a press is judged against, and the lives read
+    // off a settled player at each chapter's start, which are what a restore is followed by — see
+    // [`BombRun`]. Forgotten with the run, and not with a stage: the lives and what is owed go on into the
+    // next stage the way the game's own lives do.
+    if runtime.mode == Mode::PointdeviceBomb && runtime.chaptering() {
+        // On the frame a run ends and not on every frame outside one, because what a run picked up owes is
+        // read back at the front end, before that run is in.
+        if !state.in_run {
+            if runtime.previous.is_some_and(|previous| previous.in_run) {
+                runtime.bombs = BombRun::default();
+                resume::owing(0);
+            }
+        } else if state.in_game {
+            if state.unsettled && !runtime.previous.is_some_and(|previous| previous.unsettled) {
+                runtime.bombs.hit(state.stage_frames);
+            }
+            if !state.unsettled && !runtime.deciding_a_death {
+                runtime
+                    .bombs
+                    .settled((state.stage, runtime.chapters.started_at()), state.lives);
+            }
+        }
+    }
+
     match state.in_game {
         // A death being decided is this run's: a stage left while the window was open — a run given up, a
         // game closed — leaves nothing to decide, and a decision kept across that would be answered against
@@ -5374,7 +5504,45 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 settled == CountedDeath::Taken
             }
         };
-    if died && runtime.chaptering() && runtime.chapters.can_retry() {
+    // **The bomb mode judges the hit before anything is offered**: whether the button went down in time, and
+    // what a hit without it costs. A life the run has not got is the game's own game over, so nothing is
+    // offered then — the game carries on into its death with the lives orb last wrote, nought, and what
+    // comes of that is its own: the continue it offers, or the result screen, which discards the chapter
+    // kept for this run the way it does after any run that finished there.
+    let mut over = false;
+    if died && runtime.mode == Mode::PointdeviceBomb && runtime.chaptering() {
+        let pressed = unsafe { THE_BOMB_BUTTON.get() }.judged();
+        let judged = runtime
+            .bombs
+            .judge(pressed, state.stage_frames, runtime.difficulty);
+        log!(
+            "bomb: a hit settled at frame {}, the button last pressed {}: {}; {} owed, lives {}",
+            state.stage_frames,
+            pressed.map_or_else(|| "never".to_string(), |at| format!("at frame {at}")),
+            match judged {
+                Judged::Pressed => "pressed in time",
+                Judged::Owed => "not pressed in time",
+                Judged::ALife => "not pressed in time, and a life is taken",
+                Judged::GameOver => "not pressed in time, and the run has no life to give",
+            },
+            runtime.bombs.owed,
+            runtime.bombs.lives.map_or_else(
+                || "for the game to say".to_string(),
+                |lives| lives.to_string()
+            ),
+        );
+        over = judged == Judged::GameOver;
+        if runtime.keeping() {
+            unsafe {
+                resume::owe(
+                    &runtime.config.base_dir,
+                    runtime.game,
+                    runtime.bombs.owed.parts(),
+                )
+            };
+        }
+    }
+    if died && !over && runtime.chaptering() && runtime.chapters.can_retry() {
         log!("died in chapter {}", runtime.chapters.number());
         let chapters = offered(runtime);
         runtime.retry = Some(RetryMenu::new(runtime.language, chapters));
@@ -5434,6 +5602,18 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                     if let Some(saved) = started.saved.filter(|_| started.slot == slot) {
                         runtime.starting = 0;
                         unsafe { resume::begin(runtime.game, saved) };
+                        // And what the bomb mode's run owed when its chapter was written down, which is
+                        // kept beside it — see `resume::OWED_EXTENSION`. The lives are the chapter's own,
+                        // read off the player once it is settled.
+                        if runtime.mode == Mode::PointdeviceBomb {
+                            let parts = resume::owed(&runtime.config.base_dir, runtime.game, &run);
+                            runtime.bombs = BombRun {
+                                owed: bomb::Owed::of(parts),
+                                ..BombRun::default()
+                            };
+                            resume::owing(runtime.bombs.owed.parts());
+                            log!("bomb: the run picked up owes {}", runtime.bombs.owed);
+                        }
                     }
                 }
                 // Nothing was answered a screen earlier, which is the one frame left to ask on — see
@@ -5578,7 +5758,12 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             }
             (_, _, Some(menu)) => {
                 log!("menu: {menu:?} is under the cursor, asking which mode");
-                runtime.asking = Some(ModeMenu::new(menu, runtime.mode, runtime.language));
+                runtime.asking = Some(ModeMenu::new(
+                    menu,
+                    runtime.mode,
+                    runtime.difficulty,
+                    runtime.language,
+                ));
             }
             // An item orb has nothing to ask about, which is four of the title menu's eight and every
             // frame the cursor has moved off one it does ask about. The press goes to the front end
@@ -7714,7 +7899,9 @@ unsafe fn before_draw() {
     // the answer is the one the next frame's decision is carried past the end of a run by.
     let marking = marking(runtime);
     runtime.marked = marking != Marking::No;
-    if runtime.marked {
+    // And under a star the bomb mode shaves, for the same reason the mark wants it: what is painted over has to
+    // be the game's own drawing of this frame, or the panel the shave leaves hardens into the next one.
+    if runtime.marked || the_star_a_part_is_gone_from(runtime).is_some() {
         unsafe { runtime.game.repaint_lives_row() };
     }
     // How long a panel outlives its run, said where it ends: that number is the whole of whether
@@ -7758,6 +7945,11 @@ unsafe fn before_draw() {
 /// against the frame before, and nothing can be hit on a frame the game spends building a stage or
 /// walking back to its title.
 fn marking(runtime: &Runtime) -> Marking {
+    // **Not in the bomb mode, whose lives a hit does take** — see [`crate::bomb`]: there the count is the
+    // run's, and what is drawn beside it instead is the part of the next life the run owes.
+    if runtime.mode == Mode::PointdeviceBomb {
+        return Marking::No;
+    }
     if runtime.chaptering() && runtime.chapters.can_retry() && runtime.chapters.somebody_playing() {
         return Marking::Run;
     }
@@ -7776,6 +7968,23 @@ enum Marking {
     /// leaves on the screen for as long as the front end takes to draw over it.
     PanelLeft,
     No,
+}
+
+/// **The star a part of a life is gone from in the bomb mode, and how much of it** — the last of the run's lives,
+/// the part being what a hit without the press has cost of it — or `None` where nothing is gone, where the
+/// mode is another, and where the game's stars have not been read.
+fn the_star_a_part_is_gone_from(runtime: &Runtime) -> Option<(crate::game::Rect, f32)> {
+    let parts = runtime.bombs.owed.parts();
+    if runtime.mode != Mode::PointdeviceBomb
+        || !runtime.chaptering()
+        || !runtime.chapters.somebody_playing()
+        || parts == 0
+    {
+        return None;
+    }
+    let lives = u32::try_from(runtime.bombs.lives?).ok()?.checked_sub(1)?;
+    let star = runtime.game.life_star(lives)?;
+    Some((star, f32::from(parts) / f32::from(bomb::A_LIFE)))
 }
 
 /// # Safety
@@ -7905,6 +8114,15 @@ unsafe fn draw_overlay() {
         let room = runtime.game.room_around_the_lives_row();
         let panel = unsafe { runtime.game.panel_tile() };
         unsafe { runtime.lives.draw(overlay, row, room, panel) };
+    }
+
+    // **The part of a life the bomb mode's run has lost, shaved off the last of the game's own stars** — see
+    // [`lives_ui::shave`]. Only where a part is gone, so a run that has pressed in time every hit has the panel
+    // as the game drew it.
+    if let Some((star, gone)) = the_star_a_part_is_gone_from(runtime) {
+        let panel = unsafe { runtime.game.panel_tile() };
+        let colour = runtime.game.panel_colour();
+        unsafe { crate::lives_ui::shave(overlay, star, gone, panel, colour) };
     }
 
     if let Some(menu) = &mut runtime.retry {

@@ -293,6 +293,77 @@ fn strips(area: Rect, row: Rect) -> [Rect; 2] {
     ]
 }
 
+/// **A part of a life gone, shown on the star the game draws for the run's last life** — 完全無欠ボムモード's,
+/// see [`crate::bomb`]: the part cut out of the star like a slice of cake, clockwise from twelve o'clock, and
+/// painted over with the panel the game lays under its stars. So what is left of the star is what is left of
+/// the life — three quarters of it after one hit without the press on Normal.
+///
+/// Painted over rather than drawn as a mark of orb's: the star is the game's own count, and a part of it gone
+/// is the count saying so, where a figure beside the row was a second count somebody has to read.
+///
+/// # Safety
+/// Must run between the game's `BeginScene` and `EndScene`, with `panel` naming a live texture of the game's
+/// device.
+///
+/// `colour` is the panel's own, for a game whose tile orb has not got — see `Game::panel_colour`.
+pub unsafe fn shave(
+    overlay: &Overlay,
+    star: Rect,
+    gone: f32,
+    panel: Option<PanelTile>,
+    colour: Option<u32>,
+) {
+    let Some(frame) = (unsafe { overlay.frame() }) else {
+        return;
+    };
+    for span in cut_out(star, gone) {
+        match (&panel, colour) {
+            (None, Some(colour)) => {
+                frame.fill(span.left, span.top, span.width, span.height, colour)
+            }
+            _ => unsafe { paint_strip(&frame, span, panel.as_ref()) },
+        }
+    }
+}
+
+/// **The pixels of `star` a cut of `gone` of a turn takes**, clockwise from twelve o'clock about its centre,
+/// as one span a pixel row — where a row has more than one, each.
+///
+/// By the pixel's centre, so that a quarter of a square star is exactly its top-right quarter, and the whole of
+/// it where `gone` is a turn or more.
+pub fn cut_out(star: Rect, gone: f32) -> Vec<Rect> {
+    let turn = std::f32::consts::TAU;
+    let cut = gone.clamp(0.0, 1.0) * turn;
+    let (columns, rows) = (star.width as i32, star.height as i32);
+    let mut spans = Vec::new();
+    for row in 0..rows {
+        let mut from = None;
+        for column in 0..=columns {
+            let taken = column < columns && {
+                let dx = column as f32 + 0.5 - star.width / 2.0;
+                let dy = row as f32 + 0.5 - star.height / 2.0;
+                // From twelve o'clock and clockwise: up is -y on the screen.
+                let angle = dx.atan2(-dy).rem_euclid(turn);
+                angle < cut
+            };
+            match (taken, from) {
+                (true, None) => from = Some(column),
+                (false, Some(start)) => {
+                    spans.push(Rect {
+                        left: star.left + start as f32,
+                        top: star.top + row as f32,
+                        width: (column - start) as f32,
+                        height: 1.0,
+                    });
+                    from = None;
+                }
+                _ => {}
+            }
+        }
+    }
+    spans
+}
+
 /// # Safety
 /// Must run inside `frame`, with `panel` naming a live texture of the game's device.
 unsafe fn paint_strip(frame: &Frame, area: Rect, panel: Option<&PanelTile>) {
@@ -339,11 +410,57 @@ unsafe fn paint_strip(frame: &Frame, area: Rect, panel: Option<&PanelTile>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{LivesMark, SHADOW, brush_area, strips, word_at};
+    use super::{LivesMark, SHADOW, brush_area, cut_out, strips, word_at};
     use crate::brush;
     use crate::game::Rect;
     use crate::overlay::Drawing;
     use orb_sim::{Drawn, Quad};
+
+    /// A 16x16 star, th06's second.
+    const STAR: Rect = Rect {
+        left: 512.0,
+        top: 122.0,
+        width: 16.0,
+        height: 16.0,
+    };
+
+    fn area(spans: &[Rect]) -> f32 {
+        spans.iter().map(|span| span.width * span.height).sum()
+    }
+
+    /// Nothing gone is nothing cut, and the whole of a life is the whole star.
+    #[test]
+    fn nothing_gone_cuts_nothing_and_a_life_cuts_the_star() {
+        assert!(cut_out(STAR, 0.0).is_empty());
+        assert_eq!(area(&cut_out(STAR, 1.0)), 256.0);
+    }
+
+    /// A quarter is the top-right quarter, clockwise from twelve o'clock, and a half the right half.
+    #[test]
+    fn a_quarter_is_the_top_right_and_a_half_the_right() {
+        let quarter = cut_out(STAR, 0.25);
+        assert_eq!(area(&quarter), 64.0);
+        assert!(
+            quarter
+                .iter()
+                .all(|span| span.left >= STAR.left + 8.0 && span.top < STAR.top + 8.0)
+        );
+
+        let half = cut_out(STAR, 0.5);
+        assert_eq!(area(&half), 128.0);
+        assert!(half.iter().all(|span| span.left >= STAR.left + 8.0));
+    }
+
+    /// Every span is inside the star.
+    #[test]
+    fn a_cut_stays_inside_the_star() {
+        for eighths in 0..=8 {
+            for span in cut_out(STAR, eighths as f32 / 8.0) {
+                assert!(span.left >= STAR.left && span.left + span.width <= STAR.left + STAR.width);
+                assert!(span.top >= STAR.top && span.top + span.height <= STAR.top + STAR.height);
+            }
+        }
+    }
 
     /// th06's own row: the bar the game erases the count with, which is where the mark goes.
     const ROW: Rect = Rect {

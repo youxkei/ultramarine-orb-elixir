@@ -37,8 +37,11 @@ const A_STAGE: u32 = 6_000;
 
 /// **Every case of th06nc's, each the test of its own below** — see
 /// [`every_case_of_th06nc_has_a_test_of_its_own`].
-const CASES: [&str; 21] = [
+const CASES: [&str; 24] = [
     "a_death_answered_by_the_chapter_again",
+    "a_bomb_mode_run_hit_without_the_press",
+    "a_bomb_mode_run_hit_with_the_press",
+    "a_part_of_a_life_gone",
     "the_run_started_over_and_its_replay_kept",
     "an_attempt_of_the_kept_replay_watched",
     "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",
@@ -287,6 +290,9 @@ macro_rules! a_test_per_case {
 
 a_test_per_case!(
     a_death_of_th06nc_answered_by_the_chapter_again => "a_death_answered_by_the_chapter_again",
+    a_bomb_mode_run_of_th06nc_hit_without_the_press => "a_bomb_mode_run_hit_without_the_press",
+    a_bomb_mode_run_of_th06nc_hit_with_the_press => "a_bomb_mode_run_hit_with_the_press",
+    a_part_of_a_life_of_th06nc_gone => "a_part_of_a_life_gone",
     the_run_of_th06nc_started_over_and_its_replay_kept => "the_run_started_over_and_its_replay_kept",
     an_attempt_of_th06ncs_kept_replay_watched => "an_attempt_of_the_kept_replay_watched",
     a_death_in_the_nonspell_after_a_card_of_th06nc_answered_by_that_nonspell => "a_death_in_the_nonspell_after_a_card_answered_by_that_nonspell",

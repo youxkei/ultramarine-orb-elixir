@@ -13,8 +13,9 @@ use crate::input::Keyboard;
 use crate::menu_ui::{self, ASIDE, By, DIM_SCREEN, LINE_HEIGHT, NORMAL};
 use crate::overlay::{Label, Overlay, SCREEN_HEIGHT, SCREEN_WIDTH};
 
+use crate::bomb::{DIFFICULTIES, Difficulty};
 pub use crate::mode::{Answer, Mode};
-use crate::mode::{CHOICES, Question, aside, title};
+use crate::mode::{CHOICES, Question, aside, difficulty_title, title};
 
 /// How many lines the longest of `mode::aside`'s descriptions is, and so how many labels are kept
 /// for whichever one is up. A number rather than something read off the descriptions, which a
@@ -28,22 +29,31 @@ pub struct ModeMenu {
     language: Language,
     title: Label,
     choices: [Label; CHOICES.len()],
+    /// The bomb mode's difficulties, for the page of the question that asks one.
+    difficulties: [Label; DIFFICULTIES.len()],
     aside: [Label; ASIDE_LINES],
     cursor: Label,
 }
 
 impl ModeMenu {
     /// `current` is what orb is in now, which is where the cursor starts: the answer most likely
-    /// to be wanted is the one that was wanted last time.
-    pub fn new(asked: Menu, current: Mode, language: Language) -> Self {
+    /// to be wanted is the one that was wanted last time. `difficulty` is the bomb mode's, for the same
+    /// reason.
+    pub fn new(asked: Menu, current: Mode, difficulty: Difficulty, language: Language) -> Self {
         Self {
-            question: Question::new(asked, current),
+            question: Question::new(asked, current, difficulty),
             language,
             title: Label::new(),
-            choices: [Label::new(), Label::new()],
+            choices: [const { Label::new() }; CHOICES.len()],
+            difficulties: [const { Label::new() }; DIFFICULTIES.len()],
             aside: [const { Label::new() }; ASIDE_LINES],
             cursor: Label::new(),
         }
+    }
+
+    /// The difficulty the bomb mode was answered with, once it has been — see [`Question::difficulty`].
+    pub fn difficulty(&self) -> Option<Difficulty> {
+        self.question.difficulty()
     }
 
     /// Returns what was answered, once something is. `pad` is what the pad is doing now, which the
@@ -53,16 +63,20 @@ impl ModeMenu {
         self.question.update(keyboard, pad)
     }
 
-    /// Where its cursor is, for a launch pressing its answer through a pad — its one list.
+    /// Where its cursor is, for a launch pressing its answer through a pad — the modes, or the difficulties
+    /// as a second list while that page is up.
     pub fn on_the_cursor(&self) -> crate::game::OnTheQuestion {
-        crate::game::OnTheQuestion {
-            list: 0,
-            at: self.question.selection(),
+        match self.question.difficulty_selection() {
+            Some(at) => crate::game::OnTheQuestion { list: 1, at },
+            None => crate::game::OnTheQuestion {
+                list: 0,
+                at: self.question.selection(),
+            },
         }
     }
 
-    /// One of the two taken outright, for a launch playing itself — see [`Question::answered_outright`].
-    pub fn answered_outright(&self, item: usize) -> Option<Answer> {
+    /// One of the three taken outright, for a launch playing itself — see [`Question::answered_outright`].
+    pub fn answered_outright(&mut self, item: usize) -> Option<Answer> {
         self.question.answered_outright(item)
     }
 
@@ -75,6 +89,9 @@ impl ModeMenu {
     /// # Safety
     /// Must run between the game's `BeginScene` and `EndScene`.
     pub unsafe fn draw(&mut self, overlay: &Overlay) {
+        if let Some(at) = self.question.difficulty_selection() {
+            return unsafe { self.draw_the_difficulties(overlay, at) };
+        }
         let asked = self.question.asked();
         let said = aside(asked, self.question.selected(), self.language);
         unsafe {
@@ -112,11 +129,44 @@ impl ModeMenu {
             menu_ui::centred(&frame, label, center, y, ASIDE);
         }
     }
+
+    /// The bomb mode's difficulty, on the same screen and in the same layout as the modes: a title, the
+    /// four, and the one line the one under the cursor says.
+    ///
+    /// # Safety
+    /// Must run between the game's `BeginScene` and `EndScene`.
+    unsafe fn draw_the_difficulties(&mut self, overlay: &Overlay, at: usize) {
+        unsafe {
+            self.title.set(overlay, difficulty_title(self.language));
+            self.cursor.set(overlay, "▶");
+            for (label, difficulty) in self.difficulties.iter_mut().zip(DIFFICULTIES) {
+                label.set(overlay, difficulty.name());
+            }
+            self.aside[0].set(overlay, DIFFICULTIES[at].aside(self.language));
+        }
+
+        let frame = unsafe { overlay.frame() };
+        let Some(frame) = frame else { return };
+        frame.fill(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, DIM_SCREEN);
+
+        let center = SCREEN_WIDTH / 2.0;
+        let y = SCREEN_HEIGHT / 2.0 - LINE_HEIGHT * 3.0;
+        menu_ui::centred(&frame, &self.title, center, y, NORMAL);
+        let y = menu_ui::list(
+            &frame,
+            &self.difficulties,
+            &self.cursor,
+            center,
+            y + LINE_HEIGHT * 2.0,
+            at,
+        );
+        menu_ui::centred(&frame, &self.aside[0], center, y + LINE_HEIGHT, ASIDE);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ASIDE_LINES, Language, Mode, ModeMenu};
+    use super::{ASIDE_LINES, Difficulty, Language, Mode, ModeMenu};
     use crate::game::Menu;
     use crate::menu_ui::{ASIDE, DIM_SCREEN};
     use crate::mode::aside;
@@ -137,7 +187,7 @@ mod tests {
     #[test]
     fn no_description_is_longer_than_the_labels_kept_for_it() {
         for asked in [Menu::Run, Menu::Scores, Menu::Replays] {
-            for mode in [Mode::Pointdevice, Mode::Normal] {
+            for mode in crate::mode::CHOICES {
                 for language in [Language::Japanese, Language::English] {
                     assert!(aside(asked, mode, language).len() <= ASIDE_LINES);
                 }
@@ -156,7 +206,7 @@ mod tests {
         let drawing = Drawing::new();
         let quads = frame(
             &drawing,
-            &mut ModeMenu::new(Menu::Run, Mode::Normal, LANGUAGE),
+            &mut ModeMenu::new(Menu::Run, Mode::Normal, Difficulty::Normal, LANGUAGE),
         );
 
         let wash = *quads.first().expect("something was drawn first");
@@ -176,14 +226,14 @@ mod tests {
         // One quad a line: a label's drop shadow is drawn in the shadow's colour, not the aside's.
         let run = frame(
             &drawing,
-            &mut ModeMenu::new(Menu::Run, Mode::Normal, LANGUAGE),
+            &mut ModeMenu::new(Menu::Run, Mode::Normal, Difficulty::Normal, LANGUAGE),
         );
         let described = run.iter().filter(|quad| quad.color == ASIDE).count();
         assert_eq!(described, aside(Menu::Run, Mode::Normal, LANGUAGE).len());
 
         let scores = frame(
             &drawing,
-            &mut ModeMenu::new(Menu::Scores, Mode::Normal, LANGUAGE),
+            &mut ModeMenu::new(Menu::Scores, Mode::Normal, Difficulty::Normal, LANGUAGE),
         );
         assert!(
             !scores.iter().any(|quad| quad.color == ASIDE),

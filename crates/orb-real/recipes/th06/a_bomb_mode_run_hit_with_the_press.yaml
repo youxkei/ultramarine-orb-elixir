@@ -1,0 +1,34 @@
+# **A run of th06 in 完全無欠ボムモード on Lunatic, hit in its first chapter with the bomb button pressed once as
+# the hit lands**, the other half of what the mode judges: a press in time, so the chapter is put back with
+# every life the run had, and the one press sets no bomb off.
+#
+# **The walk is `a_bomb_mode_run_hit_without_the_press.yaml`'s**, with the hit taken with the press — on Lunatic,
+# where a hit judged the other way would have cost a whole life.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 2 }
+  give_up_after: 300
+- answer: { question: difficulty, item: 3 }
+  give_up_after: 300
+- bombs: false
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0, presses_the_bomb: true }
+# **Eighteen hundred frames**, for the reason the case without the press gives.
+- play_until: { frames: 1800 }
+  give_up_after: 7200
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { stage: 1, chapter: 4 }
+  give_up_after: 36000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

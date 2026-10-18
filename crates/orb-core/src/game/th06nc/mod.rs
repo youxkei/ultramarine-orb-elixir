@@ -3672,6 +3672,34 @@ impl Game for Th06nc {
         }
     }
 
+    /// **The panel's heart for each life, in orb's 640x480 over a 16:9 back buffer.** The panel's draw
+    /// `0x140041f50` lays eight slots right to left from x 809.0 (`0x140352d50`, at `0x1400426dd`) by -13.0
+    /// (`0x140352dd0`), the empty hearts first and then the filled ones (`[0x140549d40]` of them), so the
+    /// lives are the leftmost slots: x = 718 + 13 i, y 118.0 (at `0x14004273b`). Those are in this game's own
+    /// 853.33x480, the widest centred 16:9 of the back buffer (`0x14007dcb0`), which orb's canvas stretched over
+    /// a 16:9 buffer reads as three quarters across: 538.5 + 9.75 i.
+    ///
+    /// **A slot's width and the heart's 15 down are off a picture**, `shot-window5.png` of a run with one life,
+    /// which also put the left edge where a corner anchor puts it and not a centre; the sprite's own box is
+    /// `data/th06ST.dat`'s and not read. Off a buffer that is not 16:9 — the desktop's own size — the panel is
+    /// pillarboxed and these land beside it.
+    /// (33, 20, 28): the mean of the 18 pixels of the dark band the hearts sit on, just left of the first heart,
+    /// of a picture of the window paused in a run with two lives and a quarter of one gone — taken from outside,
+    /// orb taking none of this game. orb's own flat colour, painted there before this was measured, came out as a
+    /// blue-grey notch in the second heart.
+    fn panel_colour(&self) -> Option<u32> {
+        Some(0xff21_141c)
+    }
+
+    fn life_star(&self, index: u32) -> Option<Rect> {
+        Some(Rect {
+            left: 538.5 + 9.75 * index as f32,
+            top: 118.0,
+            width: 9.75,
+            height: 15.0,
+        })
+    }
+
     fn content_size(&self) -> (u32, u32) {
         (0, 0)
     }
@@ -4495,6 +4523,12 @@ impl Game for Th06nc {
 
     unsafe fn run_state(&self) -> Vec<u8> {
         resume::encode_state(&unsafe { self.numbers() })
+    }
+
+    /// The byte [`State::lives`] is read from, which the playback's own init writes too (`put_the_numbers_back`).
+    unsafe fn set_lives(&self, lives: i8) -> bool {
+        unsafe { mem::write::<i8>(at(GAME_MANAGER) + game_manager::LIVES, lives) };
+        true
     }
 
     unsafe fn set_run_state(&self, state: &[u8]) {

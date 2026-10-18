@@ -1,0 +1,43 @@
+# **A run of th08 in 完全無欠ボムモード on Normal, hit with the bomb button never pressed, and its panel pictured
+# with a quarter of a life gone** — the last of the game's stars shaved by that quarter.
+#
+# **The walk is `a_bomb_mode_run_hit_without_the_press.yaml`'s**, on Normal rather than Lunatic: a hit there is a
+# whole life and leaves nothing shaved.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 2 }
+  give_up_after: 300
+- answer: { question: difficulty, item: 1 }
+  give_up_after: 300
+- bombs: false
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 3600
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 36000
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- screenshot: a_part_of_a_life_gone
+  frames: 60
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

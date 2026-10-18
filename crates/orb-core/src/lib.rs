@@ -46,6 +46,7 @@
 //!   the game starts untranslated and the line says none is installed where the game is.
 
 pub mod audio;
+pub mod bomb;
 pub mod canvas;
 pub mod chapter;
 pub mod crash;

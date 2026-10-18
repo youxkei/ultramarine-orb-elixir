@@ -1335,6 +1335,7 @@ impl Game for Th10 {
         crate::score::Files {
             theirs: c"scoreth10.dat",
             ours: c"pointdevice_scoreth10.dat",
+            bombs: c"pointdevice_bomb_scoreth10.dat",
         }
     }
 
@@ -1670,6 +1671,34 @@ impl Game for Th10 {
             width: 0.0,
             height: 0.0,
         }
+    }
+
+    /// **The star of each life, as the panel shows it.** The panel keeps nine vms at `+0x4980`, 0x3ac apart, each
+    /// running `front.anm`'s script 30 + i (0x413ce5–0x413d0a), and shows the first `[0x474c70]` of them
+    /// (0x413d86, and `0x413790` after a death). Script 30 + i puts sprite 18 — 16x20 at (496, 0) of
+    /// `front00.png` — at (514 + 12 i, 104), anchored at its corner (`front.anm` op 65 with (1, 1), read by the
+    /// quad builder `0x443080`), in the game's own 640x480, which is orb's.
+    ///
+    /// **The star's ink and not its cell**, because the cells are 16 wide and 12 apart, and a cut of a whole cell
+    /// would take four columns of the next star with it: 11x12 at (cell + 2, cell + 4), measured off the game's
+    /// own snapshots, `snapshot/th00*.bmp`, to a pixel either way.
+    /// (9, 0, 0): the mean of the 480 pixels of the panel close round the first two stars — x 505 to 515 and 542
+    /// to 556 beside them, and x 516 to 540 above them — of `snapshot/a_part_of_a_life_gone-58595947.bmp`, a
+    /// picture of a run with two lives. The panel is a picture rather than a tile, nearly black there with a
+    /// little red in it, so a flat colour stands in for it the least badly where it is that dark. orb's own grey
+    /// stood out as a square, and so did (35, 5, 3), the mean of the row further right, x 560 to 620, where the
+    /// picture turns redder.
+    fn panel_colour(&self) -> Option<u32> {
+        Some(0xff09_0000)
+    }
+
+    fn life_star(&self, index: u32) -> Option<Rect> {
+        Some(Rect {
+            left: 516.0 + 12.0 * index as f32,
+            top: 108.0,
+            width: 11.0,
+            height: 12.0,
+        })
     }
 
     fn content_size(&self) -> (u32, u32) {
@@ -2432,6 +2461,12 @@ impl Game for Th10 {
             small_faith_ring_at: Self::object(G_ITEM_MANAGER)
                 .map_or(0, |manager| read(manager + SMALL_FAITH_RING_AT)),
         })
+    }
+
+    /// `0x474c70`, the word [`State::lives`] is read from, which `set_run_state` writes too.
+    unsafe fn set_lives(&self, lives: i8) -> bool {
+        unsafe { mem::write(G_LIVES, i32::from(lives)) };
+        true
     }
 
     /// **Put back the way the game's own playback puts a stage back** — the numbers as 0x4292de through

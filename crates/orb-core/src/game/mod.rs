@@ -1176,6 +1176,19 @@ pub trait Game {
         CountedDeath::Taken
     }
 
+    /// **Writes the lives the run has left**, which the bomb mode carries across a restore: the snapshot puts
+    /// the chapter's own back, and a life a hit took has to stay taken — see [`crate::bomb`].
+    ///
+    /// Into the field [`State::lives`] is read from, the way the game's own restore of a stage writes it.
+    /// `false` where orb has not read where a game keeps them.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a run in progress.
+    unsafe fn set_lives(&self, lives: i8) -> bool {
+        let _ = lives;
+        false
+    }
+
     /// Counts one more retry where the game's own records have somewhere to keep it, so that その他の記録 says
     /// what a mode whose runs are rewound cost.
     ///
@@ -1632,6 +1645,25 @@ pub trait Game {
     /// frame, so it has to be one the game paints too: a count that changes is erased and
     /// redrawn, and the label beside it is drawn when the stage begins and never again.
     fn lives_row(&self) -> Rect;
+
+    /// **Where the game draws the star of the run's `index`-th life**, counted from nought at the left, in the
+    /// same output [`Game::lives_row`] is in — what 完全無欠ボムモード shaves a part of a life off, see
+    /// [`crate::lives_ui::shave`].
+    ///
+    /// `None` where orb has not read where a game's stars go, which is a game whose part of a life is not shown.
+    fn life_star(&self, index: u32) -> Option<Rect> {
+        let _ = index;
+        None
+    }
+
+    /// **The colour of the panel under the stars, for a game that hands orb none of its own tile** — see
+    /// [`Game::panel_tile`] — so that a part of a life shaved off a star is painted the panel's own colour and
+    /// not a patch of orb's. Measured off a picture of the game's panel, as `0xAARRGGBB`.
+    ///
+    /// `None` where nobody has measured it, which paints orb's own flat colour.
+    fn panel_colour(&self) -> Option<u32> {
+        None
+    }
 
     /// The size the game renders at, whose aspect ratio a borderless window has
     /// to preserve.
@@ -3282,8 +3314,13 @@ pub struct OnTheQuestion {
 /// The questions of orb's own a recipe can wait for, by the names it writes them as.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Question {
-    /// `mode` — which of the two things a run is.
+    /// `mode` — which of the three things a run is.
     Mode,
+    /// `difficulty` — the bomb mode's, which the mode question's second page asks once that mode is chosen
+    /// for a run. A name of its own although it is the same question on the screen, because what ends a step
+    /// answering the mode is the mode's page gone, and a page that stayed `mode` would be a step that never
+    /// ended.
+    Difficulty,
     /// `resume` — where to start, for a run left unfinished.
     Resume,
     /// `retry` — where to start again, for a run that died. Which is the whole of the mode being played, so a
@@ -3307,6 +3344,7 @@ impl Question {
     pub fn name(self) -> &'static str {
         match self {
             Question::Mode => "mode",
+            Question::Difficulty => "difficulty",
             Question::Resume => "resume",
             Question::Retry => "retry",
             Question::KeepReplay => "keep_replay",

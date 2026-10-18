@@ -3475,6 +3475,16 @@ impl Game for Th07 {
         LIVES_ROW
     }
 
+    /// The `index`-th 16x16 mark of [`LIVES_ROW`], 16 on from the one before — the loop at 0x42bc5f.
+    fn life_star(&self, index: u32) -> Option<Rect> {
+        Some(Rect {
+            left: LIVES_ROW.left + 16.0 * index as f32,
+            top: LIVES_ROW.top,
+            width: 16.0,
+            height: 16.0,
+        })
+    }
+
     fn content_size(&self) -> (u32, u32) {
         BACK_BUFFER
     }
@@ -4683,6 +4693,15 @@ impl Game for Th07 {
             // by it.
             rank: unsafe { mem::read(RANK) },
         })
+    }
+
+    /// The run's float [`State::lives`] is read from, which `set_run_state` writes too.
+    unsafe fn set_lives(&self, lives: i8) -> bool {
+        let Some(run) = (unsafe { self.run_numbers() }) else {
+            return false;
+        };
+        unsafe { mem::write::<f32>(run + LIVES, f32::from(lives)) };
+        true
     }
 
     /// The numbers back and the game asked to seal them, with the generator held still over that call — see

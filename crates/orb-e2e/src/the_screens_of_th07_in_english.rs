@@ -365,7 +365,7 @@ fn the_screens_a_replay_of_th07_is_kept_and_watched_on_are_in_english() {
         reads(
             &game,
             &[
-                ("Which replays to watch", "どちらのリプレイを見る"),
+                ("Which replays to watch", "どのリプレイを見る"),
                 ("Pointdevice Mode", "完全無欠モード"),
                 ("Legacy Mode", "レガシーモード"),
             ],

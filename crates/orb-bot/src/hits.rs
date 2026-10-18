@@ -61,6 +61,9 @@ pub struct Told {
     pub chance: f32,
     pub times_each_retry: f32,
     pub gives_up: f32,
+    /// Whether the bomb button is pressed once on the frame such a hit lands — see
+    /// `orb_config::recipe::Step::TakeHits`.
+    pub presses_the_bomb: bool,
 }
 
 /// **The chapter attempt being played and whether it is one to be hit in**, which is what a frame is answered
@@ -320,6 +323,7 @@ mod tests {
             chance: 1.0,
             times_each_retry: 0.0,
             gives_up: 0.0,
+            presses_the_bomb: false,
         });
         assert!(
             hits.this_frame(in_chapter(1, false)) == Hazards::Ignored,

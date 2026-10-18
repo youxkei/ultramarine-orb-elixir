@@ -1,4 +1,4 @@
-//! Which of the two things a run is, and the question orb asks to find out.
+//! Which of the three things a run is, and the question orb asks to find out.
 //!
 //! Asked where the game is asked, because that is where the answer belongs: a run is started from
 //! the title menu, and one with chapters and one without are two different things to start. Not a
@@ -46,11 +46,17 @@
 //! | --- | --- |
 //! | 完全無欠モード / `Pointdevice Mode` | chapters, snapshots, the retry menu, the wash a chapter gets, the lives painted over, the retry count on the status line, `pointdevice_score.dat`, and a replay of orb's own in `pointdevice_replay/` |
 //! | レガシーモード / `Legacy Mode` | the game as it was: dying costs a life, the game's own replay can be saved, and the score goes in the game's own `score.dat` |
+//! | 完全無欠ボムモード / `Pointdevice Bomb Mode` | what Pointdevice mode has, with the bomb button judged at every hit — see [`crate::bomb`] — in `pointdevice_bomb_score.dat`, `pointdevice_bomb_replay/` and `pointdevice_bomb_resume/` |
 //!
-//! On screen they are th15's own two names, in whichever of the two languages that game itself calls them,
-//! since that is where the mode comes from and those are the names somebody who wants it knows. In the
-//! code, the log and the file it writes they are pointdevice and normal — the English of the first, and what
-//! the second actually is.
+//! On screen the first two are th15's own names, in whichever of the two languages that game itself calls
+//! them, since that is where the mode comes from and those are the names somebody who wants it knows; the
+//! third is the first with the bomb in its name. In the code, the log and the file it writes they are
+//! pointdevice, normal and pointdevice-bomb — the English of the first, what the second actually is, and the
+//! first again with what it adds.
+//!
+//! **The third is a mode and not a setting of the first**, because what it changes is what a hit costs, and
+//! so what a run of it is worth against another: its runs are ranked, replayed and picked up apart from
+//! Pointdevice ones, the way Pointdevice runs are kept apart from the game's own.
 //!
 //! **Neither is an answer too.** `x` — the game's own bomb key, which its menus read as back — escape, or the
 //! pad's cancel, and the front end goes back to the title the way its own back button does: `gameState` to
@@ -71,7 +77,7 @@
 //! replays it saved itself, out of its own files and on its own screen, which orb has nothing to put on.
 //! `Pointdevice Mode` is a list of orb's own over an item the game never acted on — the game has no screen
 //! for these, having no way to record one. So the question is worded for the screen rather than for the
-//! file: `どちらのリプレイを見る` / `Which replays to watch`, with a line under each answer saying which of the
+//! file: `どのリプレイを見る` / `Which replays to watch`, with a line under each answer saying which of the
 //! two screens it is. See [`crate::replay_ui`].
 //!
 //! **Which item the cursor is on is `MainMenu+0x81a0`**, bounded to 0..=7 at 0x437c5c and jumped through the
@@ -164,6 +170,7 @@ use std::fmt;
 
 use orb_config::Language;
 
+use crate::bomb::{DIFFICULTIES, Difficulty};
 use crate::game::{Menu, Pad};
 use crate::input::Keyboard;
 use crate::menu::{self, By, Keys};
@@ -173,7 +180,7 @@ use crate::menu::{self, By, Keys};
 /// twice meant both presses for the game's menu and not for this.
 pub const INPUT_GRACE_FRAMES: u32 = 10;
 
-/// Which of the two things a run is, and which of the two files a ranking is.
+/// Which of the three things a run is, and which of the three files a ranking is.
 ///
 /// One choice for both, rather than a mode per screen: the ranking of pointdevice runs and a
 /// pointdevice run are the same file, and orb being in one mode is what makes the unlocks the
@@ -186,6 +193,10 @@ pub enum Mode {
     /// The game as it was. Dying costs a life, replays can be saved, and the score goes in the
     /// game's own file.
     Normal,
+    /// Pointdevice mode with the bomb button judged at every hit: a hit taken without a press of it
+    /// just before costs a part of a life, and the bomb goes off on a second press — see
+    /// [`crate::bomb`].
+    PointdeviceBomb,
 }
 
 impl fmt::Display for Mode {
@@ -193,17 +204,29 @@ impl fmt::Display for Mode {
         f.write_str(match self {
             Self::Pointdevice => "pointdevice",
             Self::Normal => "normal",
+            Self::PointdeviceBomb => "pointdevice-bomb",
         })
     }
 }
 
-/// The two, in the order they are offered.
+/// The three, in the order they are offered.
 ///
 /// The modes and not their names, which are [`Mode::name`]'s: how many there are and which is first
 /// is the same in either language, and the cursor is an index into this.
-pub const CHOICES: [Mode; 2] = [Mode::Pointdevice, Mode::Normal];
+///
+/// **The bomb mode last rather than beside the mode it extends**, because a place in this list is how a
+/// launch playing itself answers — a recipe's `question` names an item by its number — and how a pad
+/// reaches an answer, a press down at a time: put second, it would have moved レガシーモード to an item
+/// every recipe and every test pressing for it no longer reaches.
+pub const CHOICES: [Mode; 3] = [Mode::Pointdevice, Mode::Normal, Mode::PointdeviceBomb];
 
 impl Mode {
+    /// **Whether a run of this mode is rewound**: chapters, snapshots and the retry menu a death
+    /// offers, which both Pointdevice modes have and the game's own does not.
+    pub fn rewinds(self) -> bool {
+        matches!(self, Self::Pointdevice | Self::PointdeviceBomb)
+    }
+
     /// What the mode is called on screen: th15's own names for the two, in whichever of the two
     /// languages that game itself calls them — since that is where the mode comes from and those are
     /// the names somebody who wants it knows.
@@ -216,31 +239,44 @@ impl Mode {
             (Self::Pointdevice, Language::English) => "Pointdevice Mode",
             (Self::Normal, Language::Japanese) => "レガシーモード",
             (Self::Normal, Language::English) => "Legacy Mode",
+            (Self::PointdeviceBomb, Language::Japanese) => "完全無欠ボムモード",
+            (Self::PointdeviceBomb, Language::English) => "Pointdevice Bomb Mode",
         }
     }
 }
 
 /// What came of putting the question up.
 pub enum Answer {
-    /// One of the two was chosen.
+    /// One of the three was chosen.
     Chosen(Mode),
     /// Neither: the item is not chosen at all. The menu underneath never acted on the press, so it is
     /// still on that item and nothing has to be put back.
     Cancelled,
 }
 
-/// The question itself: which of the two is under the cursor, and the keys it reads to move and
+/// The question itself: which of the three is under the cursor, and the keys it reads to move and
 /// answer.
+///
+/// **And the bomb mode's difficulty after it, as a second page of the same question**, where that mode is
+/// chosen for a run: the difficulty is chosen per run, right after the mode, and a page of this question
+/// rather than a question of its own is what keeps it on the press the mode question holds back — the
+/// title menu's item is chosen once both are answered, and cancelling the difficulty goes back to the
+/// modes rather than out of the question.
 pub struct Question {
     asked: Menu,
     selection: usize,
     keys: Keys,
+    /// Where the difficulty's cursor is, while that page is up.
+    difficulty: Option<usize>,
+    /// Where it comes up, which is the difficulty chosen last.
+    last_difficulty: Difficulty,
 }
 
 impl Question {
     /// `current` is what orb is in now, which is where the cursor starts: the answer most likely
-    /// to be wanted is the one that was wanted last time.
-    pub fn new(asked: Menu, current: Mode) -> Self {
+    /// to be wanted is the one that was wanted last time. `difficulty` is the bomb mode's, for the same
+    /// reason.
+    pub fn new(asked: Menu, current: Mode, difficulty: Difficulty) -> Self {
         Self {
             asked,
             selection: CHOICES
@@ -248,6 +284,8 @@ impl Question {
                 .position(|mode| *mode == current)
                 .unwrap_or(0),
             keys: Keys::new(INPUT_GRACE_FRAMES),
+            difficulty: None,
+            last_difficulty: difficulty,
         }
     }
 
@@ -256,22 +294,61 @@ impl Question {
     /// running and a pad would otherwise do nothing on this menu at all.
     pub fn update(&mut self, keyboard: &Keyboard, pad: Pad) -> Option<(Answer, By)> {
         let pressed = self.keys.read(keyboard, pad)?;
+        if let Some(at) = self.difficulty {
+            self.difficulty = Some(menu::moved(at, DIFFICULTIES.len(), &pressed));
+            if pressed.cancel.is_some() {
+                self.back_to_the_modes();
+                return None;
+            }
+            let by = pressed.decide?;
+            return Some((Answer::Chosen(Mode::PointdeviceBomb), by));
+        }
         self.selection = menu::moved(self.selection, CHOICES.len(), &pressed);
         if let Some(by) = pressed.cancel {
             return Some((Answer::Cancelled, by));
         }
         let by = pressed.decide?;
-        Some((Answer::Chosen(CHOICES[self.selection]), by))
+        self.chosen(CHOICES[self.selection])
+            .map(|answer| (answer, by))
     }
 
-    /// One of the two taken outright, for a launch playing itself: this cursor is orb's own and the word a
+    /// The mode under the cursor chosen: the answer, or the difficulty's page put up where the answer is the
+    /// bomb mode's run.
+    fn chosen(&mut self, mode: Mode) -> Option<Answer> {
+        if mode == Mode::PointdeviceBomb && self.asked == Menu::Run {
+            self.difficulty = DIFFICULTIES
+                .iter()
+                .position(|difficulty| *difficulty == self.last_difficulty)
+                .or(Some(0));
+            // A grace of its own, the press that put the page up being still down — the same reason the
+            // question has one.
+            self.keys = Keys::new(INPUT_GRACE_FRAMES);
+            return None;
+        }
+        Some(Answer::Chosen(mode))
+    }
+
+    fn back_to_the_modes(&mut self) {
+        self.difficulty = None;
+        self.keys = Keys::new(INPUT_GRACE_FRAMES);
+    }
+
+    /// One of the three taken outright, for a launch playing itself: this cursor is orb's own and the word a
     /// recipe presses moves the game's, so a press here answers whichever mode the cursor came up on — see
-    /// `runtime::answer_the_question`. `item` is its place in [`CHOICES`].
-    pub fn answered_outright(&self, item: usize) -> Option<Answer> {
-        Some(Answer::Chosen(*CHOICES.get(item)?))
+    /// `runtime::answer_the_question`. `item` is its place in [`CHOICES`], or in [`DIFFICULTIES`] where the
+    /// difficulty's page is up — which taking the bomb mode for a run puts up, so a recipe answers twice.
+    pub fn answered_outright(&mut self, item: usize) -> Option<Answer> {
+        if self.difficulty.is_some() {
+            DIFFICULTIES.get(item)?;
+            self.difficulty = Some(item);
+            return Some(Answer::Chosen(Mode::PointdeviceBomb));
+        }
+        let mode = *CHOICES.get(item)?;
+        self.selection = item;
+        self.chosen(mode)
     }
 
-    /// Which is being asked about, and which of the two the cursor is on. Both for the drawing,
+    /// Which is being asked about, and which of the three the cursor is on. Both for the drawing,
     /// which is the other half of this and lives over the seam.
     pub fn asked(&self) -> Menu {
         self.asked
@@ -284,15 +361,34 @@ impl Question {
     pub fn selected(&self) -> Mode {
         CHOICES[self.selection]
     }
+
+    /// Where the difficulty's cursor is, while its page is up.
+    pub fn difficulty_selection(&self) -> Option<usize> {
+        self.difficulty
+    }
+
+    /// The difficulty the bomb mode was answered with, once it has been.
+    pub fn difficulty(&self) -> Option<Difficulty> {
+        self.difficulty.map(|at| DIFFICULTIES[at])
+    }
+}
+
+/// The title of the difficulty's page.
+pub fn difficulty_title(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "難易度を選ぶ",
+        Language::English => "Choose a difficulty",
+    }
 }
 
 /// What is being asked about. Two questions rather than one, because what a mode decides about a
 /// run and what it decides about a ranking are not the same thing to somebody choosing.
 pub fn title(asked: Menu, language: Language) -> &'static str {
     match (asked, language) {
-        (Menu::Scores, Language::Japanese) => "どちらのスコアを見る",
+        // 「どの」 and not 「どちらの」, which is a choice between two: the bomb mode made it three.
+        (Menu::Scores, Language::Japanese) => "どのスコアを見る",
         (Menu::Scores, Language::English) => "Which scores to see",
-        (Menu::Replays, Language::Japanese) => "どちらのリプレイを見る",
+        (Menu::Replays, Language::Japanese) => "どのリプレイを見る",
         (Menu::Replays, Language::English) => "Which replays to watch",
         (Menu::Run, Language::Japanese) => "モードを選ぶ",
         (Menu::Run, Language::English) => "Choose a mode",
@@ -328,6 +424,14 @@ pub fn aside(asked: Menu, mode: Mode, language: Language) -> &'static [&'static 
         }
         (Menu::Replays, Mode::Normal, Language::Japanese) => &["ゲーム本来のリプレイです"],
         (Menu::Replays, Mode::Normal, Language::English) => &["The game's own replays"],
+        (Menu::Replays, Mode::PointdeviceBomb, Language::Japanese) => &[
+            "完全無欠ボムモードのリプレイを",
+            "ステージ・チャプター・トライを選んで見られます",
+        ],
+        (Menu::Replays, Mode::PointdeviceBomb, Language::English) => &[
+            "Pointdevice Bomb Mode's replays,",
+            "watchable by stage, chapter and attempt",
+        ],
         // What a pointdevice run gives, in the order somebody choosing cares about it: dying costs the
         // chapter, the progress is kept, and the replay is orb's own rather than the game's — which is
         // what makes it hold the attempts that were rewound away as well as the one that survived. See
@@ -349,12 +453,26 @@ pub fn aside(asked: Menu, mode: Mode, language: Language) -> &'static [&'static 
         (Menu::Run, Mode::Normal, Language::English) => {
             &["The game as it always was", "Getting hit costs a life"]
         }
+        // What it adds to Pointdevice mode, which is the whole of why somebody would choose it: the
+        // chapter is still where a hit sends the run, the press just before the hit is what is judged, and
+        // the bomb itself has moved to a second press — said, since a single press doing nothing would
+        // otherwise read as a broken button.
+        (Menu::Run, Mode::PointdeviceBomb, Language::Japanese) => &[
+            "被弾したらチャプターの頭からやり直します",
+            "直前にボムボタンを押せていないと残機が減ります",
+            "ボムはボムボタンを2回押すと出ます",
+        ],
+        (Menu::Run, Mode::PointdeviceBomb, Language::English) => &[
+            "Getting hit starts the chapter over",
+            "Missing the bomb button just before it costs life",
+            "A bomb goes off on two presses of the button",
+        ],
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CHOICES, Language, Mode, aside, title};
+    use super::{Answer, CHOICES, Difficulty, Language, Mode, Question, aside, title};
     use crate::game::Menu;
 
     /// Both languages, everywhere below: a question with a line missing in one of them is a screen
@@ -378,10 +496,11 @@ mod tests {
                 "two of the screens are asked about in the same words",
             );
             for asked in [Menu::Run, Menu::Replays] {
-                assert_ne!(
-                    aside(asked, Mode::Pointdevice, language),
-                    aside(asked, Mode::Normal, language)
-                );
+                let said: std::collections::BTreeSet<&[&str]> = CHOICES
+                    .iter()
+                    .map(|mode| aside(asked, *mode, language))
+                    .collect();
+                assert_eq!(said.len(), CHOICES.len(), "two answers say the same thing");
             }
         }
     }
@@ -436,6 +555,70 @@ mod tests {
         assert_eq!(CHOICES[0].name(Language::Japanese), "完全無欠モード");
         assert_eq!(CHOICES[0].name(Language::English), "Pointdevice Mode");
         assert_eq!(CHOICES[1], Mode::Normal);
+    }
+
+    /// The bomb mode is the third answer, after the two whose places recipes and pads already reach, and
+    /// it is rewound the way the first is while the game's own is not.
+    #[test]
+    fn the_bomb_mode_is_the_third_choice_and_is_rewound() {
+        assert_eq!(CHOICES[2], Mode::PointdeviceBomb);
+        assert_eq!(CHOICES[2].name(Language::Japanese), "完全無欠ボムモード");
+        assert_eq!(CHOICES[2].name(Language::English), "Pointdevice Bomb Mode");
+        assert!(Mode::Pointdevice.rewinds());
+        assert!(Mode::PointdeviceBomb.rewinds());
+        assert!(!Mode::Normal.rewinds());
+    }
+
+    /// Taking the bomb mode for a run puts the difficulty up as a page of the same question, and the answer is
+    /// the mode once that page is answered; over a ranking or the replays there is no difficulty to ask.
+    #[test]
+    fn the_bomb_mode_for_a_run_asks_its_difficulty_next() {
+        let mut run = Question::new(Menu::Run, Mode::Pointdevice, Difficulty::Hard);
+        assert!(
+            run.answered_outright(2).is_none(),
+            "the difficulty is asked next"
+        );
+        assert_eq!(
+            run.difficulty_selection(),
+            Some(2),
+            "on the one chosen last"
+        );
+        assert!(matches!(
+            run.answered_outright(3),
+            Some(Answer::Chosen(Mode::PointdeviceBomb))
+        ));
+        assert_eq!(run.difficulty(), Some(Difficulty::Lunatic));
+
+        let mut scores = Question::new(Menu::Scores, Mode::Pointdevice, Difficulty::Hard);
+        assert!(matches!(
+            scores.answered_outright(2),
+            Some(Answer::Chosen(Mode::PointdeviceBomb))
+        ));
+        assert_eq!(scores.difficulty(), None);
+    }
+
+    /// And the other two answers are answers at once, wherever they are asked.
+    #[test]
+    fn the_other_modes_are_answered_at_once() {
+        let mut run = Question::new(Menu::Run, Mode::Pointdevice, Difficulty::Normal);
+        assert!(matches!(
+            run.answered_outright(1),
+            Some(Answer::Chosen(Mode::Normal))
+        ));
+        assert_eq!(run.difficulty_selection(), None);
+    }
+
+    /// What the bomb mode says it adds: the press just before a hit is judged, and the bomb is on a second
+    /// press — a single press doing nothing would otherwise read as a broken button.
+    #[test]
+    fn the_bomb_mode_says_the_press_is_judged_and_the_bomb_takes_two() {
+        let japanese = aside(Menu::Run, Mode::PointdeviceBomb, Language::Japanese).join("\n");
+        assert!(japanese.contains("直前にボムボタンを押せていない"));
+        assert!(japanese.contains("2回"));
+
+        let english = aside(Menu::Run, Mode::PointdeviceBomb, Language::English).join("\n");
+        assert!(english.contains("just before"));
+        assert!(english.contains("two presses"));
     }
 
     /// Every screen of a question is in one language: a name, a title or a line that came out in the

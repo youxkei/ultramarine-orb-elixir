@@ -642,10 +642,12 @@ fn steps_of(written: Vec<recipe::Step>, game: &dyn Game) -> Option<Vec<Step>> {
                 chance,
                 times_each_retry,
                 gives_up,
+                presses_the_bomb,
             } => Step::TakeHits(hits::Told {
                 chance,
                 times_each_retry,
                 gives_up,
+                presses_the_bomb,
             }),
             recipe::Step::Bombs { allowed } => Step::Bombs(allowed),
             recipe::Step::StandAtThroughAStretch {
@@ -779,6 +781,7 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
 fn named_question(name: &str, at: usize) -> Option<Question> {
     Some(match name {
         "mode" => Question::Mode,
+        "difficulty" => Question::Difficulty,
         "resume" => Question::Resume,
         "retry" => Question::Retry,
         "keep_replay" => Question::KeepReplay,
@@ -1271,14 +1274,19 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // goes to the rules, a step that handed the game a word of nothing being a player standing still.
         Step::TakeHits(told) => {
             playing.hits.told(*told);
+            steer::press_the_bomb_on_a_hit(told.presses_the_bomb);
             log!(
                 "autoplay: step {} of {} takes hits, a chance of {:.3} per chapter, {:.3} of that \
-                 each retry, and {:.3} of giving the run up at one",
+                 each retry, and {:.3} of giving the run up at one{}",
                 playing.at + 1,
                 playing.steps.len(),
                 told.chance,
                 told.times_each_retry,
                 told.gives_up,
+                match told.presses_the_bomb {
+                    true => ", the bomb pressed once as one lands",
+                    false => "",
+                },
             );
             (
                 unsafe { steer::word_to_press(game, hazards, playing.bombs) },
@@ -2164,6 +2172,7 @@ mod tests {
             chance: 1.0,
             times_each_retry: 1.0,
             gives_up: 0.0,
+            presses_the_bomb: false,
         });
         let decide = Some(GAME.button_bit("decide").expect("th07 has the button"));
         let lost_on = |frame: u32| Reached {

@@ -1312,6 +1312,7 @@ impl Game for Th11 {
         crate::score::Files {
             theirs: c"scoreth11.dat",
             ours: c"pointdevice_scoreth11.dat",
+            bombs: c"pointdevice_bomb_scoreth11.dat",
         }
     }
 
@@ -1617,6 +1618,28 @@ impl Game for Th11 {
             width: 0.0,
             height: 0.0,
         }
+    }
+
+    /// **The star of each life, as the panel shows it — measured and not read.** The panel keeps nine vms at
+    /// `+0x10`, 0x434 apart, built from `front.anm`'s scripts 10 + i (0x41a744–0x41a762) and shown up to the
+    /// lives by `0x41a060`; where they stand is those scripts', inside `th11.dat`, and not the exe's. So the
+    /// numbers are off the game's own 640x480 snapshots — `snapshot/th000.bmp`, `th001.bmp` and the dev copy's
+    /// 8,461 with one to nine stars: the star outline and all from (523 + 12 i, 105), 14 tall, its neighbours
+    /// sharing an outline column, so 12 wide here and the shared column left to the star it belongs to.
+    /// (31, 45, 60): the mean of the 840 pixels of the lives row past the second star, x 560 to 620 and y 105 to
+    /// 119, of `snapshot/a_part_of_a_life_gone-57747104.bmp` — a picture of a run with two lives. The panel is a
+    /// blue picture with lines across it rather than a tile, and orb's own grey stood out on it as a square.
+    fn panel_colour(&self) -> Option<u32> {
+        Some(0xff1f_2d3c)
+    }
+
+    fn life_star(&self, index: u32) -> Option<Rect> {
+        Some(Rect {
+            left: 523.0 + 12.0 * index as f32,
+            top: 105.0,
+            width: 12.0,
+            height: 14.0,
+        })
     }
 
     fn content_size(&self) -> (u32, u32) {
@@ -2313,6 +2336,12 @@ impl Game for Th11 {
             small_items_ring_at: Self::object(G_ITEM_MANAGER)
                 .map_or(0, |manager| read(manager + SMALL_ITEMS_RING_AT)),
         })
+    }
+
+    /// `0x4a5718`, the word [`State::lives`] is read from, which `set_run_state` writes too.
+    unsafe fn set_lives(&self, lives: i8) -> bool {
+        unsafe { mem::write(G_LIVES, i32::from(lives)) };
+        true
     }
 
     /// **Put back the way the game's own playback puts a stage back** — the numbers as 0x4356e0's playback and

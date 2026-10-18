@@ -2866,6 +2866,23 @@ impl Game for Th06c {
         false
     }
 
+    /// **The panel's star for each life, where th06 1.02h puts its own**: the panel's draw `0x140029030` draws
+    /// vm `+0x16b0` of the panel once per life (`[0x1403ee804]`) from x `[0x14030e18c]` = 496.0 at
+    /// `0x1400296e1`, stepping `[0x14030e0d4]` = 16.0 at `0x140029746`, with y 122.0 written at `0x14002971f` —
+    /// in the 640x480 that draw sets up at `0x1400591d0`, which is the space orb's overlay of this game is in.
+    ///
+    /// The star's 16x16 and its corner being the position are th06's and not read off this exe — they are
+    /// `data/front.anm`'s, packed in this game's own archive. A picture of the panel is what holds them to the
+    /// game.
+    fn life_star(&self, index: u32) -> Option<Rect> {
+        Some(Rect {
+            left: 496.0 + 16.0 * index as f32,
+            top: 122.0,
+            width: 16.0,
+            height: 16.0,
+        })
+    }
+
     fn lives_row(&self) -> Rect {
         Rect {
             left: 0.0,
@@ -3495,6 +3512,12 @@ impl Game for Th06c {
     /// [`resume::Numbers`], and [`Th06c::numbers`] for where each is read.
     unsafe fn run_state(&self) -> Vec<u8> {
         resume::encode_state(&unsafe { self.numbers() })
+    }
+
+    /// The byte [`State::lives`] is read from, which the playback's own init writes too (`put_the_numbers_back`).
+    unsafe fn set_lives(&self, lives: i8) -> bool {
+        unsafe { mem::write::<i8>(at(LIVES), lives) };
+        true
     }
 
     unsafe fn set_run_state(&self, state: &[u8]) {
