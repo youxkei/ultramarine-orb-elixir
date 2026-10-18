@@ -1031,11 +1031,11 @@ mod tests {
         );
         assert_eq!(
             games_js_names(
-                "{\n  \"th07\": \"L:\\\\game\\\\ShanghaiAlice\\\\th07\\\\th07.exe\"\n}",
+                "{\n  \"th07\": \"C:\\\\game\\\\th07\\\\th07.exe\"\n}",
                 "th07"
             )
             .as_deref(),
-            Some("L:\\game\\ShanghaiAlice\\th07\\th07.exe")
+            Some("C:\\game\\th07\\th07.exe")
         );
         // One entry among several, since a thcrap patches every game somebody configured it for.
         let several =
