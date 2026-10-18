@@ -27,7 +27,7 @@ for arg in "$@"; do
 done
 if [ -z "$trace" ]; then
   mkdir -p "$dir/traces"
-  trace="$(wslpath -w "$dir/traces")\\$(date +%Y%m%d-%H%M%S)-$(basename "$recipe" .yaml).msgpack"
+  trace="$(cygpath -w "$dir/traces")\\$(date +%Y%m%d-%H%M%S)-$(basename "$recipe" .yaml).msgpack"
   set -- "$@" "--trace=$trace"
 fi
 echo "trace: $trace"

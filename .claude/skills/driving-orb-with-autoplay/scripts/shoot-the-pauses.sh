@@ -26,13 +26,13 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../../../.." && pwd)"
 reader="$repo/target/i686-pc-windows-msvc/release/orb-real.exe"
 mkdir -p "$dir/shots"
-out="$(wslpath -w "$dir/shots")"
+out="$(cygpath -w "$dir/shots")"
 declare -A taken
 count=0
 while [ "$count" -lt "${#labels[@]}" ]; do
   trace="$(find "$dir/traces" -name '*.msgpack' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
   if [ -n "$trace" ]; then
-    line="$("$reader" watching "$(wslpath -w "$trace")" 2>&1 | grep -aoE 'autoplay: step [0-9]+ of [0-9]+ [a-z]+' | head -1)"
+    line="$("$reader" watching "$(cygpath -w "$trace")" 2>&1 | grep -aoE 'autoplay: step [0-9]+ of [0-9]+ [a-z]+' | head -1)"
     n="$(printf '%s' "$line" | awk '{print $3}')"
     # The wait is under way once the press before it is done, or while it says it is still waiting.
     if [ -n "$n" ]; then
@@ -41,7 +41,7 @@ while [ "$count" -lt "${#labels[@]}" ]; do
       if [ $(((at - first) % apart)) -eq 0 ] && [ "$i" -ge 0 ] && [ "$i" -lt "${#labels[@]}" ] && [ -z "${taken[$i]:-}" ]; then
         # A moment for the pause menu to finish coming up, which is a fade of its own.
         sleep 2
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/shot.ps1")" \
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/shot.ps1")" \
           -Exe "$exe" -Out "$out\\${labels[$i]}.png" 2>&1 | tr -d '\r'
         taken[$i]=1
         count=$((count + 1))

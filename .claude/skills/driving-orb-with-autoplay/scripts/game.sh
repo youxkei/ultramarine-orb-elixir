@@ -17,10 +17,14 @@ exe="${2:?usage: game.sh running-or-gone-or-close <game-exe>}"
 #
 # `-a`, because that code page is not this shell's: without it grep reads the row as binary and prints
 # `binary file matches` to stderr and no line, so the count is nought while the game is up.
-running() { tasklist.exe /FI "IMAGENAME eq $exe" /FO CSV /NH 2>/dev/null | grep -a '^"' | wc -l; }
+#
+# `MSYS_NO_PATHCONV=1`, because Git Bash rewrites an argument that looks like a path into Windows' spelling of
+# it: `/FI` reaches `tasklist.exe` as `C:/Program Files/Git/FI`, it answers with an error on stderr, and the
+# count is nought while the game is up.
+running() { MSYS_NO_PATHCONV=1 tasklist.exe /FI "IMAGENAME eq $exe" /FO CSV /NH 2>/dev/null | grep -a '^"' | wc -l; }
 
-# Asked twice: `tasklist.exe` is reached through the interop and answers an empty list once in a while with
-# the game up, so one nought is not a game that has gone.
+# Asked twice: `tasklist.exe` answers an empty list once in a while with the game up, so one nought is not a
+# game that has gone.
 gone() {
   [ "$(running)" -eq 0 ] || return 1
   sleep 2
@@ -37,7 +41,7 @@ case "$what" in
       echo "$exe was not running"
       exit 0
     fi
-    if taskkill.exe /F /IM "$exe" >/dev/null 2>&1; then
+    if MSYS_NO_PATHCONV=1 taskkill.exe /F /IM "$exe" >/dev/null 2>&1; then
       echo "$exe closed"
     else
       echo "$exe would not close"

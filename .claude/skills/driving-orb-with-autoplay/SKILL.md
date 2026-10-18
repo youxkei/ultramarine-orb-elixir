@@ -26,8 +26,8 @@ launch of one is driven and watched.
 - Keep a recipe written for one measurement **beside the copy's exe**, and launch it with
   `bash .claude/skills/driving-orb-with-autoplay/scripts/drive-a-run.sh <copy> <game-exe> <recipe> --log=verbose --pace=8`
   in the background. It refuses while the game is running, and returns when the game has gone.
-  - **Name the recipe by its own file name and not by a path**: the script `cd`s into the copy and hands
-    `--autoplay=<recipe>` to a Windows program, so a `/mnt/...` path reaches orb as a file it cannot open
+  - **Name the recipe by its own file name and not by a path**: the script `cd`s into the copy before it
+    hands `--autoplay=<recipe>` to orb, so a path relative to where the call was made names nothing there
     and the launch comes up with `autoplay: None` — a game that plays nothing and a recipe whose steps
     never run.
   - **And a case's recipe beside the copy is a copy that goes stale.** `cargo xtask real` reads
@@ -87,10 +87,10 @@ launch of one is driven and watched.
     line is said once every so many frames — the newest record *is* the newest frame — and one command
     instead of five. A chunk is whole records, so the file is never read mid-record; what it is, is the
     launch as of a few seconds ago, which is what a 30-second tick wants anyway.
-  - **And the path it is given is the one Windows spells**, `orb-real.exe` being a Windows program: a
-    `/mnt/<drive>/...` handed to it comes back `アクセスが拒否されました (os error 5)`, which reads as a file
-    somebody else has open and is a path it could not resolve. Write `<drive>:\...\<trace>.msgpack`, the
-    same spelling `--trace` itself takes.
+  - **And the path it is given reaches it in Windows' spelling**, `orb-real.exe` being a Windows program:
+    Git Bash rewrites a `/c/...` argument into `C:/...` on the way to one, `--trace=/c/...` included, so
+    either spelling works from the command line. A script that joins a path into a longer string spells it
+    with `cygpath -w`, the way `drive-a-run.sh` names its trace.
   - **What a trace cannot answer is whether the process is alive at all**: `scripts/game.sh running`
     answers that.
     - **And one zero from it is not a game that has gone.** A monitor armed to stop on the first `0`
@@ -225,7 +225,7 @@ bisection of flags takes twenty launches to circle** — `cdb` is on this machin
 ```sh
 # the launch in the background, then its pid off orb.log's first line
 pid=$(grep -a "attached to pid" <copy>/orb.log | tail -1 | sed -E 's/.*pid ([0-9]+),.*/\1/')
-"/mnt/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe" -p "$pid" \
+"/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe" -p "$pid" \
   -logo '<copy as Windows spells it>\cdb.log' -c "g; .lastevent; .exr -1; r; kb; q"
 ```
 
@@ -241,7 +241,7 @@ pid=$(grep -a "attached to pid" <copy>/orb.log | tail -1 | sed -E 's/.*pid ([0-9
   followed by `q` answered which card th08's stage 4 fight was on and closed the launch that was in it. A
   read across a game somebody is watching is theirs to allow either way — see the rule above about not
   disturbing a run.
-- Write the log to the copy's own directory as a **new** file and read it from WSL afterwards; cdb is a
+- Write the log to the copy's own directory as a **new** file and read it afterwards; cdb is a
   Windows process, so the path is a Windows one.
 - Attach as soon as the pid is up rather than at the moment of the fault: attaching costs the game a
   moment and nothing else, and what is wanted is the first fault of the launch.
