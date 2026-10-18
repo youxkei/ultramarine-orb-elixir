@@ -28,41 +28,17 @@ env:
 jobs:
   test:
     # Windows rather than a cross-compile run under Wine. The tests are
-    # i686-pc-windows-gnu binaries and some of them ask Windows about the process's
+    # i686-pc-windows-msvc binaries and some of them ask Windows about the process's
     # own pages — `mem::read_committed` reads back what VirtualQuery says about
     # alignment, commitment and PAGE_GUARD — so a Wine run would be establishing what
     # Wine does with those, which is not the thing being relied on.
+    #
+    # The linker is the Visual Studio one the runner image carries, which links for
+    # i686 as it is.
     runs-on: windows-latest
-
-    defaults:
-      run:
-        # The mingw32 shell, so the linker `.cargo/config.toml` names is on PATH.
-        # Set for every `run` step rather than per step: the first one that got the
-        # plain Windows shell would fail at link time and say only that cc was not
-        # found.
-        shell: msys2 {0}
 
     steps:
       - uses: actions/checkout@v4
-
-      # Both mingw gcc's, neither of which the runner image's own MSYS2 installation
-      # carries. th06 and th07 are 32-bit processes and what ships is built for them, so
-      # the shell is MINGW32 and `.cargo/config.toml` names that linker; th06c is a
-      # 64-bit build and the suite covering it links with the x86_64 one — see `ALSO` in
-      # `crates/xtask/src/main.rs`.
-      #
-      # The 64-bit gcc lands in `/mingw64/bin`, which a MINGW32 shell does not have on
-      # PATH, so the Test step hands its path over rather than this step widening PATH:
-      # two mingw runtimes on one PATH is a 32-bit link finding the wrong one.
-      #
-      # `path-type: inherit` keeps the Windows PATH inside this shell, which is where
-      # rustup puts cargo — without it the toolchain installed below is not reachable
-      # from the steps that use it.
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW32
-          path-type: inherit
-          install: mingw-w64-i686-gcc mingw-w64-x86_64-gcc
 
       # The channel and the targets are `rust-toolchain.toml`'s. Naming them again here
       # is what installs them before the first cargo call rather than during it. The
@@ -73,7 +49,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-          targets: i686-pc-windows-gnu, x86_64-pc-windows-gnu, i686-unknown-linux-gnu
+          targets: i686-pc-windows-msvc, x86_64-pc-windows-msvc, i686-unknown-linux-gnu
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
@@ -91,8 +67,6 @@ jobs:
       # `[build] target` naming them — see `.cargo/config.toml`. `cargo fmt --check` above
       # needs no target.
       - name: Clippy
-        env:
-          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: /mingw64/bin/x86_64-w64-mingw32-gcc
         run: cargo xtask clippy
 
       # The boundary, asked for rather than remembered. It fails the day somebody writes a
@@ -103,14 +77,5 @@ jobs:
 
       # Both halves of the suite: what ships, and th06c's own e2e tests, which are a
       # 64-bit build — see `ALSO` in `crates/xtask/src/main.rs`.
-      #
-      # The linker for that half named here rather than in `.cargo/config.toml`, which is
-      # the pattern that file already uses for a toolchain whose location is one machine's
-      # business: `/mingw64/bin` is where MSYS2 puts it and is not on a MINGW32 shell's
-      # PATH, and widening that PATH would leave two mingw runtimes on it for the 32-bit
-      # link to pick the wrong one from. On a host whose mingw provides both under one
-      # prefix — Ubuntu's does — the target's own default finds it and nothing is needed.
       - name: Test
-        env:
-          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: /mingw64/bin/x86_64-w64-mingw32-gcc
         run: cargo xtask test

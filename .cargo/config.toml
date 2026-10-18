@@ -11,22 +11,12 @@ bindeps = true
 [alias]
 xtask = "run --quiet --package xtask --"
 
-[target.i686-pc-windows-gnu]
-linker = "i686-w64-mingw32-gcc"
-ar = "i686-w64-mingw32-ar"
+# `crt-static` because without it `orb.exe` and the DLL it carries import `VCRUNTIME140.dll`, which
+# nothing that runs a game of this age can be assumed to have installed. The one file that is handed
+# out is then the whole of what runs.
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
 
-# The same suite built for the MinGW ABI through LLVM's own toolchain, which is what coverage is
-# measured on: **rustup ships `profiler_builtins` for this target and not for `i686-pc-windows-gnu`**,
-# so `-C instrument-coverage` has no runtime to link against on the one everything else uses. The ABI,
-# the CRT and every `cfg` are the same, so what a coverage run measures is the code that ships — the
-# linker and the unwinder are what differ.
-#
-# `crt-static` because without it the binaries import `libunwind.dll` and a run that cannot find it
-# **hangs rather than failing**, which is a long way to look for a missing file. Static linking is also
-# what makes the exes runnable from anywhere rather than only beside a copy of that DLL.
-#
-# The linker itself is not here: it is llvm-mingw's `i686-w64-mingw32-clang`, and where that is
-# installed is one person's machine. Hand it over per run —
-# `CARGO_TARGET_I686_PC_WINDOWS_GNULLVM_LINKER=<llvm-mingw>/bin/i686-w64-mingw32-clang`.
-[target.i686-pc-windows-gnullvm]
+# The 64-bit build th06c and th06nc are injected with, for the same reason.
+[target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]

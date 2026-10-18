@@ -8,8 +8,10 @@
 # `crates/xtask/src/main.rs` for what each is for, `TARGET`, `ALSO` and `SEAM_TARGET` in that order.
 [toolchain]
 channel = "nightly"
+# What `cargo llvm-cov` reads the profiles with — `llvm-profdata` and `llvm-cov` — for `cargo xtask coverage`.
+components = ["llvm-tools"]
 targets = [
-    "i686-pc-windows-gnu",
-    "x86_64-pc-windows-gnu",
+    "i686-pc-windows-msvc",
+    "x86_64-pc-windows-msvc",
     "i686-unknown-linux-gnu",
 ]

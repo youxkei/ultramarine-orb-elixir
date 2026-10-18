@@ -5,7 +5,10 @@ edition.workspace = true
 publish.workspace = true
 
 [lib]
-name = "orb"
+# Not `orb`: MSVC writes a `.pdb` beside each output and `orb.exe` is the launcher's, so a DLL also
+# stemmed `orb` has the two of them writing one `orb.pdb`. Nothing reads the name — the launcher
+# carries the file under whatever it is called and writes it out as `orb-<checksum>.dll`.
+name = "orb_dll"
 # The DLL the game loads and nothing else. **There is no `rlib`, and that is what says everything an
 # e2e test drives lives above this crate**: it cannot be built while anything a game laid out by hand
 # reaches is still here, because such a game has no import table and calls each rewrite itself.

@@ -14,7 +14,7 @@ launch of one is driven and watched.
 - Drive a **copy of the install**, with the game's own files and none of its `replay*/` directories. A
   played game writes its records beside itself, and the copy is where they land.
 - Put the build under test into the copy before each launch: `cargo xtask build --release`, then copy
-  `target/i686-pc-windows-gnu/release/orb.exe` into it. The copy's `orb.yaml` stays as it is.
+  `target/i686-pc-windows-msvc/release/orb.exe` into it. The copy's `orb.yaml` stays as it is.
 - Read the commit off the launch's first log line — `orb <version> attached to pid N, built from <commit>`
   — and hold it against `jj log -r @ -T commit_id.short(12)` before reading anything else off the run.
 
@@ -45,7 +45,7 @@ launch of one is driven and watched.
     **`scripts/deploy.sh` is the 32-bit one and is wrong for a 64-bit game**: run against `th06c` or
     `th06nc` it overwrites the working exe with one that answers
     `orb: no game orb knows is in …; it knows 東方紅魔郷.exe 1.02h, th07.exe …`. Theirs is
-    `cargo build --release --target x86_64-pc-windows-gnu -p orb-launcher`, copied in by hand —
+    `cargo build --release --target x86_64-pc-windows-msvc -p orb-launcher`, copied in by hand —
     `orb_real::Game::target` is what the harness picks it by, and `xtask/src/real.rs` builds it that way.
 - **Never start the Steam client, and launch th06c and th06nc with `--without-steam`.** A launch playing
   itself takes Steam out already (`Config::without_steam_wanted`, `orb::steam`) — its log says
@@ -74,7 +74,7 @@ launch of one is driven and watched.
   own question and the lines the log said that frame, written in chunks every few seconds — and nothing
   at all while the flag is off. `show` prints the frames that said something, state and lines together,
   so what a verbose log was read for is read as fields. The reader is
-  `target/i686-pc-windows-gnu/release/orb-real.exe`, which `cargo xtask real` builds and
+  `target/i686-pc-windows-msvc/release/orb-real.exe`, which `cargo xtask real` builds and
   `cargo xtask build --release` builds with everything else. Write the trace to a file of its own beside
   the copy, the game being the process that opens it.
   - **So a trace is the log, one frame at a time, and that is what to read once a launch is over.** Every

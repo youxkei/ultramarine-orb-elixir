@@ -15,12 +15,6 @@
 //!
 //! Chapter-based retry for th06 1.02h and th07, injected before the game starts.
 
-// The one thing the linker has to say about this crate, and it is not a fault: `DllMain` is
-// `extern "system"`, so mingw's linker looks for the decorated `_DllMain@12`, finds the
-// undecorated symbol Rust exported, and resolves the one to the other. That fixup is what makes
-// the DLL's entry point work, and there is no spelling of the export that avoids it.
-#![allow(linker_messages)]
-
 // None of them `pub`: nothing outside this crate reaches any of it. A game laid out by hand has no import
 // table, so where a real launch patches an entry it calls the rewrite itself — and every one of those
 // rewrites is `orb-core`'s.
@@ -64,7 +58,7 @@ use orb_core::runtime::{
 // `ranking_read` and `card_records_read` th06c and th06nc all answer `None` — so what the sites below do
 // without them is say so rather than install one.
 //
-// **Unconditional, they are what kept `orb` from building for `x86_64-pc-windows-gnu` at all**, which is
+// **Unconditional, they are what kept `orb` from building for `x86_64-pc-windows-msvc` at all**, which is
 // the target the 64-bit games' DLL is: `cargo xtask check` builds this crate for `TARGET` alone and its
 // `ALSO` pass covers `orb-core` and `orb-e2e`, so nothing named the one build that was broken. See this
 // change's own `TODO:` for the check that would have.

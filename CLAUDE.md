@@ -8,9 +8,9 @@ else — that is also the name of its crates and of the files it installs.
 - Run every task that has to name a target through `cargo xtask`: `build`, `test`, `clippy`, `seam`,
   `check`, `coverage`, `real`. `cargo xtask` with no task lists them.
 - Build what is handed out with `cargo xtask build --release`; the one file is
-  `target/i686-pc-windows-gnu/release/orb.exe`. Have `mingw-w64-i686-gcc` from MSYS2's MINGW32
-  environment on `PATH` — `.cargo/config.toml` names it as the linker.
-- Point the editor at the target: set `rust-analyzer.cargo.target` to `i686-pc-windows-gnu`.
+  `target/i686-pc-windows-msvc/release/orb.exe`. Building needs the Visual Studio Build Tools' C++
+  workload, which `rustc` finds by itself — there is no `PATH` to set.
+- Point the editor at the target: set `rust-analyzer.cargo.target` to `i686-pc-windows-msvc`.
 - Test on the real game with `cargo xtask real <the game's development environment>` — `th10_dev` and its
   siblings — after the same cases pass in `orb-e2e`. Never a copy made
   for it: the development environments are the exes muted in Windows' volume mixer, and a copy plays out loud.
@@ -52,27 +52,8 @@ Write commit messages in English.
   why this way rather than the obvious alternative. Where a commit adds e2e tests beside other changes,
   write here what they now cover.
 
-### Reading the message back
-
-Have the message read back by agents before it goes onto the change with `jj desc`, and change the
-line where a reader and the commit disagree.
-
-1. Hand **the description by itself** — prefix off, together with any bullet it leans on — to an
-   agent with an empty context, no sight of the diff and no access to this repository. Ask it: what
-   the line claims was changed; whose each thing in it is; which noun phrases it can read more than
-   one way; whether the line is true read as a sentence whose subject is this commit; and whether any
-   word in it is figurative rather than the plain word. Compare its answer with what the commit did.
-2. Hand **the diff and the line** to a second agent. Ask it: what the diff does, in one sentence of
-   its own; whether the line names what the commit is *for* or a step on the way to it; whether it is
-   true of the whole diff or of a part of it; and whether any word in it is one the diff itself
-   deletes.
-3. Check every noun phrase against the code yourself: where the code has a name for that thing, use
-   that name.
-
-Judge what the readers report rather than obeying it; a reader also names what no one line can
-settle. Where two wordings pass equally, use the ordinary one. What settles a wording is this section
-and the words the code uses — a subject in the log is a sample of an earlier convention, and settles
-nothing.
+What settles a wording is this section and the words the code uses — a subject in the log is a sample
+of an earlier convention, and settles nothing.
 
 ## The documents
 

@@ -594,7 +594,7 @@ fn config_path(exe: &Path, game_dir: Option<&Path>, named: Option<&Path>) -> Pat
 ///
 /// Cargo builds the cdylib first and passes its path in, so the two halves are always the
 /// same build and there is one file to install rather than two.
-const ORB_DLL: &[u8] = include_bytes!(env!("CARGO_CDYLIB_FILE_ORB"));
+const ORB_DLL: &[u8] = include_bytes!(env!("CARGO_CDYLIB_FILE_ORB_orb_dll"));
 
 /// Writes the carried `orb.dll` somewhere the game can load it from, and clears out what
 /// earlier runs left.

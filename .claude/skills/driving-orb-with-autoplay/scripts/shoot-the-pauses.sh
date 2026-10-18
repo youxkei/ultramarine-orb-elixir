@@ -24,7 +24,7 @@ fi
 labels=("$@")
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../../../.." && pwd)"
-reader="$repo/target/i686-pc-windows-gnu/release/orb-real.exe"
+reader="$repo/target/i686-pc-windows-msvc/release/orb-real.exe"
 mkdir -p "$dir/shots"
 out="$(wslpath -w "$dir/shots")"
 declare -A taken

@@ -143,8 +143,10 @@ impl Game {
     /// [`Game::exe`] is: this crate is the one place which games there are is written down.
     pub fn target(self) -> &'static str {
         match self {
-            Game::Th06 | Game::Th07 | Game::Th08 | Game::Th10 | Game::Th11 => "i686-pc-windows-gnu",
-            Game::Th06c | Game::Th06nc => "x86_64-pc-windows-gnu",
+            Game::Th06 | Game::Th07 | Game::Th08 | Game::Th10 | Game::Th11 => {
+                "i686-pc-windows-msvc"
+            }
+            Game::Th06c | Game::Th06nc => "x86_64-pc-windows-msvc",
         }
     }
 

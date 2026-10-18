@@ -56,7 +56,7 @@
 /// in this tree does by writing over something — an import table entry or a prologue: this patches
 /// nothing and records where a function is.
 // **Allowed rather than gated, because what declares nothing through it is a whole target.** Both of the
-// games with such calls are 32-bit builds and this crate is built for `x86_64-pc-windows-gnu` as well,
+// games with such calls are 32-bit builds and this crate is built for `x86_64-pc-windows-msvc` as well,
 // where th06c is the only game compiled in and it hands over its frame without an address — see
 // `th06c::THE_FRAME`. A `cfg` on the arch here would say that in a place nothing reads it.
 #[allow(unused_macros)]
