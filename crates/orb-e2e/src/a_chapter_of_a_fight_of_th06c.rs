@@ -326,7 +326,10 @@ fn a_card_of_th06c_declared_after_its_attack_names_the_chapter_that_attack_began
             "the death came after the fight it was to be taken in was over",
         );
         assert_eq!(
-            game.a_frame_that_says("MIDBOSS SPELL 2").len(),
+            game.a_frame_that_says("MIDBOSS SPELL 2")
+                .into_iter()
+                .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+                .count(),
             1,
             "the retry menu does not offer the chapter as the card it turned out to be",
         );

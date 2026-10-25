@@ -28,7 +28,7 @@ use orb_core::window::{
     BORDERLESS_STYLE, GWL_EXSTYLE as EX_STYLE_ABOVE_THE_SEAM, GWL_STYLE as STYLE_ABOVE_THE_SEAM,
     SWP_NOMOVE as NO_MOVE_ABOVE_THE_SEAM, SWP_NOSIZE as NO_SIZE_ABOVE_THE_SEAM,
     SWP_SHOWWINDOW as SHOW_ABOVE_THE_SEAM, WINDOWED_STYLE, WS_VISIBLE as VISIBLE_ABOVE_THE_SEAM,
-    create_window_ex_a, is_game_class,
+    create_window_ex_a,
 };
 
 use crate::hook;
@@ -81,7 +81,6 @@ pub unsafe fn install(
     content: (u32, u32),
     screen: Screen,
     out_of_the_way: bool,
-    faster: bool,
 ) -> Result<(), hook::Error> {
     // **The background first, and not refused where the game has no such import.** th06c asks for its
     // window's making by name and imports neither `RegisterClassA` nor `CreateWindowExA`, so a launch that
@@ -162,24 +161,35 @@ pub unsafe fn install(
     {
         unsafe { orb_core::window::answers_the_window_brought_forward(previous) };
     }
-    // **And `Direct3DCreate9`, for the same launch**, whose answer writes over the object's `CreateDevice` — see
+    // **And `Direct3DCreate9`, for every launch**, whose answer writes over the object's `CreateDevice` — see
     // `orb_core::window::create_device9`, the device being what brought th10's window to the front once the two
     // above had been dealt with. A Direct3D 8 game imports none, and its `CreateDevice` takes no
     // `D3DCREATE_NOWINDOWCHANGES`: th08 stopped on its own `Direct3D の初期化に失敗しました` given it (2026-10-04
-    // 04:10). **And for
-    // a launch paced faster than the display**, whose device is made presenting without waiting for its blank — see
-    // `orb_core::window::presents_without_waiting`.
-    if (out_of_the_way || faster)
-        && let Ok(previous) = unsafe {
-            hook::install_import(
-                module,
-                "d3d9.dll",
-                "Direct3DCreate9",
-                hook::address(orb_core::window::direct3d_create9 as _),
-            )
+    // 04:10) — which is added only where a run is played out of the way, and the presentation interval only where
+    // a launch is paced faster than the display (see `orb_core::window::presents_without_waiting`). **Every launch
+    // and not only those two**, because the device's own `Present` is where a Direct3D 9 game's black beside the
+    // picture comes from — the letterbox rectangle handed to it — and that is a launch somebody plays as much as
+    // one that plays itself.
+    match unsafe {
+        hook::install_import(
+            module,
+            "d3d9.dll",
+            "Direct3DCreate9",
+            hook::address(orb_core::window::direct3d_create9 as _),
+        )
+    } {
+        Ok(previous) => {
+            unsafe { orb_core::window::answers_the_direct3d_made(previous) };
+            log::line(
+                "screen: Direct3DCreate9 is answered by orb, and its device's CreateDevice with it",
+            );
         }
-    {
-        unsafe { orb_core::window::answers_the_direct3d_made(previous) };
+        // Said rather than passed over: a game that reaches Direct3D9 another way — a name orb does not
+        // answer, or a library loaded by hand — has no device of orb's, and with no device there is no
+        // Present to hand the letterbox to.
+        Err(error) => log::line(&format!(
+            "screen: {error}; the Direct3D 9 device is left as the game makes it"
+        )),
     }
     // **And `SetActiveWindow`, for the same launch**, whose answer is `orb-core`'s: th08 attaches its input to the
     // foreground window's thread, takes the foreground lock's timeout to nought and activates its own window
@@ -244,9 +254,14 @@ pub unsafe fn install(
 unsafe extern "system" fn register_class_a(class: *const WNDCLASSA) -> u16 {
     let original: RegisterClassA =
         unsafe { std::mem::transmute(REGISTER_CLASS_A.load(Ordering::Relaxed)) };
-    if class.is_null() || !unsafe { is_game_class((*class).lpszClassName) } {
+    if class.is_null() {
         return unsafe { original(class) };
     }
+    // **Every class the exe registers and not one name of them**: `BASE` was th06's, th07's and th08's,
+    // and th10's is another — measured, a letterboxed launch of th10 kept its own background art in the
+    // bar beside the picture, which is where the run's numbers are written and have to be read. This
+    // import is the exe's own, so a class registered through it is the game's; what the brush changes is
+    // what a window of that class is painted with where nothing of the game is drawn.
     let mut patched = unsafe { *class };
     patched.hbrBackground = unsafe { CreateSolidBrush(BLACK) } as HBRUSH;
     unsafe { original(&patched) }

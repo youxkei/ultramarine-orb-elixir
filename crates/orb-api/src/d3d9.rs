@@ -33,12 +33,32 @@ use crate::{Device, Hresult, Locked, Surface, Texture, Viewport};
 /// **`IDirect3D9::CreateDevice`'s slot**, the seventeenth of `IDirect3D9`'s vtable in `d3d9.h` — the one th10 makes
 /// its device through, `call [ecx+0x40]` (0x439a06).
 pub const CREATE_DEVICE_SLOT: usize = 16;
+/// `IDirect3DDevice9::Present`, after `IUnknown`'s three, `TestCooperativeLevel`, the resources, the
+/// caps, the display mode, the creation parameters, the cursor, the swap chains and `Reset` — the slot
+/// a letterbox is handed to, `pDestRect` being where the picture goes in the client.
+pub const PRESENT_SLOT: usize = 17;
+/// `IDirect3DDevice9::GetSwapChain`, which answers the swap chain a game with frames of its own presents
+/// through — its `Present` is a slot of that object's vtable, not of the device's.
+pub const GET_SWAP_CHAIN: usize = 14;
+/// `IDirect3DDevice9::Reset`, which is where a game that changes its display mode puts the parameters
+/// back — the same ones a device is made with, so the same fields have to be written again there.
+pub const RESET_SLOT: usize = 16;
+/// `IDirect3DSwapChain9::Present`, after `IUnknown`'s three.
+pub const SWAP_CHAIN_PRESENT_SLOT: usize = 3;
+/// `D3DSWAPEFFECT_COPY`, the swap effect that honours a present's destination rectangle.
+pub const D3DSWAPEFFECT_COPY: u32 = 2;
 
 /// **`D3DCREATE_NOWINDOWCHANGES`**, the behaviour flag that says Direct3D must not alter the focus window in any
 /// way.
 pub const D3DCREATE_NOWINDOWCHANGES: u32 = 0x800;
 /// `D3DPRESENT_PARAMETERS::PresentationInterval`'s offset: the fourteenth of its fourteen `u32`-wide fields.
 pub const PRESENTATION_INTERVAL: usize = 0x34;
+/// `D3DPRESENT_PARAMETERS::SwapEffect`'s offset: `BackBufferWidth`, `Height`, `Format` and
+/// `BackBufferCount` before it, `MultiSampleType` and `MultiSampleQuality` between.
+pub const SWAP_EFFECT: usize = 0x18;
+/// `D3DPRESENT_PARAMETERS::Windowed`, a `BOOL` after the swap effect and the window's handle: a present's
+/// destination rectangle is honoured only by a windowed swap chain.
+pub const WINDOWED: usize = 0x20;
 /// `D3DPRESENT_INTERVAL_IMMEDIATE`, a present that does not wait for the display's blank.
 pub const D3DPRESENT_INTERVAL_IMMEDIATE: u32 = 0x8000_0000;
 

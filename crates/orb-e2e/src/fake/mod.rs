@@ -1058,6 +1058,16 @@ pub trait Launched {
 /// never comes up is a failure rather than a wait nobody sees the end of.
 const FRAMES_FOR_A_DRAW: u32 = 30;
 
+/// **Where the status line's stack begins**, in the game's own 640x480: everything at or below it is the
+/// line beside the picture and not the game's own screen.
+///
+/// **Because a Direct3D 11 game's line goes through the same canvas as orb's menus** — see
+/// `runtime::draw_the_line_beside`, which places it from the bottom of the right bar up — and says a
+/// chapter's name where the retry menu says one too, so a test counting the words of a menu has to keep
+/// the line's out of its count.
+#[cfg(all(test, target_arch = "x86_64"))]
+pub const THE_LINE_BEGINS: f32 = 400.0;
+
 /// What names the process an e2e test runs in as the one that is *being* the launch, and which e2e test
 /// it is: read by the child, set by the parent.
 const E2E_TEST: &str = "ORB_E2E_TEST";

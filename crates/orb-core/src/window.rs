@@ -161,6 +161,13 @@ const BAR_MARGIN: i32 = 8;
 
 /// The aspect ratio to keep, as the size the game renders at.
 static CONTENT: MainThread<(u32, u32)> = MainThread::new((640, 480));
+/// The size the game draws at, which the window's black is worked out against and which a Direct3D 9
+/// device's back buffer is made — see [`create_device9`], where a buffer of the client's size is a
+/// picture already stretched before the present sees it.
+pub fn the_content() -> (u32, u32) {
+    unsafe { *CONTENT.get() }
+}
+
 /// How much of the screen the game is to get, out of `orb.yaml`.
 static SCREEN: MainThread<Screen> = MainThread::new(Screen::Fullscreen);
 /// And whether the window is one orb plays in rather than one somebody does — `Config::autoplay`, which
@@ -703,9 +710,10 @@ pub unsafe extern "system" fn direct3d_create9(sdk: u32) -> *mut c_void {
     let original: Direct3DCreate9 =
         unsafe { std::mem::transmute(DIRECT3D_CREATE9.load(Ordering::Relaxed)) };
     let made = unsafe { original(sdk) };
-    let wanted =
-        unsafe { *OUT_OF_THE_WAY.get() } || PRESENTS_WITHOUT_WAITING.load(Ordering::Relaxed);
-    if made.is_null() || !wanted {
+    // **Every launch**, for `Present`'s reason: the device's own present is where a Direct3D 9 game's
+    // black beside the picture is made, and that is a launch somebody plays as much as one that plays
+    // itself — see `orb::window::install`, which patches the name for every launch too.
+    if made.is_null() {
         return made;
     }
     // The vtable read out of the object, for the reason [`hook_device`] reads the device's that way.
@@ -766,7 +774,266 @@ pub unsafe extern "system" fn create_device9(
         };
         log!("frame: the device is made presenting without waiting for the display's blank");
     }
-    unsafe { original(this, adapter, kind, focus, behaviour, parameters, device) }
+    // **The parameters made orb's**, which is what a letterbox needs to be made of: the swap effect a
+    // present's destination rectangle is honoured by, and a back buffer of the game's own size rather
+    // than the client's — measured, th10 asked for a buffer of the client's own and a 1280x720 client
+    // held its title laid out over the whole of it.
+    if !parameters.is_null() {
+        unsafe { force_the_d3d9_parameters(parameters) };
+    }
+    let answered = unsafe { original(this, adapter, kind, focus, behaviour, parameters, device) };
+    // **What the device's making answered**, because a runtime that refused the parameters — a copy
+    // swap chain it would not make, a back buffer it would not make — says so nowhere else, and the
+    // present then ignores every rectangle this hands it.
+    log!("screen: CreateDevice answered {answered:#010x}");
+    if answered >= 0 && !device.is_null() {
+        let made = unsafe { *device };
+        if !made.is_null() {
+            unsafe { hook_present9(made) };
+        }
+    }
+    answered
+}
+
+/// The device's own `Present`, as it was before [`hook_present9`] wrote over the slot — and nought where
+/// no device has been taken.
+static PRESENT9: AtomicUsize = AtomicUsize::new(0);
+
+type Present9 = unsafe extern "system" fn(
+    *mut c_void,
+    *const Rect,
+    *const Rect,
+    isize,
+    *const c_void,
+) -> Hresult;
+
+/// **The Direct3D 9 device's `Present` taken, so that the picture goes into the letterbox.**
+///
+/// The same swap [`hook_device`] makes on a Direct3D 8 device, and for the same reason: the present is
+/// where the rectangle is honoured, and the black it leaves beside the picture is what
+/// [`write_beside`] writes the run's numbers in. Taken once, the vtable being one object's — and the
+/// device kept in [`PRESENT9`] rather than the slot's old answer, for [`hook_device`]'s reason.
+///
+/// # Safety
+/// `device` must be the game's live device, and this must run before it presents.
+unsafe fn hook_present9(device: *mut c_void) {
+    if PRESENT9.load(Ordering::Relaxed) != 0 {
+        return;
+    }
+    let vtable = unsafe { orb_api::mem::read::<usize>(device as usize) };
+    let slot = vtable + orb_api::d3d9::PRESENT_SLOT * size_of::<usize>();
+    PRESENT9.store(
+        unsafe { orb_api::mem::read::<usize>(slot) },
+        Ordering::Relaxed,
+    );
+    match unsafe { orb_api::mem::replace_word(slot, present9 as *const () as usize) } {
+        Some(_) => log!(
+            "screen: presenting through a letterbox, Direct3D 9, client {}",
+            match game_client() {
+                Some((width, height)) => format!("{width}x{height}"),
+                None => "unknown".to_owned(),
+            }
+        ),
+        None => {
+            PRESENT9.store(0, Ordering::Relaxed);
+            log!(
+                "screen: cannot hook the Direct3D 9 present: the slot's page cannot be made writable"
+            );
+        }
+    }
+    // **And the device's `Reset`**, so that the parameters a game puts back are made orb's again — see
+    // [`reset9`], and th10's reset at 0x439232.
+    let reset_slot = vtable + orb_api::d3d9::RESET_SLOT * size_of::<usize>();
+    RESET9.store(
+        unsafe { orb_api::mem::read::<usize>(reset_slot) },
+        Ordering::Relaxed,
+    );
+    match unsafe { orb_api::mem::replace_word(reset_slot, reset9 as *const () as usize) } {
+        Some(_) => log!("screen: the Direct3D 9 reset is orb's"),
+        None => {
+            RESET9.store(0, Ordering::Relaxed);
+            log!(
+                "screen: cannot hook the Direct3D 9 reset: the slot's page cannot be made writable"
+            );
+        }
+    }
+    // **And the swap chain's own `Present`, which is the one th10 goes through**: measured, the device's
+    // was called once a launch and the picture went on being drawn — the device's `GetSwapChain` answers
+    // an object whose `Present` is a slot of its own, and a game that calls that one never reaches the
+    // device's. Taken for the same rectangle and with an original of its own, the two slots not being
+    // one function's.
+    let gets_swap_chain = unsafe {
+        orb_api::mem::read::<usize>(vtable + orb_api::d3d9::GET_SWAP_CHAIN * size_of::<usize>())
+    };
+    if gets_swap_chain == 0 {
+        return;
+    }
+    let gets_swap_chain: unsafe extern "system" fn(*mut c_void, u32, *mut usize) -> Hresult =
+        unsafe { std::mem::transmute(gets_swap_chain) };
+    let mut chain = 0usize;
+    // **Index nought, which is the device's own swap chain**: one and above are the additional ones
+    // `CreateAdditionalSwapChain` makes, and this game's frames go to the implicit one.
+    if unsafe { gets_swap_chain(device, 0, &mut chain) } < 0 || chain == 0 {
+        log!("screen: the Direct3D 9 device answers no swap chain; the present is the game's");
+        return;
+    }
+    let Some(chain_vtable) =
+        orb_api::mem::read_committed::<usize>(chain).filter(|vtable| *vtable != 0)
+    else {
+        return;
+    };
+    let chain_slot = chain_vtable + orb_api::d3d9::SWAP_CHAIN_PRESENT_SLOT * size_of::<usize>();
+    PRESENT9_CHAIN.store(
+        unsafe { orb_api::mem::read::<usize>(chain_slot) },
+        Ordering::Relaxed,
+    );
+    match unsafe { orb_api::mem::replace_word(chain_slot, present9_chain as *const () as usize) } {
+        Some(_) => log!("screen: presenting through a letterbox, Direct3D 9, on the swap chain"),
+        None => {
+            PRESENT9_CHAIN.store(0, Ordering::Relaxed);
+            log!(
+                "screen: cannot hook the swap chain's present: the slot's page cannot be made writable"
+            );
+        }
+    }
+}
+
+/// The swap chain's own `Present`, as it was before [`hook_present9`] wrote over that slot.
+static PRESENT9_CHAIN: AtomicUsize = AtomicUsize::new(0);
+
+/// The device's own `Reset`, as it was before [`hook_present9`] wrote over that slot.
+static RESET9: AtomicUsize = AtomicUsize::new(0);
+
+type Reset9 = unsafe extern "system" fn(*mut c_void, *mut c_void) -> Hresult;
+
+/// **The device's `Reset` taken**, so that a game putting the parameters it made the device with back
+/// has them made orb's again — the copy swap chain and the game's own back buffer. th10 resets the
+/// device as it changes display modes (0x439232), which is after the creation this first wrote them at.
+///
+/// # Safety
+/// The arguments are `IDirect3DDevice9::Reset`'s own, and [`hook_present9`] must have put the original
+/// this calls through in place first.
+unsafe extern "system" fn reset9(device: *mut c_void, parameters: *mut c_void) -> Hresult {
+    let original: Reset9 = unsafe { std::mem::transmute(RESET9.load(Ordering::Relaxed)) };
+    unsafe { force_the_d3d9_parameters(parameters) };
+    let answered = unsafe { original(device, parameters) };
+    // **What the reset answered**: a reset refused for the parameters this made is a device still on
+    // the swap chain it was first made with, and a present's rectangle is refused by that chain.
+    log!("screen: Reset answered {answered:#010x}");
+    answered
+}
+
+/// **The presentation parameters made orb's**: the swap effect a present's destination rectangle is
+/// honoured by, and a back buffer of the game's own size. Called where a device is made and where it is
+/// reset, th10 doing both with the same parameters.
+///
+/// # Safety
+/// `parameters` must be null or a `D3DPRESENT_PARAMETERS`.
+unsafe fn force_the_d3d9_parameters(parameters: *mut c_void) {
+    if parameters.is_null() {
+        return;
+    }
+    let slot = parameters as usize + orb_api::d3d9::SWAP_EFFECT;
+    let was = unsafe { orb_api::mem::read::<u32>(slot) };
+    // **The game's own effect, only said.** A copy chain was written here to make a present's rectangle
+    // legal — with one back buffer, windowed-only, as Direct3D wants — and measured, the presents were
+    // refused exactly as before, so nothing is written and what the game asks for is what it gets.
+    // **Every field a rectangle's honouring depends on**, said every time: the effect as it was asked
+    // for and as it is now, the count of back buffers — a copy chain takes one — the window and the
+    // multisample. A present's rectangle is answered `0x8876086c`, `D3DERR_INVALIDCALL`, so what this
+    // chain really is is the question, and the struct is all orb can read of it.
+    let effect = unsafe { orb_api::mem::read::<u32>(slot) };
+    let count = unsafe { orb_api::mem::read::<u32>(parameters as usize + 0x0c) };
+    let windowed =
+        unsafe { orb_api::mem::read::<u32>(parameters as usize + orb_api::d3d9::WINDOWED) };
+    let multisample = unsafe { orb_api::mem::read::<u32>(parameters as usize + 0x10) };
+    let (width, height) = (
+        unsafe { orb_api::mem::read::<u32>(parameters as usize) },
+        unsafe { orb_api::mem::read::<u32>(parameters as usize + 4) },
+    );
+    log!(
+        "screen: the parameters ask effect {was}, are {effect}, {count} buffer(s), {width}x{height}, \
+         windowed {windowed}, multisample {multisample}"
+    );
+}
+
+/// What goes in that slot: the game's own present with the destination rectangle it did not ask for.
+///
+/// # Safety
+/// The arguments are `IDirect3DDevice9::Present`'s own, and [`hook_present9`] must have put the original
+/// this calls through in place first.
+unsafe extern "system" fn present9(
+    device: *mut c_void,
+    source: *const Rect,
+    destination: *const Rect,
+    window_override: isize,
+    dirty: *const c_void,
+) -> Hresult {
+    let original: Present9 = unsafe { std::mem::transmute(PRESENT9.load(Ordering::Relaxed)) };
+    unsafe {
+        present_through_the_letterbox(
+            original,
+            device,
+            source,
+            destination,
+            window_override,
+            dirty,
+        )
+    }
+}
+
+/// The same for the swap chain's slot, which is [`hook_present9`]'s second write and the one th10 goes
+/// through.
+///
+/// # Safety
+/// The arguments are `IDirect3DSwapChain9::Present`'s own, and [`hook_present9`] must have put the
+/// original this calls through in place first.
+unsafe extern "system" fn present9_chain(
+    chain: *mut c_void,
+    source: *const Rect,
+    destination: *const Rect,
+    window_override: isize,
+    dirty: *const c_void,
+) -> Hresult {
+    let original: Present9 = unsafe { std::mem::transmute(PRESENT9_CHAIN.load(Ordering::Relaxed)) };
+    unsafe {
+        present_through_the_letterbox(original, chain, source, destination, window_override, dirty)
+    }
+}
+
+/// **One present, with the destination rectangle the game did not ask for**, for either slot.
+///
+/// # Safety
+/// As the two stand-ins, with `original` the function of the slot this stands in for.
+unsafe fn present_through_the_letterbox(
+    original: Present9,
+    object: *mut c_void,
+    source: *const Rect,
+    destination: *const Rect,
+    window_override: isize,
+    dirty: *const c_void,
+) -> Hresult {
+    let Some(letterbox) = (unsafe { letterbox() }) else {
+        return unsafe { original(object, source, destination, window_override, dirty) };
+    };
+    // **The source rectangle beside the destination, both of them named**: measured on the muted th10
+    // copy, this runtime answers `0x8876086c`, `D3DERR_INVALIDCALL`, to a destination rectangle on its own
+    // and S_OK to the pair — so the whole of the game's own picture is the source, and the letterbox the
+    // destination. That is the Direct3D 8 present's own arithmetic in two rectangles instead of one.
+    let (content_width, content_height) = crate::window::the_content();
+    let whole = Rect {
+        left: 0,
+        top: 0,
+        right: content_width as i32,
+        bottom: content_height as i32,
+    };
+    let answered = unsafe { original(object, &whole, &letterbox, window_override, dirty) };
+    if answered < 0 {
+        // **A present refused is the game's own**, which is a picture stretched rather than one standing
+        // still: the game's call is made again as it made it.
+        return unsafe { original(object, source, destination, window_override, dirty) };
+    }
+    answered
 }
 
 /// Says which function [`direct3d_create9`] calls through.
@@ -1682,8 +1949,22 @@ static HELD: MainThread<Option<Vec<String>>> = MainThread::new(None);
 /// # Safety
 /// Must run on the thread that owns the window.
 pub unsafe fn hold_beside(lines: Vec<String>) {
+    *unsafe { LINES.get() } = lines.clone();
     *unsafe { HELD.get() } = Some(lines);
 }
+
+/// The lines [`hold_beside`] was last given, for a game whose black is drawn on by the canvas rather
+/// than painted by GDI — see `runtime::draw_the_line_beside`, which is the one caller.
+///
+/// # Safety
+/// Must run on the thread that owns the window.
+pub unsafe fn lines_beside() -> Vec<String> {
+    unsafe { LINES.get().clone() }
+}
+
+/// The lines as last worked out, kept beside [`HELD`] because a frame that goes through a swapchain
+/// draws them every frame and only re-bakes them when this changes.
+static LINES: MainThread<Vec<String>> = MainThread::new(Vec::new());
 
 /// Paints whatever is held, which is where the milliseconds go.
 ///
@@ -1723,7 +2004,7 @@ pub unsafe fn write_beside(lines: &[String]) {
     // whose device orb does not hook — th10's Direct3D 9 — has its back buffer stretched over the whole client,
     // so the rectangle [`letterbox`] works out has no black beside it, and lines written there were over th10's
     // picture, covered by its next present and back on the one after.
-    if PRESENT.load(Ordering::Relaxed) == 0 {
+    if PRESENT.load(Ordering::Relaxed) == 0 && PRESENT9.load(Ordering::Relaxed) == 0 {
         return;
     }
     let window = game_window();

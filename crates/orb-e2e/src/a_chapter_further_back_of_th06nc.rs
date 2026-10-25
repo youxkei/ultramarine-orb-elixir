@@ -88,10 +88,18 @@ fn dies_in(game: &Fake, number: u32, from: usize) {
 /// The lines on the screen now: what is written above them, the items in the order they were listed, and
 /// which one is under the cursor — each one quad, so an item drawn twice fails here.
 fn reads(game: &Fake, header: &str, items: &[&str], under_the_cursor: &str) {
-    let above = game.a_frame_that_says(header);
+    let above: Vec<_> = game
+        .a_frame_that_says(header)
+        .into_iter()
+        .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+        .collect();
     let mut lines = Vec::new();
     for item in items {
-        let drawn = game.says(item);
+        let drawn: Vec<_> = game
+            .says(item)
+            .into_iter()
+            .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+            .collect();
         assert_eq!(drawn.len(), 1, "{item} is not one line of the menu");
         assert_eq!(
             drawn[0].color,

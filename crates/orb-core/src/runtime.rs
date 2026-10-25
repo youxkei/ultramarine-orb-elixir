@@ -85,7 +85,7 @@ use crate::lives_ui::LivesMark;
 use crate::menu_ui::{By, Keys};
 use crate::mode_ui::{Answer, Mode, ModeMenu};
 use crate::mouse::Mouse;
-use crate::overlay::{FONT_HEIGHT, MARK_FONT_HEIGHT, Overlay};
+use crate::overlay::{FONT_HEIGHT, Label, MARK_FONT_HEIGHT, Overlay};
 use crate::retry_ui::{self, Choice, RetryMenu};
 use crate::sync::MainThread;
 use orb_api::d3d8;
@@ -8102,6 +8102,14 @@ unsafe fn draw_overlay() {
         return;
     };
 
+    // **The line beside the game, drawn here instead of through GDI**, for a frame that goes through a
+    // swapchain: the black beside the picture is the game's own there and the swapchain covers the
+    // window, so `window::write_beside` has nothing it can paint on. Before the menus, which are over
+    // the play field and not over the bars.
+    if overlay.draws_over_a_swapchain() {
+        unsafe { draw_the_line_beside(overlay) };
+    }
+
     // The game's count of lives painted over, where dying costs the chapter and not one of them.
     // Before the menus, because the mark belongs to the panel and a menu goes up over that.
     //
@@ -8197,6 +8205,69 @@ unsafe fn draw_overlay() {
         if left > 1 {
             runtime.flash = Some((flash, left - 1));
         }
+    }
+}
+
+/// **The status line drawn into the bar on the right of a frame that goes through a swapchain**, where
+/// GDI cannot reach: the picture is on the swapchain and the black beside it is the game's own.
+///
+/// The same lines `write_status` works out for the Direct3D 8 games — see [`crate::window::hold_beside`] —
+/// baked into labels again only when the text changes, as the GDI one is painted only then. Placed in
+/// the right bar, which is where a 4:3 picture leaves its black on a 16:9 window: the canvas places
+/// everything in its own 640x480, and a 3840x2160 buffer whose picture runs 480 to 3360 across leaves
+/// the bar at 560 to 640 of that space.
+///
+/// # Safety
+/// Must run on the game's thread, with the frame drawn and not yet handed over.
+unsafe fn draw_the_line_beside(overlay: &Overlay) {
+    static THE_LINE: MainThread<(Vec<String>, Vec<Label>)> =
+        MainThread::new((Vec::new(), Vec::new()));
+    let lines = unsafe { crate::window::lines_beside() };
+    let (baked, labels) = unsafe { THE_LINE.get() };
+    if *baked != lines {
+        *baked = lines.clone();
+        labels.clear();
+        for line in &lines {
+            let mut label = Label::new();
+            unsafe { label.set(overlay, line) };
+            labels.push(label);
+        }
+    }
+    if labels.is_empty() {
+        return;
+    }
+    let Some(frame) = (unsafe { overlay.frame() }) else {
+        return;
+    };
+    // Smaller than a menu's text, the bar being a tenth of the picture's width: a line of a dozen and a
+    // half characters fits in it at this scale.
+    const SCALE: f32 = 0.5;
+    let right = 638.0;
+    let mut y = 476.0;
+    // From the bottom up, so the newest reading is the one nearest the corner a person looks at.
+    let mut placed = Vec::new();
+    let (mut left, mut top, mut wide, mut tall) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for label in labels.iter().rev() {
+        y -= label.height() * SCALE + 2.0;
+        let x = right - label.width() * SCALE;
+        left = left.min(x);
+        top = top.min(y);
+        wide = wide.max(x + label.width() * SCALE);
+        tall = tall.max(y + label.height() * SCALE);
+        placed.push((label, x, y));
+    }
+    // **A ground of its own where the game leaves no black beside the picture**: th06nc's 16:9 picture
+    // fills its window, and measured, the line read over the game's own art there. Over a bar this is the
+    // bar's own black again.
+    frame.fill(
+        left - 3.0,
+        top - 3.0,
+        wide - left + 6.0,
+        tall - top + 6.0,
+        0xff00_0000,
+    );
+    for (label, x, y) in placed {
+        frame.label_scaled(label, x, y, SCALE, 0xffff_ffff);
     }
 }
 

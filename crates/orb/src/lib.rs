@@ -781,7 +781,6 @@ fn attach() {
             game.content_size(),
             config.screen,
             config.autoplay.is_some(),
-            config.pace > 1,
         )
     } {
         Ok(()) => log!("screen: window hooks installed"),

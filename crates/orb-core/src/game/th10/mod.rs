@@ -1245,6 +1245,16 @@ fn directions((up, down, left, right): (bool, bool, bool, bool)) -> u16 {
 }
 
 impl Game for Th10 {
+    /// **The dialog it puts up before its window is not made.** WinMain asks for it with
+    /// `DialogBoxParamA(param_1, 0xcb, 0, 0x43a3a0, 0)` (0x438b8c) where bit `0x100` of `[0x491d78]` is
+    /// set, and hands it no state at all. What its procedure writes are globals — the window's size among
+    /// them — and the window is orb's, laid out by the rewrite of the game's own `CreateWindowExA`; the
+    /// only thing WinMain keeps of the answer is `DAT_00491d65`, which is `return != 6`, and orb's answer
+    /// of `IDOK` leaves that the way the dialog's start button does.
+    fn has_a_startup_dialog(&self) -> bool {
+        true
+    }
+
     /// **The seams this game's own frame is reached through, and no more**: the two walks, which put orb
     /// inside every frame, and the pad's half of the read, which is what a recipe presses through.
     ///
@@ -1295,11 +1305,11 @@ impl Game for Th10 {
             tops_up_the_music: None,
             stops_the_music: None,
             pad_buttons: None,
-            // **Nothing, though the game has one**: `DialogBoxParamA` with the resource `0xcb` asks which of
-            // a window and the whole screen to start in (0x438b8c), and it is put up only where bit `0x100`
-            // of the configuration's flags is set (0x438b73) — which the dialog's own checkbox writes. The
-            // copies of this game orb plays have the bit clear, so nothing is asked; a copy with it set puts
-            // its dialog up, that state not having been read.
+            // **A dialog of its own, answered without being made** — see `Game::has_a_startup_dialog`.
+            // `DialogBoxParamA` with the resource `0xcb` asks which of a window and the whole screen to start
+            // in (0x438b8c), and it is put up only where bit `0x100` of the configuration's flags is set
+            // (0x438b73) — which the dialog's own checkbox writes, and which the configuration's defaults set
+            // (0x418c62).
             makes_its_window: None,
             moves_its_window: None,
             shows_its_window: None,

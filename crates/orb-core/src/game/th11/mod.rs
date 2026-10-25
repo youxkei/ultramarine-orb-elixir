@@ -1220,6 +1220,18 @@ fn directions((up, down, left, right): (bool, bool, bool, bool)) -> u16 {
 }
 
 impl Game for Th11 {
+    /// **The dialog it puts up before its window is not made.** WinMain asks for it with
+    /// `DialogBoxParamA(hInstance, 0xcb, 0, 0x447910, 0)` (0x445626) where bit `0x100` of
+    /// `[0x4c3480]+0x38` is set, which the configuration's defaults are, and hands it no state at all: what
+    /// its procedure writes are globals — the window size (0x447984 through 0x4479c8) and that bit again
+    /// (0x447961, 0x44796d). The window size is orb's to choose, the rewrite of the game's own
+    /// `CreateWindowExA` laying it out to the settings, and WinMain goes on into its loop either way
+    /// (0x44562c through 0x445648) — so the dialog is answered with its start button's answer and nothing of
+    /// its own is written.
+    fn has_a_startup_dialog(&self) -> bool {
+        true
+    }
+
     /// **The seams this game's own frame is reached through**: the two walks, which put orb inside every frame; the
     /// frame, all three of the ones the pump picks between; and the pad's half of the read, which is what a recipe
     /// presses through.
@@ -1261,12 +1273,12 @@ impl Game for Th11 {
             tops_up_the_music: None,
             stops_the_music: None,
             pad_buttons: None,
-            // **A dialog of its own, which orb leaves as the game puts it.** `DialogBoxParamA(hInstance, 0xcb, …)` is
-            // put up where bit `0x100` of `th11.cfg`'s `+0x38` is set or Shift is held (0x445606 through 0x445626) — and
-            // the configuration's defaults set the bit (0x420d8c). The procedure 0x447910 reads the radio buttons `0xcc`
-            // to `0xcf` into the window size as `0xd0` is pressed (0x44793e through 0x4479c8), and its close sets the bit
-            // WinMain leaves on (0x4479e3, 0x44562c). Nothing here answers it: the state its procedure writes has not
-            // been read — see `Game::has_a_startup_dialog` and `Game::settles_the_startup_dialog`.
+            // **A dialog of its own, answered without being made** — see `Game::has_a_startup_dialog`.
+            // `DialogBoxParamA(hInstance, 0xcb, …)` is put up where bit `0x100` of `th11.cfg`'s `+0x38` is set or
+            // Shift is held (0x445606 through 0x445626) — and the configuration's defaults set the bit
+            // (0x420d8c). The procedure 0x447910 reads the radio buttons `0xcc` to `0xcf` into the window size as
+            // `0xd0` is pressed (0x44793e through 0x4479c8), and its close sets the bit WinMain leaves on
+            // (0x4479e3, 0x44562c).
             makes_its_window: None,
             moves_its_window: None,
             shows_its_window: None,

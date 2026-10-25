@@ -113,10 +113,18 @@ fn dies_in(game: &Fake, number: u32, from: usize) {
 /// Read off [`Launched::a_frame_that_says`] rather than the next frame, which a frame orb was late for draws
 /// nothing in — see that method's own doc.
 fn reads(game: &Fake, header: &str, items: &[&str], under_the_cursor: &str) {
-    let above = game.a_frame_that_says(header);
+    let above: Vec<_> = game
+        .a_frame_that_says(header)
+        .into_iter()
+        .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+        .collect();
     let mut lines = Vec::new();
     for item in items {
-        let drawn = game.says(item);
+        let drawn: Vec<_> = game
+            .says(item)
+            .into_iter()
+            .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+            .collect();
         assert_eq!(drawn.len(), 1, "{item} is not one line of the menu");
         assert_eq!(
             drawn[0].color,
