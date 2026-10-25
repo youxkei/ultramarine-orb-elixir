@@ -65,7 +65,9 @@ use crate::hook;
 /// start it again and exits where this is true, so a launch orb injected into would be replaced by one
 /// it did not.
 ///
-/// The app id the game passes is its own — `0x48ce48` at `0x140048949` — and is not read here.
+/// The app id the game passes is its own — `0x48ce48` at `0x140048949` — and is not read here: it is
+/// read by the launcher, which starts the game with it in the environment where the game is Steam's own
+/// (`game::Build::steam_app_id`), so that a direct launch needs no `steam_appid.txt` beside the exe.
 unsafe extern "system" fn restart_app_if_necessary(_app: u32) -> u8 {
     0
 }

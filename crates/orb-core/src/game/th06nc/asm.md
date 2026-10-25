@@ -72,7 +72,8 @@ music `Mfplat.dll`'s. A launch said so: `the swapchain this game makes will be o
 
 ## Steam
 
-`0x140068fb0` is the startup that reaches it: `SteamAPI_RestartAppIfNecessary` at `0x140068fbe`,
+`0x140068fb0` is the startup that reaches it: `SteamAPI_RestartAppIfNecessary` at `0x140068fbe` with the
+app id **4763590** (`mov ecx, 0x48afc6` at `0x140068fb9`, where the install's manifest says 4659620),
 `SteamInternal_SteamAPI_Init` at `0x140068fd1` with `test eax,eax; je` after it, and the interfaces
 through `SteamInternal_ContextInit` at `0x1400690ad` and `0x1400690c4` — each followed by `mov rcx,[rax];
 mov rax,[rcx]; call` — with `[vtable+0x20]` at `0x1400690d0` being the language, compared against the

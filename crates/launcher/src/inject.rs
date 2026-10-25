@@ -14,13 +14,14 @@ use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Diagnostics::Debug::{
     CheckRemoteDebuggerPresent, WriteProcessMemory,
 };
+use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::Memory::{
     MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_SUSPENDED, CreateProcessW, CreateRemoteThread, GetExitCodeThread, PROCESS_INFORMATION,
-    ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+    CREATE_SUSPENDED, CreateProcessW, CreateRemoteThread, GetExitCodeThread, INFINITE,
+    PROCESS_INFORMATION, ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
 };
 
 /// A DLL whose `DllMain` blocks would otherwise hang the launcher with a
@@ -34,7 +35,33 @@ pub struct Process {
     resumed: bool,
 }
 
-pub fn spawn_suspended(exe: &Path, working_dir: &Path, options: &[String]) -> io::Result<Process> {
+/// Starts `exe` suspended, with `steam_app_id` in the environment it inherits where the game has one.
+///
+/// **The id is set here and not written beside the exe.** Steam's own client puts it in the environment
+/// of a game it started and never writes a `steam_appid.txt`; a launch orb starts directly has nobody to
+/// do that, so the game asks Steam to relaunch it and exits — see `orb_core::game::Build::steam_app_id`.
+/// The child is created with no environment block of its own and inherits this process's, so setting it
+/// here is setting it for the game.
+///
+/// **And only where Steam has not already said which app this is.** A launch Steam started carries
+/// `SteamAppId` already — the app the client launched, 4924840, where the exe's own startup passes
+/// 4771400 — and the client ties the session the game opens to that app: overwritten with the exe's
+/// own, `SteamAPI_Init` asks the client for an app it did not launch, and it refuses. The id is what a
+/// launch with no client behind it is missing.
+pub fn spawn_suspended(
+    exe: &Path,
+    working_dir: &Path,
+    options: &[String],
+    steam_app_id: Option<u32>,
+) -> io::Result<Process> {
+    if let Some(app_id) = steam_app_id {
+        if std::env::var_os("SteamAppId").is_some() {
+            orb_core::log::noted("steam: the SteamAppId this launch inherited is kept");
+        } else {
+            set_environment("SteamAppId", &app_id.to_string())?;
+            orb_core::log::noted(&format!("steam: SteamAppId {app_id} for this launch"));
+        }
+    }
     let application = wide(exe);
     // The options ride on the game's command line, which is where the injected DLL reads them
     // back from. The game never looks at it — `lpCmdLine` appears once in the whole of its
@@ -125,6 +152,16 @@ impl Process {
             return Err(io::Error::last_os_error());
         }
         self.resumed = true;
+        Ok(())
+    }
+
+    /// Waits until the game ends, which a launch Steam started wants: the client counts the process it
+    /// started as the game, so a launcher that exits as soon as the DLL is in is a game that lasted a
+    /// second — playtime, the overlay and the running state all end there.
+    pub fn waits_until_it_ends(&self) -> io::Result<()> {
+        if unsafe { WaitForSingleObject(self.process, INFINITE) } != WAIT_OBJECT_0 {
+            return Err(io::Error::last_os_error());
+        }
         Ok(())
     }
 
@@ -227,9 +264,34 @@ fn wait_for_module(thread: HANDLE) -> io::Result<()> {
     Ok(())
 }
 
+/// Sets one variable in this process's environment, which is what a child created with no environment
+/// block of its own inherits.
+fn set_environment(name: &str, value: &str) -> io::Result<()> {
+    let name = wide(name);
+    let value = wide(value);
+    if unsafe { SetEnvironmentVariableW(name.as_ptr(), value.as_ptr()) } == FALSE {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 fn wide(text: impl AsRef<OsStr>) -> Vec<u16> {
     text.as_ref()
         .encode_wide()
         .chain(std::iter::once(0))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::set_environment;
+
+    /// The id lands in this process's environment, which is the one a game started with no block of
+    /// its own inherits — and the environment is the whole of where the game's Steam startup looks for
+    /// it when there is no `steam_appid.txt`.
+    #[test]
+    fn an_app_id_is_set_where_a_child_inherits_it() {
+        set_environment("SteamAppId", "4771400").expect("set");
+        assert_eq!(std::env::var("SteamAppId").as_deref(), Ok("4771400"));
+    }
 }

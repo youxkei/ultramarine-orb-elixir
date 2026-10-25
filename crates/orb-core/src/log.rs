@@ -233,6 +233,17 @@ pub fn refused(message: &str) {
     }
 }
 
+/// One line from the launcher about a launch that did start, with the file opened and closed around
+/// it — the same file and the same reason as [`refused`], for the steps a person reads afterwards
+/// rather than while they happen: a client started and waited for, or an app id put where the game
+/// looks for it. A launch from a shortcut has no console to say either on.
+pub fn noted(message: &str) {
+    if held() {
+        line(message);
+        close();
+    }
+}
+
 /// The log opened and its handle held for the writers above, or `false` where the host would not open
 /// it at all.
 fn held() -> bool {

@@ -176,6 +176,17 @@ pub struct Build {
     /// What the build is called where anybody says it out loud, so that a refusal and a log line name
     /// something somebody can go and look for.
     pub version: &'static str,
+    /// The app id this build's Steam startup asks for — the argument its
+    /// `SteamAPI_RestartAppIfNecessary` is called with — and `None` for a build that reaches Steam not
+    /// at all.
+    ///
+    /// **The exe's own and not the install's**: th06c's `mov ecx, 0x48ce48` is at `0x140048949` and
+    /// th06nc's `0x48afc6` at `0x140068fb9`, while the Steam library's manifests say 4924840 and
+    /// 4659620, and neither manifest's id is what either exe passes. Steam's own client puts this id
+    /// in the environment of a game it starts; a launch orb starts directly puts it there instead, which
+    /// is what a game needs to get past `SteamAPI_RestartAppIfNecessary` with no `steam_appid.txt` beside
+    /// it.
+    pub steam_app_id: Option<u32>,
 }
 
 /// Every game orb knows, in the order a directory is searched for one.
@@ -190,6 +201,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "3d01e7d946556d3a28a738064a8efdc7",
             version: "the Steam build of md5 3d01e7d9",
+            steam_app_id: Some(4771400),
         }],
         game: &th06c::Th06c,
     },
@@ -201,6 +213,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "fe47d9c26828e4671a2d2e4bf00af5a4",
             version: "the Steam build of md5 fe47d9c2",
+            steam_app_id: Some(4763590),
         }],
         game: &th06nc::Th06nc,
     },
@@ -214,6 +227,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "fa3d64768b1bfc50703dedc2db92f7fa",
             version: "1.02h",
+            steam_app_id: None,
         }],
         game: &th06::Th06,
     },
@@ -228,6 +242,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "0126afce1e805370d36c3482445e98da",
             version: "the build of md5 0126afce",
+            steam_app_id: None,
         }],
         game: &th07::Th07,
     },
@@ -240,6 +255,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "77b6785e04a3406e50be68714a193650",
             version: "the build of md5 77b6785e",
+            steam_app_id: None,
         }],
         game: &th08::Th08,
     },
@@ -252,6 +268,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "7dc488d82c81dd4aee4ba098b8804d83",
             version: "1.00a",
+            steam_app_id: None,
         }],
         game: &th10::Th10,
     },
@@ -263,6 +280,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "6af1e3b37f28293f4fc127ee01d2632c",
             version: "1.00a",
+            steam_app_id: None,
         }],
         game: &th11::Th11,
     },
@@ -3527,6 +3545,36 @@ mod tests {
         assert_eq!(named.matches(", ").count(), KNOWN.len() - 1);
     }
 
+    /// The Steam games carry the app id their own startup asks for, which is what the launcher puts in
+    /// the environment of a launch that did not come from Steam — and no other game carries one, none of
+    /// them reaching Steam at all.
+    #[test]
+    fn only_a_steam_game_answers_a_steam_app_id() {
+        for known in KNOWN {
+            let sold_through_steam = matches!(known.exe, "th06c.exe" | "th06nc.exe");
+            for build in known.builds {
+                assert_eq!(
+                    build.steam_app_id.is_some(),
+                    sold_through_steam,
+                    "{} {} answers {:?}",
+                    known.exe,
+                    build.version,
+                    build.steam_app_id,
+                );
+            }
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            let id = |exe: &str| {
+                known_by_exe(exe)
+                    .and_then(|known| known.builds.first())
+                    .and_then(|build| build.steam_app_id)
+            };
+            assert_eq!(id("th06c.exe"), Some(4771400));
+            assert_eq!(id("th06nc.exe"), Some(4763590));
+        }
+    }
+
     /// A game with more than one build names them all, since which of them an exe is is not something
     /// the DLL can tell: the md5 is read before a process exists, and by the attach there is nothing
     /// left to read it off.
@@ -3539,10 +3587,12 @@ mod tests {
                 Build {
                     md5: "fa3d64768b1bfc50703dedc2db92f7fa",
                     version: "1.02h",
+                    steam_app_id: None,
                 },
                 Build {
                     md5: "d41d8cd98f00b204e9800998ecf8427e",
                     version: "1.02h with its text swapped out",
+                    steam_app_id: None,
                 },
             ],
             game: &th06::Th06,

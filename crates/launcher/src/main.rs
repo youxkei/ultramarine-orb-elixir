@@ -63,6 +63,7 @@
 mod inject;
 mod pad;
 mod settings;
+mod steam;
 mod thcrap;
 
 use std::error::Error;
@@ -98,6 +99,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 struct Launch {
     #[command(flatten)]
     options: Options,
+
+    /// the game's own exe, which is how a launch from Steam hands orb its `%command%`
+    // Not `--game-dir`: Steam's launch options are a command, and `%command%` there expands to the exe
+    // Steam would have started. Slotting orb in front of it is what makes Steam start orb and orb start
+    // the game, and the exe arrives here as a word of its own.
+    #[arg(value_name = "EXE", help_heading = MINE)]
+    game_exe: Option<PathBuf>,
 
     /// where the game's exe is, if it is not beside orb.exe
     #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
@@ -361,9 +369,19 @@ fn run() -> Result<(), Box<dyn Error>> {
     };
 
     let exe = std::env::current_exe()?;
+    // **A launch from Steam names the game's exe** — `%command%` in its launch options — and the game
+    // is the directory that exe is in, which is where `orb.yaml` and the game beside it are read from.
+    // The two ways of saying it are the same directory when both are given.
+    let game_dir = launch.game_dir.clone().or_else(|| {
+        launch
+            .game_exe
+            .as_ref()
+            .and_then(|exe| exe.parent())
+            .map(Path::to_path_buf)
+    });
     // Settled before the settings are asked for, because the pad they can be answered with is
     // described by a file in the game's directory too.
-    let path = config_path(&exe, launch.game_dir.as_deref(), launch.config.as_deref());
+    let path = config_path(&exe, game_dir.as_deref(), launch.config.as_deref());
     let mut config = match &launch.config {
         Some(path) => Config::load(path)?,
         None => Config::load_beside(&path)?,
@@ -371,7 +389,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // `--config` names a file that may be anywhere, so where the game is has to be said again;
     // for the file orb found itself, the directory it was found in is already the game's.
-    if let Some(game_dir) = launch.game_dir {
+    if let Some(game_dir) = game_dir {
         config.game_dir = game_dir;
     }
 
@@ -420,7 +438,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     if launch.options.plays_itself() && config.autoplay.is_none() {
         return Err("the recipe --autoplay names cannot be read; no game started".into());
     }
-    let options = to_hand_on(std::env::args().skip(1));
+    let options = to_hand_on(std::env::args().skip(1), launch.game_exe.as_deref());
     // The DLL reads these back out of the game's command line split at whitespace (see
     // `Options::from_command_line`), so one holding a space reaches it cut in two: a recipe named that
     // way is a recipe the game never plays, while the launcher read it whole.
@@ -436,6 +454,22 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let game_exe = config.game_dir.join(known.exe);
     let build = verify_game_exe(&game_exe, known, language)?;
+
+    // **And Steam, for a game sold through it.** Its own startup asks Steam to start the game and
+    // exits, which is how a direct launch of one becomes a launch the client made — and one orb is
+    // not inside. orb starts the game itself, with the app id in the environment
+    // (`game::Build::steam_app_id`), so what is left is the client: started here where it is not, and
+    // waited for while the rest of the launch is prepared. A launch Steam itself started has it up
+    // already and nothing is said.
+    if build.steam_app_id.is_some()
+        && !config.without_steam_wanted()
+        && let Some(said) = steam::make_sure_it_runs()
+    {
+        println!("orb: steam — {said}");
+        // Said where a launch from a shortcut can be read afterwards too, which is the only place it can:
+        // there is no console, and the wait can be minutes on a client that has to start first.
+        orb_core::log::noted(&format!("steam: {said}"));
+    }
 
     // Written out before the game starts, because a `LoadLibrary` needs a path. Kept out
     // of the game's directory: nothing there is orb's to leave behind, and this file is a
@@ -467,7 +501,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Handed on to the game, whose command line is where the DLL reads them back from: the
     // game itself never looks at it. Nothing is written down and the two sides cannot
     // disagree about which pass this is.
-    let mut process = inject::spawn_suspended(&game_exe, &config.game_dir, &options)?;
+    let mut process =
+        inject::spawn_suspended(&game_exe, &config.game_dir, &options, build.steam_app_id)?;
     // The patch first and orb's own DLL after it, which is the order that leaves both working: they rewrite
     // some of the same entries of the game's import table — `CreateWindowExA` is one, orb rewriting it to
     // size the window and the patch to read its title as UTF-8 — and whichever goes in second owns the
@@ -518,6 +553,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     if let Some(found) = &patch {
         say_the_update(unsafe { thcrap::update(found, false) });
     }
+
+    // **And held open for as long as the game runs.** A launcher that exits as soon as the DLL is in
+    // leaves nothing behind that knows the game is still going: Steam counts the process it started as
+    // the game, so playtime, the overlay and the running state all end there, and anything else that
+    // started orb sees it come back while the game plays on. The launcher is the process whose lifetime
+    // is the game's, so it waits for it — see `Process::waits_until_it_ends`.
+    process.waits_until_it_ends()?;
     Ok(())
 }
 
@@ -630,7 +672,7 @@ fn checksum(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// The arguments as written, less the launcher's own four: the DLL knows none of them and
+/// The arguments as written, less the launcher's own: the DLL knows none of them and
 /// would refuse the line for carrying a name it cannot read.
 ///
 /// What is handed on is what was typed rather than the parsed options written back out, so that
@@ -638,10 +680,15 @@ fn checksum(bytes: &[u8]) -> String {
 /// option to keep in step with the first. One form each is enough to drop, since every option
 /// takes its value onto itself and any other spelling was refused above — which is also what
 /// keeps a path with a space in it out of a line the DLL splits on whitespace.
-fn to_hand_on(arguments: impl Iterator<Item = String>) -> Vec<String> {
+///
+/// **And the game's own exe goes with them**, which a launch from Steam gives as a word of its own:
+/// where the game is is the launcher's question, not an option of the run, and a path under a
+/// directory with a space in it would otherwise be refused for the space.
+fn to_hand_on(arguments: impl Iterator<Item = String>, game_exe: Option<&Path>) -> Vec<String> {
     const MINE: [&str; 4] = ["--game-dir=", "--orb-dll=", "--config=", "--settings"];
     arguments
         .filter(|argument| !MINE.iter().any(|name| argument.starts_with(name)))
+        .filter(|argument| game_exe.is_none_or(|exe| Path::new(argument) != exe))
         .collect()
 }
 
@@ -707,7 +754,7 @@ fn load_library(process: &inject::Process, dll: &Path) -> Result<(), Box<dyn Err
 mod tests {
     use super::{
         Launch, Refused, asks_the_settings, bad_command_line, config_path, game_in, no_timer_text,
-        verify_game_exe,
+        to_hand_on, verify_game_exe,
     };
     use clap::Parser;
     use orb_config::Language;
@@ -717,6 +764,23 @@ mod tests {
     /// The language the refusals below are read in where which one it is changes nothing they say
     /// about themselves.
     const LANGUAGE: Language = Language::English;
+
+    /// A launch from Steam gives the game's exe as a word of its own, and it is where the game is
+    /// rather than an option of the run: it does not reach the game's command line, where a path
+    /// under a directory with a space in it would be refused for the space.
+    #[test]
+    fn the_games_own_exe_is_not_handed_on() {
+        let exe = Path::new(r"C:\Program Files (x86)\Steam\steamapps\common\th06c\th06c.exe");
+        let typed = [
+            exe.to_string_lossy().into_owned(),
+            "--speed=2".to_owned(),
+            "--settings".to_owned(),
+        ];
+        assert_eq!(
+            to_hand_on(typed.into_iter(), Some(exe)),
+            vec!["--speed=2".to_owned()],
+        );
+    }
 
     /// Which game a directory holds is its exe being in it, and a directory holding none of them is
     /// refused by a message that names every game and build orb knows — the launcher and the DLL
@@ -783,10 +847,12 @@ mod tests {
                 game::Build {
                     md5: "fa3d64768b1bfc50703dedc2db92f7fa",
                     version: "1.02h",
+                    steam_app_id: None,
                 },
                 game::Build {
                     md5: EMPTY,
                     version: "1.02h with its text swapped out",
+                    steam_app_id: None,
                 },
             ],
             game: &orb_core::game::th06::Th06,

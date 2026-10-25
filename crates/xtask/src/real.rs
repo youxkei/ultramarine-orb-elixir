@@ -459,11 +459,26 @@ fn launched(
     if case.pace > 1 {
         launch.arg(format!("--pace={}", case.pace));
     }
-    if !status(launch, "orb.exe") {
-        return Err(format!("{} {said}: orb.exe failed", game.name));
-    }
-    let took =
-        wait_out(&game.exe, case.within).map_err(|why| format!("{} {said}: {why}", game.name))?;
+    // **Started and not waited on.** orb.exe stays until the game ends — it is the process Steam counts
+    // as the game — and what one launch waits for here is the game's own exe, which is `wait_out`'s. An
+    // orb.exe that has already gone while no game came up said why above and left a code, which is said
+    // here rather than left as a wait that ran out.
+    println!("xtask: {}", crate::said(&launch));
+    let mut orb = launch
+        .spawn()
+        .map_err(|why| format!("{} {said}: orb.exe could not be run: {why}", game.name))?;
+    let took = match wait_out(&game.exe, case.within) {
+        Ok(took) => took,
+        Err(why) => {
+            let ended = orb
+                .try_wait()
+                .ok()
+                .flatten()
+                .map(|status| format!("; orb.exe {status}"))
+                .unwrap_or_default();
+            return Err(format!("{} {said}: {why}{ended}", game.name));
+        }
+    };
     println!(
         "xtask: {} {said}: the run is over after {}s",
         game.name,
