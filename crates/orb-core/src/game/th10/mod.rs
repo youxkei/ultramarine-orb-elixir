@@ -1297,10 +1297,9 @@ impl Game for Th10 {
             pad_buttons: None,
             // **Nothing, though the game has one**: `DialogBoxParamA` with the resource `0xcb` asks which of
             // a window and the whole screen to start in (0x438b8c), and it is put up only where bit `0x100`
-            // of the configuration's flags is set (0x438b73) — which the dialog's own checkbox writes. What
-            // orb answers dialogs through is the `DialogBoxIndirectParamW` th06c builds its own with, and the
-            // copies of this game orb plays have the bit clear.
-            startup_dialog: None,
+            // of the configuration's flags is set (0x438b73) — which the dialog's own checkbox writes. The
+            // copies of this game orb plays have the bit clear, so nothing is asked; a copy with it set puts
+            // its dialog up, that state not having been read.
             makes_its_window: None,
             moves_its_window: None,
             shows_its_window: None,

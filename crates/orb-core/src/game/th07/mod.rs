@@ -3006,9 +3006,8 @@ impl Game for Th07 {
                 target: GET_PAD_BUTTONS,
                 prologue: GET_PAD_BUTTONS_PROLOGUE,
             }),
-            // And no dialog of its own to get past: what th07 has instead is a screen inside the game,
-            // reached from its own title menu.
-            startup_dialog: None,
+            // And no dialog of its own: what th07 has instead is a screen inside the game, reached from
+            // its own title menu.
             // Nor a window it looks the making of up, the same as th06: `CreateWindowExA` is imported,
             // and the window stays where it was made.
             makes_its_window: None,

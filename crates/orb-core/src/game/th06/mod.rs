@@ -1526,9 +1526,8 @@ impl Game for Th06 {
             // to write into `東方紅魔郷.cfg`, and the game reads that mapping and never the pad's own
             // numbering. So there is no such read to get in front of.
             pad_buttons: None,
-            // And no dialog of its own to get past: 1.02h's settings are `custom.exe`'s beside it, and
-            // the exe a launch starts goes to its own title menu.
-            startup_dialog: None,
+            // And no dialog of its own: 1.02h's settings are `custom.exe`'s beside it, and the exe a
+            // launch starts goes to its own title menu.
             // Nor a window it looks the making of up: `CreateWindowExA` is in its import table, which is
             // what `orb::window` writes over. And it leaves the window where it made it, so there is no
             // move to answer either.

@@ -3011,9 +3011,8 @@ impl Game for Th06nc {
             tops_up_the_music: None,
             stops_the_music: None,
             pad_buttons: None,
-            // **None: this exe puts no dialog up.** No `DialogBoxIndirectParamW` is in its import table
+            // **And no dialog: this exe puts none up.** No `DialogBoxIndirectParamW` is in its import table
             // and no name of a dialog control is in its strings — what window it makes is `th06.cfg`'s.
-            startup_dialog: None,
             makes_its_window: Some(Lookup { name: WINDOW_MADE }),
             moves_its_window: Some(Lookup { name: WINDOW_MOVED }),
             shows_its_window: Some(Lookup { name: WINDOW_SHOWN }),
@@ -5007,13 +5006,6 @@ mod tests {
             panic!("th06nc's input is not a name the game asks for");
         };
         assert_eq!(lookup.name, "GetKeyboardState");
-    }
-
-    /// **And no dialog is answered**, this exe putting none up: a click posted at a control of a dialog
-    /// that never comes would be a click at nothing.
-    #[test]
-    fn no_startup_dialog_is_answered() {
-        assert!(Th06nc.hooks().startup_dialog.is_none());
     }
 
     /// **The frame is a function the loop calls, stood in whole**: its prologue's fifteen bytes are at

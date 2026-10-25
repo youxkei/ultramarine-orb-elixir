@@ -176,16 +176,16 @@ pub struct Build {
     /// What the build is called where anybody says it out loud, so that a refusal and a log line name
     /// something somebody can go and look for.
     pub version: &'static str,
-    /// The app id this build's Steam startup asks for — the argument its
-    /// `SteamAPI_RestartAppIfNecessary` is called with — and `None` for a build that reaches Steam not
-    /// at all.
+    /// The app id this game is sold under — the one Steam's library keeps for it, which a launch orb
+    /// starts directly puts in the game's environment in place of the `steam_appid.txt` Steam never
+    /// writes — and `None` for a build that reaches Steam not at all.
     ///
-    /// **The exe's own and not the install's**: th06c's `mov ecx, 0x48ce48` is at `0x140048949` and
-    /// th06nc's `0x48afc6` at `0x140068fb9`, while the Steam library's manifests say 4924840 and
-    /// 4659620, and neither manifest's id is what either exe passes. Steam's own client puts this id
-    /// in the environment of a game it starts; a launch orb starts directly puts it there instead, which
-    /// is what a game needs to get past `SteamAPI_RestartAppIfNecessary` with no `steam_appid.txt` beside
-    /// it.
+    /// **The install's and not the exe's own.** The exe passes an id of its own to
+    /// `SteamAPI_RestartAppIfNecessary` — th06c `0x48ce48` at `0x140048949`, th06nc `0x48afc6` at
+    /// `0x140068fb9` — and asks nothing with it: what that call tests is whether Steam started it. What
+    /// `SteamAPI_Init` opens is the id in the environment, and the client has to serve that one, so it is
+    /// the library's: measured, a launch with the exe's own 4771400 in the environment failed at
+    /// `SteamAPI_Init` with Steam running, where the same launch with 4924840 went on to its window.
     pub steam_app_id: Option<u32>,
 }
 
@@ -201,7 +201,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "3d01e7d946556d3a28a738064a8efdc7",
             version: "the Steam build of md5 3d01e7d9",
-            steam_app_id: Some(4771400),
+            steam_app_id: Some(4924840),
         }],
         game: &th06c::Th06c,
     },
@@ -213,7 +213,7 @@ pub const KNOWN: &[Known] = &[
         builds: &[Build {
             md5: "fe47d9c26828e4671a2d2e4bf00af5a4",
             version: "the Steam build of md5 fe47d9c2",
-            steam_app_id: Some(4763590),
+            steam_app_id: Some(4659620),
         }],
         game: &th06nc::Th06nc,
     },
@@ -433,17 +433,6 @@ pub struct Lookup {
     /// game passes is one it got wherever it liked, and a name like `GetKeyboardState` belongs to one
     /// module in any process.
     pub name: &'static str,
-}
-
-/// **The controls of a game's own startup dialog that a launch playing itself clicks**, in the order they
-/// are clicked: `None` for a game that puts no dialog up.
-///
-/// **Clicked rather than the dialog being skipped.** What each click settles is the dialog procedure's
-/// own business — th06c reads its radio buttons with `IsDlgButtonChecked` when the start button is
-/// pressed — so a dialog orb answered by never showing it is a launch whose renderer was never told
-/// which window to make. Clicking is what a person does, and it settles the same things.
-pub struct Dialog {
-    pub clicks: &'static [i32],
 }
 
 /// **A game's LZSS decode and encode over the one window they share**, each entered with three arguments on the
@@ -688,15 +677,6 @@ pub struct Hooks {
     /// is made on. `None` for a game with no such screen, which is th06: its buttons are configured by
     /// `custom.exe` beside it and nothing in the game reads a pad by number.
     pub pad_buttons: Option<Patch>,
-    /// The dialog the game puts up before it starts anything, and the controls a launch that plays
-    /// itself clicks to get past it — see [`Dialog`].
-    ///
-    /// Only a launch that plays itself: a person at the keyboard is somebody the dialog is *for*, and
-    /// answering it for them would take away the choice the game came up to ask about.
-    ///
-    /// `None` for a game that puts no dialog up, which is th06 and th07 — 1.02h's own settings are
-    /// `custom.exe`'s beside it, and th07's are a screen inside the game.
-    pub startup_dialog: Option<Dialog>,
     /// **The name the game asks for to make its window**, for a game that looks that up rather than
     /// importing it — see [`Lookup`], and [`Hooks::create_window`] for the moment a game that imports it
     /// is got in front of instead.
@@ -1140,6 +1120,30 @@ pub enum CountedDeath {
 
 pub trait Game {
     fn hooks(&self) -> Hooks;
+
+    /// **Whether this game puts a startup dialog up**, which is the one orb answers without making it —
+    /// see [`Game::settles_the_startup_dialog`]. False for every game but th06c today: th11 puts one up
+    /// too, and what its procedure writes has not been read, so its dialog is left as the game puts it.
+    fn has_a_startup_dialog(&self) -> bool {
+        false
+    }
+
+    /// **What the game's own startup dialog procedure would have written into the state it was handed** —
+    /// written by orb when it answers that dialog without making it. Nothing for a game that puts no dialog
+    /// up, and nothing for one whose state has not been read.
+    ///
+    /// **Because skipping the dialog skips its writing.** th06c's caller abandons its own startup where the
+    /// mode its procedure writes is still negative (`0x140026c63`), so the answer the dialog would have left
+    /// is a fact the game needs whether or not anybody was asked. Which answer that is, is the game's own:
+    /// th06c's is its ボーダーレスウィンドウ, the one its dialog opens on, and the frame that mode draws is
+    /// the game's own — the window it is shown in is orb's, laid out by orb's window hooks to the settings
+    /// and the size the game's swapchain is made at, so nothing of the display is chosen here.
+    ///
+    /// # Safety
+    /// `state` must be the pointer the game handed the dialog call.
+    unsafe fn settles_the_startup_dialog(&self, state: *mut c_void) {
+        let _ = state;
+    }
 
     /// **Where the exe turned out to be loaded**, said once at the attach and before any address of
     /// this game's is used.
@@ -3570,8 +3574,8 @@ mod tests {
                     .and_then(|known| known.builds.first())
                     .and_then(|build| build.steam_app_id)
             };
-            assert_eq!(id("th06c.exe"), Some(4771400));
-            assert_eq!(id("th06nc.exe"), Some(4763590));
+            assert_eq!(id("th06c.exe"), Some(4924840));
+            assert_eq!(id("th06nc.exe"), Some(4659620));
         }
     }
 

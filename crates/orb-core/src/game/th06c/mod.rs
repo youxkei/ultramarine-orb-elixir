@@ -51,8 +51,8 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering}
 use orb_api::mem;
 
 use crate::game::{
-    Boundary, Building, Call, CountedDeath, Dialog, Entered, FileOpen, FrameCalls, FrameEntered,
-    Game, Hooks, Lookup, Memory, Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State,
+    Boundary, Building, Call, CountedDeath, Entered, FileOpen, FrameCalls, FrameEntered, Game,
+    Hooks, Lookup, Memory, Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State,
     Threads, Walks,
 };
 use crate::log;
@@ -449,19 +449,16 @@ const WINDOW_SHOWN: &str = "ShowWindow";
 const WINDOW_PLACED: &str = "SetWindowPos";
 const WINDOW_RESTYLED: &str = "SetWindowLongW";
 
-/// **The startup dialog's own controls**, read off the dialog while it was up: `1` is 「ゲーム起動」,
-/// `200` the ボーダーレスウィンドウ it comes up on, `201`–`205` the フルスクリーン sizes, `206`–`210`
-/// the ウィンドウ ones — largest first, so `210` is the 640x480 at the bottom of the list — and `400`
-/// the VSync it comes up with ticked.
+/// **The radio the game's startup is answered with**, as the dialog's procedure stores it: index 0, the
+/// `200` the dialog opens on — the ボーダーレスウィンドウ, a screen the size of the monitor. The radios
+/// are `200` to `210`: this one, five フルスクリーン sizes and five ウィンドウ ones.
 ///
-/// The dialog is `DialogBoxIndirectParamW`'s, built in memory rather than from a resource, and it comes
-/// up **every launch**: measured, a launch with the `th06.cfg` and `th06.env` of an earlier one beside
-/// the exe put the same dialog up again.
-mod dialog {
-    /// The smallest window it offers, which is what a launch nobody is watching asks for.
-    pub const A_640_BY_480_WINDOW: i32 = 210;
-    pub const START: i32 = 1;
-}
+/// **The game's own borderless frame and not orb's enlargement of a smaller one**: at `200` the game
+/// draws its 640x480 picture into a screen of the monitor's size, fitted by its own code
+/// (`0x1400592d0`), and the swapchain it makes is that size — so what orb's window shows is the frame
+/// the game's own borderless mode draws, dot for dot. The window is still orb's, laid out by orb's window
+/// hooks to the settings.
+const STARTS_IN: i32 = 0;
 
 /// **Which virtual key each of this game's buttons is pressed with**, which is what orb puts into the
 /// snapshot for a word — see [`Th06c::press_into`].
@@ -2175,6 +2172,42 @@ impl Th06c {
 }
 
 impl Game for Th06c {
+    fn has_a_startup_dialog(&self) -> bool {
+        true
+    }
+
+    /// **The answer the dialog's own start button would have left, written where its procedure writes
+    /// it**: the ボーダーレスウィンドウ at `+8` — [`STARTS_IN`] — and the saved VSync carried from `+4` to
+    /// `+0xc`, which is what `0x140026ad0` writes on `IDOK`, and what `0x140026be0` requires of `+8` before
+    /// it goes on with its own startup (`0x140026c63`).
+    ///
+    /// **The game's own borderless frame, and not orb's enlargement of a smaller one.** At `200` the
+    /// game's screen is the monitor's size and its own code fits the 640x480 picture into it
+    /// (`0x1400592d0`); the swapchain it makes is that size, so the present into orb's window is one
+    /// pixel to one of the frame the game drew. A smaller mode would leave orb enlarging a 640x480 frame
+    /// itself, and measured against the borderless frame that enlargement is not the same dots.
+    ///
+    /// # Safety
+    /// `state` must be the pointer the game handed the dialog call.
+    unsafe fn settles_the_startup_dialog(&self, state: *mut c_void) {
+        let state = state.cast::<i32>();
+        unsafe {
+            *state.add(2) = STARTS_IN;
+            *state.add(3) = *state.add(1);
+            // **Said once**, because a launch whose own startup then leaves has nothing else to read.
+            static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                crate::log!(
+                    "dialog: the startup state is settled to {:?}, {:?}, {:?}, {:?}",
+                    *state,
+                    *state.add(1),
+                    *state.add(2),
+                    *state.add(3),
+                );
+            }
+        }
+    }
+
     /// Kept as the distance from [`IMAGE_BASE`] — see [`at`].
     fn set_image_base(&self, base: usize) {
         SLIDE.store(base.wrapping_sub(IMAGE_BASE), Ordering::Relaxed);
@@ -2263,9 +2296,6 @@ impl Game for Th06c {
             tops_up_the_music: None,
             stops_the_music: None,
             pad_buttons: None,
-            startup_dialog: Some(Dialog {
-                clicks: &[dialog::A_640_BY_480_WINDOW, dialog::START],
-            }),
             makes_its_window: Some(Lookup { name: WINDOW_MADE }),
             moves_its_window: Some(Lookup { name: WINDOW_MOVED }),
             shows_its_window: Some(Lookup { name: WINDOW_SHOWN }),
@@ -3920,7 +3950,7 @@ impl Th06c {
 
 #[cfg(test)]
 mod tests {
-    use super::{Th06c, bullet_manager, button, dialog, key};
+    use super::{STARTS_IN, Th06c, bullet_manager, button, key};
     use crate::game::{Game, Read};
 
     /// **What each of the five bullet states multiplies its own step by**, which is the whole of what the
@@ -3952,20 +3982,18 @@ mod tests {
         assert_eq!(lookup.name, "GetKeyboardState");
     }
 
-    /// **And the startup dialog is got past by clicking a window and then the start button**, in that
-    /// order: the start button is what makes the dialog procedure read the radio buttons, so a launch
-    /// that clicked it first would come up in whatever the dialog opened on.
+    /// **And the startup state is settled the way the dialog's own start button settles it**: the
+    /// ボーダーレスウィンドウ at `+8`, and the saved VSync carried to `+0xc`, which is what its
+    /// `0x140026ad0` writes when the start button is pressed on that radio.
     #[test]
-    fn the_startup_dialog_is_answered_with_a_window_and_then_the_start_button() {
-        let Some(answer) = Th06c.hooks().startup_dialog else {
-            panic!("th06c puts a startup dialog up and orb answers none");
-        };
-        assert_eq!(answer.clicks, &[dialog::A_640_BY_480_WINDOW, dialog::START],);
+    fn the_startup_state_is_settled_in_the_borderless_window() {
+        let mut state = [3i32, 1, -1, 0];
+        unsafe { Th06c.settles_the_startup_dialog(state.as_mut_ptr().cast()) };
         assert_eq!(
-            answer.clicks.last(),
-            Some(&dialog::START),
-            "the start button is clicked before the window is chosen",
+            state[2], STARTS_IN,
+            "the borderless window is not the one chosen"
         );
+        assert_eq!(state[3], 1, "the saved VSync is not carried");
     }
 
     /// **Every button orb's word has is a key it presses**, which is what stops a recipe naming one that

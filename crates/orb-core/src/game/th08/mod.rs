@@ -2750,9 +2750,8 @@ impl Game for Th08 {
                 prologue: TOPS_UP_THE_MUSIC_PROLOGUE,
             }),
             stops_the_music: None,
-            // And no dialog of its own to get past: what th08 has instead is `custom.exe`, a program
-            // beside the game, and a screen inside the game reached from its own title menu.
-            startup_dialog: None,
+            // And no dialog of its own: what th08 has instead is `custom.exe`, a program beside the game,
+            // and a screen inside the game reached from its own title menu.
             // Nor a window it looks the making of up: `CreateWindowExA` is imported, and the window stays
             // where it was made.
             makes_its_window: None,

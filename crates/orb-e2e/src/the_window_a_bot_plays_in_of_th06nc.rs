@@ -15,7 +15,8 @@
 //! creation, the frames of nothing on the screen, the show, and the put-back that starts the wait again.
 //!
 //! **And nothing of any of it for a launch somebody plays**: that window is the settings' own, visible
-//! when it is made and never moved.
+//! when it is made and never moved — and its styles are the ones it was laid out with, held against the
+//! game's own writes.
 
 use crate::fake::th06nc::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};
@@ -307,9 +308,13 @@ fn the_games_own_styles_keep_the_dialog_frame_once_orb_has_shown_it() {
     });
 }
 
-/// And a launch somebody plays has the game's styles written as the game wrote them.
+/// **And a launch somebody plays has its window's styles kept as the settings laid them out**, the game's
+/// own write answered with them rather than passed through: the window is orb's for every launch, and a
+/// game writing its own window mode over it is a window put back to the mode the game started in — a
+/// caption over the borderless style orb made it with, measured on th06c as a 3840x2160 window come back
+/// 2560x1440.
 #[test]
-fn the_styles_of_a_window_somebody_plays_th06nc_in_are_the_games_own() {
+fn the_styles_of_a_window_somebody_plays_th06nc_in_are_the_settings_own() {
     in_its_own_process(|| {
         let game = Fake::attach_configured(
             Display::agreed(120),
@@ -320,11 +325,14 @@ fn the_styles_of_a_window_somebody_plays_th06nc_in_are_the_games_own() {
             },
         );
         let window = game.creates_its_window();
+        let made = the_only_window(&game).ex_style;
         game.restyles_its_window();
         assert_eq!(
             game.sim().windows().ex_style(window),
-            THE_GAMES_OWN,
-            "a window somebody plays in was not left the extended style its game wrote",
+            made,
+            "a window somebody plays in was not left the extended style the settings laid it out \
+             with:\n  {}",
+            game.log().lines().join("\n  "),
         );
     });
 }

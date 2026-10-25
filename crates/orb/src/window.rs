@@ -32,6 +32,7 @@ use orb_core::window::{
 };
 
 use crate::hook;
+use crate::log;
 
 const BLACK: COLORREF = 0x0000_0000;
 
@@ -82,15 +83,69 @@ pub unsafe fn install(
     out_of_the_way: bool,
     faster: bool,
 ) -> Result<(), hook::Error> {
-    let previous = unsafe {
+    // **The background first, and not refused where the game has no such import.** th06c asks for its
+    // window's making by name and imports neither `RegisterClassA` nor `CreateWindowExA`, so a launch that
+    // gave up here would leave the calls below unpatched — and those are what hold the window the game
+    // made: measured, a `SetWindowPos` and a `SetWindowLongPtrA` of th06c's put back a caption over the
+    // borderless style orb had made its window with, at 2560x1440 after 3840x2160.
+    match unsafe {
         hook::install_import(
             module,
             "USER32.dll",
             "RegisterClassA",
             hook::address(register_class_a as _),
-        )?
-    };
-    REGISTER_CLASS_A.store(previous, Ordering::Relaxed);
+        )
+    } {
+        Ok(previous) => REGISTER_CLASS_A.store(previous, Ordering::Relaxed),
+        Err(error) => log!("screen: {error}; the letterbox has the game's own background"),
+    }
+    // **And the calls a game moves or restyles its window with, where it imports them.** A game that looks
+    // one up is answered through `lookup` and has no import for this to patch; a game that imports one is
+    // answered here, and `orb-core` is the one place either answer is decided.
+    if let Ok(previous) = unsafe {
+        hook::install_import(
+            module,
+            "USER32.dll",
+            "SetWindowPos",
+            hook::address(orb_core::window::set_window_pos as _),
+        )
+    } {
+        unsafe { orb_core::window::answers_the_window_placed(previous) };
+    }
+    if let Ok(previous) = unsafe {
+        hook::install_import(
+            module,
+            "USER32.dll",
+            "MoveWindow",
+            hook::address(orb_core::window::move_window as _),
+        )
+    } {
+        unsafe { orb_core::window::answers_the_window_moved(previous) };
+    }
+    for name in ["SetWindowLongA", "SetWindowLongW"] {
+        if let Ok(previous) = unsafe {
+            hook::install_import(
+                module,
+                "USER32.dll",
+                name,
+                hook::address(orb_core::window::set_window_long_w as _),
+            )
+        } {
+            unsafe { orb_core::window::answers_the_window_restyled(previous) };
+        }
+    }
+    for name in ["SetWindowLongPtrA", "SetWindowLongPtrW"] {
+        if let Ok(previous) = unsafe {
+            hook::install_import(
+                module,
+                "USER32.dll",
+                name,
+                hook::address(orb_core::window::set_window_long_ptr_w as _),
+            )
+        } {
+            unsafe { orb_core::window::answers_the_window_restyled_ptr(previous) };
+        }
+    }
     // **And `SetForegroundWindow`, for a launch that plays itself**, whose answer is `orb-core`'s: th10's WinMain
     // brings its window to the front once it is made (0x438cb1), which took the focus off whatever somebody was
     // working in on every launch of a bench. **Not refused where the game does not import it**: a game that brings

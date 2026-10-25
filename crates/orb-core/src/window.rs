@@ -207,6 +207,22 @@ pub unsafe fn is_game_class(name: *const u8) -> bool {
     unsafe { CStr::from_ptr(name.cast()) == GAME_WINDOW_CLASS }
 }
 
+/// A name this can read off a wide pointer, for a log line: lossy, bounded, and empty where it is an atom.
+fn wide_name(name: *const u16) -> String {
+    if name.is_null() || (name as usize) <= u16::MAX as usize {
+        return String::new();
+    }
+    let mut units = Vec::new();
+    for at in 0..256 {
+        let unit = unsafe { *name.add(at) };
+        if unit == 0 {
+            break;
+        }
+        units.push(unit);
+    }
+    String::from_utf16_lossy(&units)
+}
+
 /// The game's own `CreateWindowExA`, which [`create_window_ex_a`] calls through with the arguments it
 /// decided.
 ///
@@ -297,46 +313,92 @@ pub unsafe extern "system" fn create_window_ex_w(
     let corner = (unsafe { *OUT_OF_THE_WAY.get() } && parent.is_null())
         .then(|| the_leftmost_of(&orb_api::window::monitors()))
         .flatten();
-    let (into_x, into_y) = match corner {
-        Some(monitor) => (monitor.left, monitor.top),
-        None => (x, y),
+    // **And the window somebody plays in is the settings'**, made that way rather than put right after: the
+    // layout [`create_window_ex_a`] gives a game whose `CreateWindowExA` is in its import table, which a
+    // game that asks for the name has none of.
+    //
+    // **And it is every top-level window this function is asked for.** The pointer it answers was given to
+    // the game's own startup, and nothing else in the process holds one — where `create_window_ex_a` has
+    // the whole import table of the exe to sift, this has only the calls the game itself makes through it,
+    // and its window class is a name of its own choosing (`BASE` in the older games, the title in th06c).
+    let settings = match corner {
+        Some(_) => None,
+        None if parent.is_null() => the_settings_window(),
+        None => None,
     };
     // **And made hidden, for a window orb chose the corner of.** Something moves this window after it is
     // made — [`keeps_its_corner`] is what that costs — so a window that is on the screen from the moment
     // it is created is one somebody sees in the middle of the primary monitor before it is put back. What
     // is on the screen while that is settled is nothing at all, and [`keeps_its_corner`] shows it once the
     // corner has held.
-    let style = match corner {
-        Some(_) => style & !WS_VISIBLE,
-        None => style,
+    let (into_x, into_y, into_width, into_height, style, ex_style) = match (corner, settings) {
+        (Some(monitor), _) => (
+            monitor.left,
+            monitor.top,
+            width,
+            height,
+            style & !WS_VISIBLE,
+            ex_style | OUT_OF_THE_WAY_EX_STYLE,
+        ),
+        (None, Some(wanted)) => (
+            wanted.area.left,
+            wanted.area.top,
+            wanted.area.width(),
+            wanted.area.height(),
+            wanted.style,
+            ex_style | wanted.ex_style,
+        ),
+        (None, None) => (x, y, width, height, style, ex_style),
     };
     let window = unsafe {
         original(
-            // Added to the game's own rather than written over it, the same as the other rewrite.
-            ex_style | corner.map_or(0, |_| OUT_OF_THE_WAY_EX_STYLE),
+            ex_style,
             class_name,
             window_name,
             style,
             into_x,
             into_y,
-            width,
-            height,
+            into_width,
+            into_height,
             parent,
             menu,
             instance,
             param,
         )
     };
-    if !window.is_null() && corner.is_some() {
-        // Remembered so that [`keeps_its_corner`] has a window to put back, whatever moves it — and the
-        // frames this one has held its corner for counted from nought, this game making its window over
-        // once the settings are applied and the window it made first not the one that is played in.
-        PLAYED_IN.store(window as usize, Ordering::Relaxed);
-        HELD_FOR.store(0, Ordering::Relaxed);
-        log!(
-            "screen: the window orb plays in is at {into_x},{into_y} sized {width}x{height}, \
-             which is the size the game asked for, and is hidden until its corner holds",
+    if !window.is_null() {
+        detail!(
+            "screen: a window of class {:?} for {:?} made at {into_x},{into_y} sized \
+             {into_width}x{into_height} ({window:p}), the game asking for {x},{y} {width}x{height}",
+            wide_name(class_name),
+            wide_name(window_name),
         );
+        match (corner, settings) {
+            (Some(_), _) => {
+                // Remembered so that [`keeps_its_corner`] has a window to put back, whatever moves it —
+                // and the frames this one has held its corner for counted from nought, this game making
+                // its window over once the settings are applied and the window it made first not the one
+                // that is played in.
+                PLAYED_IN.store(window as usize, Ordering::Relaxed);
+                HELD_FOR.store(0, Ordering::Relaxed);
+                log!(
+                    "screen: the window orb plays in is at {into_x},{into_y} sized \
+                     {into_width}x{into_height}, which is the size the game asked for, and is hidden \
+                     until its corner holds",
+                );
+            }
+            (None, Some(_)) => {
+                // The window somebody plays in, which [`move_window`] and [`set_window_pos`] keep at this
+                // place and size against the game's own moves.
+                SETTINGS_WINDOW.store(window as usize, Ordering::Relaxed);
+                window_created(Hwnd(window as usize));
+                log!(
+                    "screen: the window is at {into_x},{into_y} sized {into_width}x{into_height}, which \
+                     is the settings'",
+                );
+            }
+            (None, None) => {}
+        }
     }
     window
 }
@@ -369,19 +431,35 @@ pub unsafe extern "system" fn move_window(
     repaint: i32,
 ) -> i32 {
     let original: MoveWindow = unsafe { std::mem::transmute(MOVE_WINDOW.load(Ordering::Relaxed)) };
+    detail!(
+        "screen: the game moved {window:p} to {x},{y} sized {width}x{height}; the settings' is {:#x}",
+        SETTINGS_WINDOW.load(Ordering::Relaxed),
+    );
     let corner = unsafe { *OUT_OF_THE_WAY.get() }
         .then(|| the_leftmost_of(&orb_api::window::monitors()))
         .flatten();
-    let (into_x, into_y) = match corner {
-        Some(monitor) => (monitor.left, monitor.top),
-        None => (x, y),
-    };
     let ours = corner.is_some() && window as usize == PLAYED_IN.load(Ordering::Relaxed);
+    // **And the window somebody plays in is kept where the settings put it.** th06c asks for the place and
+    // size its dialog was told on its own moves, and the dialog's answer is orb's — so a move that was let
+    // through would be the game deciding the window after all.
+    let settings = (!ours && window as usize == SETTINGS_WINDOW.load(Ordering::Relaxed))
+        .then(the_settings_window)
+        .flatten();
+    let (into_x, into_y) = match (corner, settings) {
+        (Some(monitor), _) => (monitor.left, monitor.top),
+        (None, Some(wanted)) => (wanted.area.left, wanted.area.top),
+        _ => (x, y),
+    };
     let (into_width, into_height) = match ours {
         true => the_size_asked_of(window as usize, width, height),
-        false => (width, height),
+        false => match settings {
+            Some(wanted) => (wanted.area.width(), wanted.area.height()),
+            None => (width, height),
+        },
     };
-    if corner.is_some() && (into_x, into_y, into_width, into_height) != (x, y, width, height) {
+    if (corner.is_some() || settings.is_some())
+        && (into_x, into_y, into_width, into_height) != (x, y, width, height)
+    {
         detail!(
             "screen: the game moved its window to {x},{y} sized {width}x{height}; it goes to \
              {into_x},{into_y} sized {into_width}x{into_height} instead"
@@ -746,18 +824,32 @@ pub unsafe extern "system" fn set_window_pos(
 ) -> i32 {
     let original: SetWindowPos =
         unsafe { std::mem::transmute(SET_WINDOW_POS.load(Ordering::Relaxed)) };
+    detail!(
+        "screen: the game placed {window:p} at {x},{y} sized {width}x{height}, flags {flags:#x}; the \
+         settings' is {:#x}",
+        SETTINGS_WINDOW.load(Ordering::Relaxed),
+    );
     let ours =
         unsafe { *OUT_OF_THE_WAY.get() } && window as usize == PLAYED_IN.load(Ordering::Relaxed);
     let corner = ours
         .then(|| the_leftmost_of(&orb_api::window::monitors()))
         .flatten();
-    let (into_x, into_y) = match corner {
-        Some(monitor) if flags & SWP_NOMOVE == 0 => (monitor.left, monitor.top),
+    // And the settings' window, for the reason [`move_window`] keeps it: the game's placing of it is its
+    // dialog's answer, and the dialog's answer is orb's.
+    let settings = (!ours && window as usize == SETTINGS_WINDOW.load(Ordering::Relaxed))
+        .then(the_settings_window)
+        .flatten();
+    let (into_x, into_y) = match (corner, settings) {
+        (Some(monitor), _) if flags & SWP_NOMOVE == 0 => (monitor.left, monitor.top),
+        (None, Some(wanted)) if flags & SWP_NOMOVE == 0 => (wanted.area.left, wanted.area.top),
         _ => (x, y),
     };
-    let (into_width, into_height) = match corner {
-        Some(_) if flags & SWP_NOSIZE == 0 => the_size_asked_of(window as usize, width, height),
-        _ => (width, height),
+    let (into_width, into_height) = match ours {
+        true if flags & SWP_NOSIZE == 0 => the_size_asked_of(window as usize, width, height),
+        _ => match settings {
+            Some(wanted) if flags & SWP_NOSIZE == 0 => (wanted.area.width(), wanted.area.height()),
+            _ => (width, height),
+        },
     };
     if (into_x, into_y, into_width, into_height) != (x, y, width, height) {
         detail!(
@@ -837,6 +929,12 @@ pub unsafe extern "system" fn set_window_long_w(
 ) -> i32 {
     let original: SetWindowLongW =
         unsafe { std::mem::transmute(SET_WINDOW_LONG_W.load(Ordering::Relaxed)) };
+    // **The window somebody plays in keeps the styles it was laid out with.** th06c writes its own after
+    // making the window, and what that put back was a caption over the borderless style orb had made it
+    // with — a window at 3840x2160 measured 2560x1440 and captioned once the game had had its say.
+    if let Some(held) = settings_style(window, index) {
+        return unsafe { original(window, index, held as i32) };
+    }
     let ours =
         unsafe { *OUT_OF_THE_WAY.get() } && window as usize == PLAYED_IN.load(Ordering::Relaxed);
     let value = match index {
@@ -869,6 +967,65 @@ pub unsafe fn answers_the_window_restyled(original: usize) {
     SET_WINDOW_LONG_W.store(original, Ordering::Relaxed);
 }
 
+/// The style the window somebody plays in keeps, for a write to `index` — `None` for a window that is not
+/// that one, and for an index that is not a style.
+fn settings_style(window: *mut c_void, index: i32) -> Option<u32> {
+    if window as usize != SETTINGS_WINDOW.load(Ordering::Relaxed) {
+        return None;
+    }
+    let placed = the_settings_window()?;
+    match index {
+        GWL_STYLE => Some(placed.style),
+        GWL_EXSTYLE => Some(placed.ex_style),
+        _ => None,
+    }
+}
+
+/// The game's own `SetWindowLongPtrW`, which [`set_window_long_ptr_w`] calls through.
+static SET_WINDOW_LONG_PTR_W: AtomicUsize = AtomicUsize::new(0);
+
+type SetWindowLongPtrW = unsafe extern "system" fn(*mut c_void, i32, isize) -> isize;
+
+/// **The same write through the pointer-width entry**, which is the one a 64-bit game changes its window's
+/// styles with: th06c imports `SetWindowLongPtrA` outright, and that is the call that put a caption back
+/// over the window orb had made it.
+///
+/// # Safety
+/// The arguments are `SetWindowLongPtrW`'s own, and [`answers_the_window_restyled_ptr`] must have run first.
+pub unsafe extern "system" fn set_window_long_ptr_w(
+    window: *mut c_void,
+    index: i32,
+    value: isize,
+) -> isize {
+    let original: SetWindowLongPtrW =
+        unsafe { std::mem::transmute(SET_WINDOW_LONG_PTR_W.load(Ordering::Relaxed)) };
+    if let Some(held) = settings_style(window, index) {
+        return unsafe { original(window, index, held as isize) };
+    }
+    let ours =
+        unsafe { *OUT_OF_THE_WAY.get() } && window as usize == PLAYED_IN.load(Ordering::Relaxed);
+    let value = match index {
+        GWL_EXSTYLE
+            if ours && value as u32 & OUT_OF_THE_WAY_EX_STYLE != OUT_OF_THE_WAY_EX_STYLE =>
+        {
+            (value as u32 | OUT_OF_THE_WAY_EX_STYLE) as isize
+        }
+        GWL_STYLE if unsafe { held_off_the_screen(window) } && value as u32 & WS_VISIBLE != 0 => {
+            (value as u32 & !WS_VISIBLE) as isize
+        }
+        _ => value,
+    };
+    unsafe { original(window, index, value) }
+}
+
+/// Says which function [`set_window_long_ptr_w`] calls through.
+///
+/// # Safety
+/// Must run before the game has written its window's styles.
+pub unsafe fn answers_the_window_restyled_ptr(original: usize) {
+    SET_WINDOW_LONG_PTR_W.store(original, Ordering::Relaxed);
+}
+
 /// **Whether this is the window orb is keeping off the screen**: the one a launch that plays itself made
 /// in a corner, up to the moment [`shown_now_the_corner_is_held`] shows it.
 ///
@@ -885,6 +1042,16 @@ unsafe fn held_off_the_screen(window: *mut c_void) -> bool {
 /// The window a game that looks its own creation up was given, so that [`keeps_its_corner`] has one to
 /// put back.
 static PLAYED_IN: AtomicUsize = AtomicUsize::new(0);
+
+/// **The window somebody plays in**, which orb laid out to the settings and holds there: the one
+/// [`create_window_ex_w`] made, and what [`move_window`] and [`set_window_pos`] put back where the game
+/// asks to move it somewhere else.
+static SETTINGS_WINDOW: AtomicUsize = AtomicUsize::new(0);
+
+/// The place and size the settings ask for, on the primary monitor — the one the settings are about.
+fn the_settings_window() -> Option<Placed> {
+    orb_api::window::primary_monitor().map(|monitor| unsafe { placed(monitor, screen()) })
+}
 
 /// How many frames running that window has been found already in its corner, counted from the frame it
 /// was made and from every frame it had to be put back on.
@@ -1216,6 +1383,12 @@ pub unsafe extern "system" fn create_window_ex_a(
     };
     if !window.is_null() {
         window_created(Hwnd(window as usize));
+        // **And remembered as the window somebody plays in**, where nobody is playing in a corner: what the
+        // game does to it afterwards — moving it, writing its styles — is answered with the settings rather
+        // than passed through. See [`move_window`], [`set_window_pos`] and [`set_window_long_w`].
+        if !out_of_the_way {
+            SETTINGS_WINDOW.store(window as usize, Ordering::Relaxed);
+        }
         if out_of_the_way && !orb_api::window::show_without_activating(Hwnd(window as usize)) {
             log!("screen: the window orb plays in could not be shown");
         }
@@ -1327,17 +1500,6 @@ pub unsafe fn keeps_the_focus_where_it_was() {
 /// Must run on the game's main thread, after [`settle`].
 pub unsafe fn screen() -> Screen {
     unsafe { *SCREEN.get() }
-}
-
-/// **The setting alone, for a game whose window orb does not lay out** — one that looks `CreateWindowExW`
-/// up by name and so has no import for [`settle`]'s installation to patch. Nothing of the ratio, the
-/// letterbox or the DPI is settled by this, since none of it would be orb's: what it leaves is the answer
-/// to [`screen`], for a `Game` that sizes its own window off its own settings to read.
-///
-/// # Safety
-/// Must run on the game's main thread, before its first frame.
-pub unsafe fn set_screen(screen: Screen) {
-    unsafe { *SCREEN.get() = screen };
 }
 
 /// Says which window the game got, which the rewrite of `CreateWindowExA` calls with what it made.
@@ -1712,6 +1874,7 @@ fn report_no_bar(client: Rect, letterbox: Rect) {
 
 /// A window to create: what kind it is, and the whole of it — frame included — in the monitor's
 /// own coordinates.
+#[derive(Clone, Copy)]
 pub struct Placed {
     pub style: u32,
     /// The extended style, which is nothing for a window somebody plays in — see

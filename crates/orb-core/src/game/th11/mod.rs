@@ -1261,14 +1261,12 @@ impl Game for Th11 {
             tops_up_the_music: None,
             stops_the_music: None,
             pad_buttons: None,
-            // **The window size's 640x480 and the start button** of `DialogBoxParamA(hInstance, 0xcb, …)`, which WinMain
-            // puts up where bit `0x100` of `th11.cfg`'s `+0x38` is set or Shift is held (0x445606 through 0x445626) — and
+            // **A dialog of its own, which orb leaves as the game puts it.** `DialogBoxParamA(hInstance, 0xcb, …)` is
+            // put up where bit `0x100` of `th11.cfg`'s `+0x38` is set or Shift is held (0x445606 through 0x445626) — and
             // the configuration's defaults set the bit (0x420d8c). The procedure 0x447910 reads the radio buttons `0xcc`
             // to `0xcf` into the window size as `0xd0` is pressed (0x44793e through 0x4479c8), and its close sets the bit
-            // WinMain leaves on (0x4479e3, 0x44562c).
-            startup_dialog: Some(crate::game::Dialog {
-                clicks: &[0xcd, 0xd0],
-            }),
+            // WinMain leaves on (0x4479e3, 0x44562c). Nothing here answers it: the state its procedure writes has not
+            // been read — see `Game::has_a_startup_dialog` and `Game::settles_the_startup_dialog`.
             makes_its_window: None,
             moves_its_window: None,
             shows_its_window: None,

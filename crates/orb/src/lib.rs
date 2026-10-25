@@ -524,10 +524,10 @@ fn attach() {
         _ => {}
     }
     // **And the window's own making and moving, for a game that looks those up too** — one installation
-    // for all of them, there being one `GetProcAddress` entry whatever is answered through it. Only where
-    // the launch plays itself: what orb does with those two is put the window in a corner and hold it
-    // there, and a window somebody plays in is the settings'. See
-    // `orb_core::game::Hooks::makes_its_window`.
+    // for all of them, there being one `GetProcAddress` entry whatever is answered through it. For every
+    // launch: a run the machine plays is put in a corner, and a window somebody plays in is the settings'
+    // — made at that place and size, and held there against the game's own moves. See
+    // `orb_core::game::Hooks::makes_its_window` and `orb_core::window`.
     let plays_itself = config.autoplay.is_some();
     let looked_up = runtime::Lookups {
         read: looked_up_read,
@@ -536,31 +536,17 @@ fn attach() {
         // holding is theirs, and orb answering the read would take it away from them.
         pad: patches
             .reads_a_pad
-            .filter(|_| config.autoplay.is_some())
-            .map(|looked_up| looked_up.name),
-        window_made: patches
-            .makes_its_window
             .filter(|_| plays_itself)
             .map(|looked_up| looked_up.name),
-        window_moved: patches
-            .moves_its_window
-            .filter(|_| plays_itself)
-            .map(|looked_up| looked_up.name),
-        // And the two that put it on the screen, which go with the corner for the same reason: a window
-        // kept hidden until its corner has held is a window whose put-backs nobody sees, and a launch
-        // somebody plays has no such window to hide. See `orb_core::window::show_window`.
-        window_shown: patches
-            .shows_its_window
-            .filter(|_| plays_itself)
-            .map(|looked_up| looked_up.name),
-        window_placed: patches
-            .places_its_window
-            .filter(|_| plays_itself)
-            .map(|looked_up| looked_up.name),
-        window_restyled: patches
-            .restyles_its_window
-            .filter(|_| plays_itself)
-            .map(|looked_up| looked_up.name),
+        window_made: patches.makes_its_window.map(|looked_up| looked_up.name),
+        window_moved: patches.moves_its_window.map(|looked_up| looked_up.name),
+        // And the two that put it on the screen, which go with the corner: a window kept hidden until
+        // its corner has held is a window whose put-backs nobody sees, and a launch somebody plays has no
+        // such window to hide — the settings' is shown as the game asks. See
+        // `orb_core::window::show_window`.
+        window_shown: patches.shows_its_window.map(|looked_up| looked_up.name),
+        window_placed: patches.places_its_window.map(|looked_up| looked_up.name),
+        window_restyled: patches.restyles_its_window.map(|looked_up| looked_up.name),
         // **And the clocks, for a game orb paces no frame of.** `--pace` shortens the wait between one
         // frame and the next from inside the frame, and a game orb is not inside waits on its own — so
         // what that number does here is scale the clock the game does the waiting by. Named without
@@ -799,11 +785,20 @@ fn attach() {
         )
     } {
         Ok(()) => log!("screen: window hooks installed"),
-        // The setting still goes in, for a game that sizes its own window off settings of its own and
-        // can be told orb's — th06nc reads it on its first frame. See `orb_core::window::set_screen`.
+        // **And everything the window is laid out from settled anyway.** A game that asks its own startup
+        // for `CreateWindowExW` — th06c and th06nc both do — has no import to rewrite, and what is made
+        // for it is decided from this state: the ratio, the screen, and that this process reads sizes as
+        // the monitor's own pixels. See `orb_core::window::settle`, which is what `install_over` says for
+        // a game whose entries were patched.
         Err(error) => {
-            unsafe { orb_core::window::set_screen(config.screen) };
-            log!("screen: {error}; the window is left as the game makes it");
+            unsafe {
+                orb_core::window::settle(
+                    game.content_size(),
+                    config.screen,
+                    config.autoplay.is_some(),
+                )
+            };
+            log!("screen: {error}; the window is laid out where the game asks for it");
         }
     }
     // **Steam taken out of the launch**, for a game sold through it: it needs no client running to start,
@@ -819,24 +814,21 @@ fn attach() {
     } else {
         log!("steam: this launch is Steam's own");
     }
+    // **The dialog the game puts up before it starts anything is not made**, where it puts one up — every
+    // launch of it, and not only one that plays itself. The first one is answered, and what its own
+    // procedure would have written into the state it was handed is written instead: see `dialog`, and
+    // `Game::settles_the_startup_dialog`, which is the game's own reading of that state.
+    if game.has_a_startup_dialog() {
+        match unsafe { dialog::install(exe, game) } {
+            Ok(()) => log!("dialog: the game's own startup dialog will not be made"),
+            Err(error) => log!("dialog: {error}; the game's own startup dialog is the game's"),
+        }
+    }
     // **And whoever is playing this run, where a recipe was named.** The harness that plays it is its own
     // crate and this is the one place it is reached from — nothing of orb-core knows how a run is played, it
     // only keeps the slot. A launch nobody asked to play itself installs nothing and reads its keyboard.
     if let Some(recipe) = &config.autoplay {
         unsafe { orb_bot::install(recipe, game) };
-        // And the dialog the game puts up before it starts anything, where it puts one up: a recipe's
-        // first step cannot be pressed at a game that is still asking which window to make. Only for a
-        // launch that plays itself — a person at the keyboard is who the dialog is *for* — which is what
-        // puts it here rather than beside the rest of the installations.
-        if let Some(answer) = patches.startup_dialog {
-            match unsafe { dialog::install(exe, answer.clicks) } {
-                Ok(()) => log!(
-                    "dialog: the game's own startup dialog will be answered with {:?}",
-                    answer.clicks,
-                ),
-                Err(error) => log!("dialog: {error}; the game's own startup dialog stands"),
-            }
-        }
     }
     // And the pointer over that window, where the settings ask for it: a window is where Windows draws
     // one, and nothing in the game is played with the mouse. Left out rather than installed and idle
