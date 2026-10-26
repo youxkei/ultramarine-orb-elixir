@@ -301,6 +301,10 @@ fn strips(area: Rect, row: Rect) -> [Rect; 2] {
 /// Painted over rather than drawn as a mark of orb's: the star is the game's own count, and a part of it gone
 /// is the count saying so, where a figure beside the row was a second count somebody has to read.
 ///
+/// **The row is the game's to paint and is asked for it**: while the part is gone, and on the frame it stops —
+/// see [`crate::runtime`]'s `before_draw`. The picture is not memory, so a cut left in it is a cut until the
+/// game draws that row again, which it does only when its own two bits say so.
+///
 /// # Safety
 /// Must run between the game's `BeginScene` and `EndScene`, with `panel` naming a live texture of the game's
 /// device.

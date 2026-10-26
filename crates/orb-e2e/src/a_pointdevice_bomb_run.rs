@@ -84,6 +84,10 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             "the lives were painted over in a run that can lose them",
         );
         assert_eq!(game.state().lives, 2, "the lives a run starts with");
+        assert_eq!(game.sim().tones(), 0, "a tone before any judgement");
+        // And power collected after the chapter began, which a retry gives back to the chapter: the game
+        // drops 16 on the frame the death is made final, and the restore puts the chapter's own back.
+        game.image().set_power(128);
 
         // ── 3. A hit with the button pressed just before it: in time, nothing owed — and the one press set no
         // bomb off, the game never having been handed it.
@@ -98,11 +102,34 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             "the press before the hit was not taken as in time: {:?}",
             log.lines(),
         );
+        // A tone for it, which is what somebody at the keyboard has to notice it by: no star is shaved
+        // either way, and the panel is read after a retry at the earliest.
+        assert_eq!(
+            game.sim().tones(),
+            1,
+            "a press in time made no sound: {:?}",
+            log.lines(),
+        );
         assert_eq!(game.state().bombs, bombs, "one press set a bomb off");
         game.press_until(keys::Z, "the retry menu answered", || {
             log.said("retry: the chapter again on the keyboard")
         });
         assert_eq!(game.state().lives, 2);
+        // **The chapter's own power**, which is what a rewind gives back: a chapter begun at nothing and
+        // brought to 128 by its own items comes back to nothing whichever way the hit was judged.
+        assert_eq!(
+            game.state().power,
+            0,
+            "the retry kept power the chapter did not begin with",
+        );
+        // And the panel asked to paint itself again, every row of it — the picture on the screen being
+        // the frame before the restore rather than the restored one.
+        let flags = game.image().gui_flags();
+        let field = |at: u32| (flags >> (at * 2)) & 0b11;
+        assert!(
+            (0..5).all(|at| field(at) != 0),
+            "the panel was not asked to paint itself after the restore: {flags:#07b}",
+        );
         game.frames(AFTER_A_RETRY);
 
         // ── 4. A hit without it: half a life owed on Hard, the lives as they were, and the half drawn beside
@@ -120,10 +147,21 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             "a hit without the press was not judged so: {:?}",
             log.lines(),
         );
+        assert_eq!(
+            game.sim().tones(),
+            1,
+            "a hit the press did not save made a sound",
+        );
         game.press_until(keys::Z, "the retry menu answered again", || {
             log.said_since(mark, "retry: the chapter again on the keyboard")
         });
         assert_eq!(game.state().lives, 2, "half a life is not a life");
+        // And the chapter's power again, as on any retry.
+        assert_eq!(
+            game.state().power,
+            0,
+            "the retry kept power the chapter did not begin with",
+        );
         game.frames(AFTER_A_RETRY);
         // And what is owed kept beside the chapter written down after the retry, for a launch that picks the
         // run up to owe it too.
@@ -180,7 +218,11 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
         // does not give back.
         let mark = log.written();
         game.hit();
-        game.frames(A_BOMB_IS_TAKEN_FOR as u32 + 2);
+        game.frames_until(
+            "the life-taker settled",
+            A_BOMB_IS_TAKEN_FOR as u32 + 2,
+            || log.said_since(mark, "a life is taken"),
+        );
         assert!(
             log.said_since(mark, "died in chapter 1"),
             "the third death was not settled: {:?}",
@@ -193,6 +235,16 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             ),
             "the parts coming to a life did not take one: {:?}",
             log.lines(),
+        );
+        // **And the row asked for again on the frame the shave stopped**, which nothing else does: the
+        // part of a star cut out last frame is in the picture on the screen, and a row the game is not
+        // asked for is a row it does not paint. Which was a star with a wedge gone out of it and nothing
+        // owed, and the count the attempt before had, for as long as nothing else changed it.
+        let flags = game.image().gui_flags();
+        assert_ne!(
+            flags & 0b11,
+            0,
+            "the lives' row was not asked for after the shave stopped: {flags:#07b}",
         );
         game.press_until(keys::Z, "the retry menu answered a third time", || {
             log.said_since(mark, "retry: the chapter again on the keyboard")
@@ -221,5 +273,12 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
         );
         assert!(!log.said_since(mark, "bomb: a hit settled"));
         assert_eq!(game.state().lives, 1);
+        // And no tone: the game's own deathbomb is one the game took, and what orb has to say with a tone
+        // is its own judgement of a press.
+        assert_eq!(
+            game.sim().tones(),
+            1,
+            "the game's own deathbomb made a tone of orb's",
+        );
     });
 }

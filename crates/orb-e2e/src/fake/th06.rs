@@ -3315,7 +3315,19 @@ impl Fake {
                         self.image.set_invulnerable_frames(0);
                     }
                 }
-                left => self.image.set_respawn_timer(left - 1),
+                left => {
+                    // **The window run out, which is where the death is made final**: the power items
+                    // spawned and the power dropped, 16 off and nought where it was 16 or less
+                    // (0x428b5c through 0x428b7e), and the panel's power row asked for again
+                    // (0x428b85 through 0x428b91) — the number on the screen being one the game has
+                    // just changed.
+                    if left == 1 {
+                        run.power = run.power.saturating_sub(16);
+                        let flags = self.image.gui_flags();
+                        self.image.sets_gui_flags(flags & !0x30 | 0x20);
+                    }
+                    self.image.set_respawn_timer(left - 1);
+                }
             }
         }
         // The spawning branch, whose own test is `30 <= invulnerabilityTimer.AsFrames()`: a stage's start

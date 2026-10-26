@@ -249,8 +249,13 @@ fn the_chapters_behind_the_one_lost_in_th06c_are_listed_and_are_where_choosing_o
             &[THE_CARD, THE_MIDBOSS, STAGE_START],
             THE_CARD,
         );
+        // Above the line, which says the chapter the run is in — and that is the one that was lost, not one
+        // of the list: every word of a menu this file counts is counted above [`crate::fake::THE_LINE_BEGINS`].
         assert!(
-            game.says(AFTER_THE_CARD).is_empty(),
+            !game
+                .says(AFTER_THE_CARD)
+                .iter()
+                .any(|quad| quad.y < crate::fake::THE_LINE_BEGINS),
             "the chapter that was lost is listed among the ones behind it",
         );
 
@@ -320,8 +325,13 @@ fn the_chapters_behind_the_one_lost_in_th06c_are_listed_and_are_where_choosing_o
             game.says(AFTER_THE_CARD).is_empty(),
             "a chapter the run went back past is still offered",
         );
+        // Above the line, which says the run's own retry count as well: the list's line and the bar's are two
+        // things, and the one this is about is the list's.
         assert_eq!(
-            game.says("RETRY 1").len(),
+            game.says("RETRY 1")
+                .into_iter()
+                .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+                .count(),
             1,
             "the list does not say what the run has already spent",
         );

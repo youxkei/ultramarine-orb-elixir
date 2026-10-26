@@ -20,6 +20,7 @@ pub mod mem;
 pub mod module;
 pub mod mouse;
 pub mod process;
+pub mod sound;
 pub mod text;
 pub mod thread;
 pub mod window;

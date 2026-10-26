@@ -106,6 +106,7 @@ pub mod mem;
 pub mod module;
 pub mod mouse;
 pub mod process;
+pub mod sound;
 pub mod text;
 pub mod thread;
 pub mod window;
@@ -684,6 +685,15 @@ pub trait Win: Send + Sync + 'static {
     /// is not negative, and every caller in the process moves the same number. Which is why the answer
     /// comes back — see [`mouse::show`].
     fn show_mouse(&self, showing: bool) -> i32;
+
+    // --- the sound -------------------------------------------------------------
+
+    /// The short tone orb makes for itself, started and left to play out — see [`sound::a_tone`].
+    ///
+    /// Behind the seam because what a test has to be able to decide is *whether orb made one*, and
+    /// a real one leaves the machine (a speaker is not something an e2e test can read back). A
+    /// simulated host keeps the count instead, and nothing is played.
+    fn a_tone(&self);
 
     // --- the joystick ----------------------------------------------------------
 

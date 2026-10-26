@@ -1051,6 +1051,12 @@ mod gui {
     /// is the count of lives' row: while it is not zero, `Gui::OnDraw` erases that row and draws
     /// the stars again.
     pub const FLAGS: usize = 0x0;
+    /// All five pairs, which is every row of the panel: a row is painted while its pair is not zero,
+    /// each pair taken one off at `0x41acdb` — so two is a paint on this frame and the next. The panel
+    /// being laid over a stage's first frames sets all five to two itself at `0x41a2b6`; a death sets the
+    /// power's to two at `0x428b85` and `0x428b8e`, and each item that changes a count sets its own.
+    pub const EVERY_ROW: u32 = 0b11_11_11_11_11;
+    pub const EVERY_ROW_PAINT: u32 = 0b10_10_10_10_10;
     pub const IMPL: usize = 0x4;
     pub const BOSS_PRESENT: usize = 0x20;
     /// Inside `GuiImpl`, at `msg.currentMsgIdx`.
@@ -1858,6 +1864,25 @@ impl Game for Th06 {
     unsafe fn repaint_lives_row(&self) {
         let flags = unsafe { mem::read::<u32>(G_GUI + gui::FLAGS) };
         unsafe { mem::write::<u32>(G_GUI + gui::FLAGS, flags & !0b11 | 0b10) };
+    }
+
+    /// Every row of the panel asked for, which is the five pairs of `Gui::OnDraw`'s own word — see
+    /// [`gui::EVERY_ROW`].
+    ///
+    /// The whole panel rather than the rows a death is known to change, because a restore is not a death:
+    /// it puts every number of the run back, and what a row shows is whatever the game last drew there. A
+    /// bomb's score, a graze, a point item and the power a death dropped are all numbers a chapter's frame
+    /// has and the frame before the retry has not, so the row each of them is in is a row the picture on
+    /// the screen may disagree with. The game's own paint of a stage's first frames asks for all five the
+    /// same way.
+    unsafe fn repaint_the_panel(&self) {
+        let flags = unsafe { mem::read::<u32>(G_GUI + gui::FLAGS) };
+        unsafe {
+            mem::write::<u32>(
+                G_GUI + gui::FLAGS,
+                flags & !gui::EVERY_ROW | gui::EVERY_ROW_PAINT,
+            )
+        };
     }
 
     /// Whether the game will paint the row the lives are in this frame, which is its `Gui`'s own

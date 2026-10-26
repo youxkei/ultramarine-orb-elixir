@@ -451,6 +451,10 @@ pub struct Runtime {
     marked: bool,
     /// How many frames it has been kept for on that second count, for the line that says so.
     marked_after: u32,
+    /// Whether a part of the last star was painted over on the frame before, as `before_draw` decided:
+    /// the frame the shave stops is the one that has to put the star back, since the panel is repainted
+    /// only when the game is asked and a cut nothing repaints stays cut — see [`crate::lives_ui::shave`].
+    shaved: bool,
     /// Which of the three things a run is, and which of the three rankings is being looked at.
     mode: Mode,
     /// The bomb mode's difficulty, answered with that mode and where its question comes up next time — see
@@ -1587,6 +1591,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             lives: LivesMark::new(),
             marked: false,
             marked_after: 0,
+            shaved: false,
             mode,
             difficulty: bomb::Difficulty::Normal,
             bombs: BombRun::default(),
@@ -4696,11 +4701,26 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                     && let Some(lives) = runtime.bombs.lives
                 {
                     match unsafe { runtime.game.set_lives(lives) } {
-                        true => log!("bomb: the lives put back to {lives} over the chapter's own"),
+                        true => {
+                            log!("bomb: the lives put back to {lives} over the chapter's own");
+                            // And the row asked for, because the game's own count was written over
+                            // without the game being told: the stars are painted while the row's
+                            // bits are up, and nothing about this write sets them.
+                            unsafe { runtime.game.repaint_lives_row() };
+                        }
                         false => log!(
                             "bomb: this game's lives cannot be written; the chapter's own stand"
                         ),
                     }
+                }
+                // **And the panel asked to paint itself again**, because the picture on the screen is not
+                // memory: a row the game drew after the chapter's frame — the power a death dropped, a count
+                // an attempt changed — is drawn only when the game is asked, and nothing asks it for a frame
+                // it has already painted. Which left the panel saying a number the restored run does not
+                // have until something else changed it.
+                if ended.is_some() {
+                    unsafe { runtime.game.repaint_the_panel() };
+                    log!("retry: the panel asked to paint itself again");
                 }
                 // The chapter written down follows the run back, so that a session closed after going
                 // back offers the chapter the run is standing in rather than the one it left. Here
@@ -5532,6 +5552,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             ),
         );
         over = judged == Judged::GameOver;
+        // **And a tone where the press was in time**, which is the one case this mode and no other
+        // reaches: the run is put back a chapter and owes nothing, and the only sign of it on the panel
+        // is a star that is not shaved — a difference somebody does not see while the retry menu is up
+        // and the next attempt starts. A sound is heard at the moment the judgement is made.
+        if judged == Judged::Pressed {
+            orb_api::sound::a_tone();
+            log!("bomb: a tone for the press in time");
+        }
         if runtime.keeping() {
             unsafe {
                 resume::owe(
@@ -7901,9 +7929,15 @@ unsafe fn before_draw() {
     runtime.marked = marking != Marking::No;
     // And under a star the bomb mode shaves, for the same reason the mark wants it: what is painted over has to
     // be the game's own drawing of this frame, or the panel the shave leaves hardens into the next one.
-    if runtime.marked || the_star_a_part_is_gone_from(runtime).is_some() {
+    //
+    // **And on the frame the shave stops**, which is the one nothing else repaints: whatever was cut out last
+    // frame is still cut out of the picture, and a cut is not something the next frame draws over — the row is
+    // the game's, painted only when asked. Seen as a wedge gone from a star nothing owed.
+    let shaving = the_star_a_part_is_gone_from(runtime).is_some();
+    if runtime.marked || shaving || runtime.shaved {
         unsafe { runtime.game.repaint_lives_row() };
     }
+    runtime.shaved = shaving;
     // How long a panel outlives its run, said where it ends: that number is the whole of whether
     // the mark stops a frame before the painting does, and half a second of fade to the title is
     // not something to count by eye.

@@ -171,6 +171,9 @@ pub struct Sim {
     /// happening: a suite that really exited would take the harness's child with it, so the giving
     /// up is a thing an e2e test reads back rather than a thing it survives.
     exited: Mutex<Option<u32>>,
+    /// The tones orb has made for itself, counted. Nothing is played: what an e2e test asks is
+    /// whether one was made, at the moment the run reached.
+    tones: Mutex<u32>,
 }
 
 impl Default for Sim {
@@ -212,6 +215,7 @@ impl Sim {
             modules: Mutex::new(Vec::new()),
             dialogs: Mutex::new(Vec::new()),
             exited: Mutex::new(None),
+            tones: Mutex::new(0),
         }
     }
 
@@ -323,6 +327,11 @@ impl Sim {
     /// The code orb asked the host to end the process with, and `None` where it has not asked.
     pub fn exited(&self) -> Option<u32> {
         *self.exited.lock().unwrap()
+    }
+
+    /// How many tones orb has made for itself — see [`orb_api::sound`]. Nothing was played.
+    pub fn tones(&self) -> u32 {
+        *self.tones.lock().unwrap()
     }
 
     /// Puts a compositor there timing `hz`, with the monitor reporting the same, and the window in
@@ -695,6 +704,10 @@ impl Win for Sim {
 
     fn show_mouse(&self, showing: bool) -> i32 {
         self.mouse.show(showing)
+    }
+
+    fn a_tone(&self) {
+        *self.tones.lock().unwrap() += 1;
     }
 
     fn joystick_position(&self, device: u32, flags: u32) -> (u32, orb_api::JoyInfo) {

@@ -1630,6 +1630,22 @@ pub trait Game {
     /// Must run on the game's main thread, before the game draws.
     unsafe fn repaint_lives_row(&self);
 
+    /// Asks the game to paint the whole of its status panel again, on the next frame it draws.
+    ///
+    /// **For the frame a chapter is put back on**: a restore puts back the game's memory, and not the
+    /// picture on the screen. What the panel shows is drawn only when the game is asked — a row is
+    /// painted while its own two bits are up — so a row drawn after the chapter's frame, with a number
+    /// the restore has since taken back, stays on the screen as the number the run does not have. Seen
+    /// on th06 as a power row left at the value a death dropped it to, while the restored run had the
+    /// chapter's.
+    ///
+    /// The rows to ask for are the game's to say. A game that paints its panel every frame has nothing
+    /// here to ask for, and answers with nothing — which is the default.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with the game past initialisation.
+    unsafe fn repaint_the_panel(&self) {}
+
     /// Whether the game is going to paint that row itself this frame.
     ///
     /// Which is not the same question as whether a run is being played, and the difference is the
