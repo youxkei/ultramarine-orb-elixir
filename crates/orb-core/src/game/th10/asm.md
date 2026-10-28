@@ -71,6 +71,20 @@ constant.
   where bit `0x100` of the configuration at `0x491d78` is set, which the configuration's defaults set (0x418c62).
   What is left is the device's own making and Windows bringing a new process's first window forward, between
   which nothing is read.
+- **A fault inside the display driver on the frame the title's front end comes up.** A launch died on 2026-10-28
+  (`th10_dev`, session `orb-real/1793142884`, the chain `a_chapter_of_the_extra_taken_again`) with
+  `crash: code 0xc0000005 at 0x3d000019 in an unknown module`, reading `0x3d000019` — `eax=0x000000e0`,
+  `ebx=0x00972c00`, `ecx` and `edi=0x03ff6e58`, `edx=0x000001e0`, `esi=0x00000000` — 5.3 s after the attach, on the
+  frame `front end: screen 0, cursor on item 0` was said on. The frames are `nvd3dum.dll+0x14da717`,
+  `nvd3dum.dll+0x17eac40`, `KERNEL32.DLL+0x15d49` and two in `ntdll.dll`, so nothing of the game's or orb's is in
+  the stack, and what the fault was on is not read. **The same driver has been seen on this machine three
+  times**: a th11 launch crashed inside it on the unload frame (2026-10-12 13:48:29, see
+  `game/th11/mod.rs`'s `UNLOAD`), and th10's title has frozen in its `Present` at frames 283 to 327 on two of
+  seventy-seven launches pressed at `--pace=16`. **What is missing is the memory of one of them**:
+  `--dump-on-a-crash=<dir>` writes `orb-<pid>.dmp` beside the log when the filter fires, and a launch that has
+  one opens in `cdb -z` with `.ecxr; ~*kb; lm` — enough to say which of the driver's own threads the fault was
+  on and what it was holding, which five log lines cannot. Until one is kept, whether this is the game's layout,
+  orb's present, or the driver's own race is not established.
 
 ## The input
 

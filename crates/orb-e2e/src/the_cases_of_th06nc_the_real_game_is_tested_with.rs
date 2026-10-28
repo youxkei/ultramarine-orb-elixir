@@ -97,11 +97,18 @@ fn left_by(game: &Fake, dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 
 fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
     let recipe = case.recipe.to_owned();
+    // **The settings the case is played with on the real game**, given here so that the laid-out game is
+    // played with the same ones — see `the_cases_the_real_game_is_tested_with::settings`.
+    let as_the_real_game = case.settings().as_arguments();
     move |config| {
         config.autoplay = Some(recipe);
-        config.trace = Some(PathBuf::from(TRACE_FILE));
         config.log_level = LogLevel::Verbose;
-        // **Pressed through the virtual pad, as `cargo xtask real` launches every case.**
+        let options =
+            orb_config::args::Options::from_words(as_the_real_game.iter().map(String::as_str))
+                .expect("the settings a case declares are the flags orb-config reads");
+        config.apply_the_settings(&options);
+        // The trace and the pad are this crate's own and not the case's, so they go on after.
+        config.trace = Some(PathBuf::from(TRACE_FILE));
         config.through_a_pad = true;
     }
 }

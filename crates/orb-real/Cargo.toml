@@ -19,11 +19,12 @@ publish.workspace = true
 # case that starts from the Extra offered is laid into the copy with — see `Start`. Not `sim`: nothing here lays a
 # game out.
 orb-core = { workspace = true, features = ["score-files"] }
-
-# For the one test here, which is that every recipe this crate carries is one orb can read — see
-# `every_recipe_reads`. A dependency of the test alone: what parses a recipe at a launch is orb's own copy,
-# and a case is a `&'static str` until then.
-[dev-dependencies]
+# **For `Options`, and the one test here that every case's settings are the flags it reads** — see
+# `every_cases_settings_are_the_flags_orb_reads`. A case says its settings as `orb_real::Settings`, which
+# `cargo xtask real` hands on as arguments and orb reads back off the command line, so what names them has to be
+# the same definition on both sides.
 orb-config = { workspace = true }
+
+[dev-dependencies]
 # For the tests of `orb-real watching`, which write a trace to watch the way orb writes one.
 rmp-serde = "1.3"

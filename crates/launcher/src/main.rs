@@ -393,10 +393,17 @@ fn run() -> Result<(), Box<dyn Error>> {
         config.game_dir = game_dir;
     }
 
+    // **The settings a launch says win over the file before anything reads one** — and `ask_at_startup` is
+    // the first thing that reads one, below. Applied here rather than with the rest of the options after the
+    // dialog, because a launch that says `--ask-at-startup=false` would otherwise be asked anyway, and one
+    // that says `--language=english` would have its refusals and its dialog in the machine's language before
+    // the flag was read. What is written back is still the settings and not one launch's arguments: the
+    // dialog is only up where this launch did not answer it.
+    config.apply_the_settings(&launch.options);
+
     // Which language the two refusals below are read in, and the dialog with them. Settled once the
     // file has been read, that being where a language asked for by name is.
     let language = config.language.unwrap_or_else(Language::of_the_machine);
-
     // Which of the games orb knows this directory holds, before the settings are asked for: the pad
     // mapping the dialog answers through is read out of that game's own configuration file, so the
     // game has to be settled first.
@@ -757,7 +764,7 @@ mod tests {
         to_hand_on, verify_game_exe,
     };
     use clap::Parser;
-    use orb_config::Language;
+    use orb_config::{Config, Language};
     use orb_core::game;
     use std::path::{Path, PathBuf};
 
@@ -1012,6 +1019,43 @@ mod tests {
         assert!(
             asked(false, &["--settings"]),
             "the settings asked for outright were not asked over the file",
+        );
+    }
+
+    /// **And a launch that says `--ask-at-startup` is asked by what it says**, which is why the settings are
+    /// applied to the config before this question and not after the dialog: `asks_the_settings` reads the
+    /// flag the file gave it, and a launch naming the setting would otherwise put the dialog up over a launch
+    /// that had already answered — or, the other way, leave it out for one that asked for it.
+    #[test]
+    fn a_launch_that_names_ask_at_startup_is_asked_by_its_own_answer() {
+        let asked = |arguments: &[&str]| {
+            let launch =
+                Launch::try_parse_from(std::iter::once("orb").chain(arguments.iter().copied()))
+                    .expect("a command line orb has every option for");
+            // What the launcher does before it decides: the settings a launch names win over the file.
+            let mut config = Config::load_beside(std::path::Path::new("/nonexistent/orb.exe"))
+                .expect("no file beside an exe that is not there is every default");
+            config.apply_the_settings(&launch.options);
+            asks_the_settings(config.ask_at_startup, launch.settings, &launch.options)
+        };
+
+        assert!(asked(&[]), "a file asking for the settings was not asked");
+        assert!(
+            !asked(&["--ask-at-startup=false"]),
+            "a launch saying not to ask was asked anyway",
+        );
+        // **And a launch playing itself is not asked however the flag reads**, which is
+        // [`a_launch_that_plays_itself_is_not_asked_the_settings`]'s rule and the reason it is there: the
+        // dialog waits for a hand that a launch nobody is sitting at has not got.
+        assert!(
+            !asked(&["--ask-at-startup=true", r"--autoplay=C:\game\recipe.yaml"]),
+            "a launch playing itself was asked the settings",
+        );
+        // `--settings` is somebody typing it at the keyboard they are sitting at, which is the one thing
+        // that asks over a launch playing itself.
+        assert!(
+            asked(&["--settings", r"--autoplay=C:\game\recipe.yaml"]),
+            "the settings asked for outright were not asked",
         );
     }
 }

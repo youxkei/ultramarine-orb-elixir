@@ -287,7 +287,110 @@ pub struct Case {
     pub check: fn(&Trace) -> Result<(), String>,
 }
 
+/// **The settings every case is played with**, given at its launch rather than left to the copy's
+/// `orb.yaml` — which is the copy's own pick of settings and not the case's.
+///
+/// **A case that read them from the file was a case whose verdict the file decided.** th06c's
+/// `the_run_started_over_and_its_replay_kept` and `a_run_played_to_its_clear` failed on 2026-10-28 against
+/// `th06c_dev/orb.yaml`'s `save_replays: true`: with replays kept without asking, the question those checks
+/// wait for is never raised (`runtime::the_replay_being_written_over`, `the_replay_of_a_run_finished_with`),
+/// and the trace of the second reads `replay: kept as pointdevice_replay/easy-reimu-a-20261028-031549.msgpack`
+/// with no `asking whether to keep` at all. Nothing was wrong with orb and nothing was wrong with the case —
+/// the copy had been played in by hand.
+///
+/// **Every key `orb.yaml` holds and no other**, written out rather than left as the defaults so that a key
+/// added to the file is a key somebody here has to answer, and so that `orb-real list` can hand the lot to
+/// `cargo xtask real` as arguments. The values are the ones every case was measured against: no dialog, no
+/// patch, no Steam, the ending run out, chapters flashed, and the pointer taken off.
+pub struct Settings {
+    pub screen: &'static str,
+    pub language: &'static str,
+    pub thcrap: &'static str,
+    pub always_draw: bool,
+    pub boundary_flash: bool,
+    pub skip_ending: bool,
+    pub hide_mouse: bool,
+    pub dpad_moves: bool,
+    pub save_replays: bool,
+    pub player_name: &'static str,
+    pub ask_at_startup: bool,
+}
+
+impl Settings {
+    /// The fields in the order `orb-real list` prints them and `cargo xtask real` reads them, each as the
+    /// word its flag takes.
+    pub fn as_fields(&self) -> Vec<String> {
+        vec![
+            self.screen.to_owned(),
+            self.language.to_owned(),
+            self.thcrap.to_owned(),
+            self.always_draw.to_string(),
+            self.boundary_flash.to_string(),
+            self.skip_ending.to_string(),
+            self.hide_mouse.to_string(),
+            self.dpad_moves.to_string(),
+            self.save_replays.to_string(),
+            self.player_name.to_owned(),
+            self.ask_at_startup.to_string(),
+        ]
+    }
+
+    /// **The same as the arguments that say them**, in [`Settings::as_fields`]'s order and written whole —
+    /// `--screen=1280x720` — because that is what both readers take: `orb-real list` prints these and
+    /// `cargo xtask real` hands them on as they stand, and `orb-config`'s `Options` reads them back. The
+    /// flag names are written here once and nowhere else; a reader that matched values to a list of names of
+    /// its own would be the same eleven names in two crates.
+    pub fn as_arguments(&self) -> Vec<String> {
+        let names = [
+            "--screen",
+            "--language",
+            "--thcrap",
+            "--always-draw",
+            "--boundary-flash",
+            "--skip-ending",
+            "--hide-mouse",
+            "--dpad-moves",
+            "--save-replays",
+            "--player-name",
+            "--ask-at-startup",
+        ];
+        names
+            .iter()
+            .zip(self.as_fields())
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect()
+    }
+}
+
 impl Case {
+    /// **The settings this case is played with**, which is [`Settings`]'s one answer for every case — a
+    /// case needing another says so here and nowhere else.
+    pub fn settings(&self) -> Settings {
+        Settings {
+            // A window rather than the whole monitor: what a case is watched through is a picture, and a
+            // borderless window over the screen is one nothing else can be seen beside.
+            screen: "1280x720",
+            // The machine's own, which on the machine these cases were written on is Japanese — the language
+            // the game's own words and orb's overlay are matched in.
+            language: "auto",
+            // No patch: what a case plays is the game as it ships, so that what it reads is the game's.
+            thcrap: "false",
+            always_draw: true,
+            boundary_flash: true,
+            skip_ending: true,
+            hide_mouse: true,
+            dpad_moves: true,
+            // **Off, which is orb asking** — the question four cases wait for. On keeps every replay without
+            // asking, which is what the copy's file said when th06c's two failed.
+            save_replays: false,
+            // Empty: whose the replays are is what the game's own name entry says, read off the screen a run
+            // ends at. A name here would be one nobody chose.
+            player_name: "",
+            // No dialog: a launch playing itself has nobody at the keyboard to answer one.
+            ask_at_startup: false,
+        }
+    }
+
     /// **How many updates a frame this case is played at**, which is four for a case that plays a whole game
     /// and the game's own one for every other.
     ///
@@ -4715,6 +4818,91 @@ mod tests {
                 "{} {}'s recipe has no steps in it",
                 case.game.name(),
                 case.name,
+            );
+        }
+    }
+
+    /// **The settings every case says are the flags orb reads, read back into a config that agrees with
+    /// them**, which is the other thing about a case that nothing finds until a launch: `cargo xtask real`
+    /// hands them on as arguments and the launcher and the DLL apply them, so a name orb-config does not know
+    /// is a launcher that refuses to start, and a value applied to the wrong key is a case played with a
+    /// setting nobody asked for.
+    ///
+    /// **Read back through a config whose keys are the opposite of what is asked for**, so that every field
+    /// here is one the arguments moved: a test against the defaults would pass for a flag that was silently
+    /// dropped, the defaults and the settings agreeing on `save_replays` alone.
+    ///
+    /// And **the question four cases wait for is one `save_replays` off asks**, so a case played with it on
+    /// is a case whose check can never pass. That is what th06c's two failures on 2026-10-28 were, from the
+    /// copy's own file rather than from here.
+    #[test]
+    fn every_cases_settings_are_the_flags_orb_reads() {
+        for case in super::cases() {
+            let settings = case.settings();
+            let arguments = settings.as_arguments();
+            let options =
+                orb_config::args::Options::from_words(arguments.iter().map(String::as_str))
+                    .unwrap_or_else(|why| {
+                        panic!(
+                            "{} {}'s settings are not arguments orb reads: {why}",
+                            case.game.name(),
+                            case.name
+                        )
+                    });
+            // The defaults, because there is no `orb.yaml` beside a path that is not there — which is every
+            // default, a file that says nothing being the same thing.
+            let mut held =
+                orb_config::Config::load_beside(std::path::Path::new("/nonexistent/orb.exe"))
+                    .expect("no file beside an exe that is not there is every default");
+            held.apply_the_settings(&options);
+            let said = format!("{} {}", case.game.name(), case.name);
+            assert_eq!(held.screen.to_string(), settings.screen, "{said}: screen");
+            assert_eq!(
+                held.language.map(|it| it.to_string()),
+                Some(settings.language.to_owned()).filter(|it| it != "auto"),
+                "{said}: language"
+            );
+            assert_eq!(
+                held.thcrap,
+                Some(settings.thcrap)
+                    .filter(|it| *it != "auto")
+                    .map(|it| it == "true"),
+                "{said}: thcrap"
+            );
+            assert_eq!(
+                held.always_draw, settings.always_draw,
+                "{said}: always_draw"
+            );
+            assert_eq!(
+                held.boundary_flash, settings.boundary_flash,
+                "{said}: boundary_flash"
+            );
+            assert_eq!(
+                held.skip_ending, settings.skip_ending,
+                "{said}: skip_ending"
+            );
+            assert_eq!(held.hide_mouse, settings.hide_mouse, "{said}: hide_mouse");
+            assert_eq!(held.dpad_moves, settings.dpad_moves, "{said}: dpad_moves");
+            assert_eq!(
+                held.save_replays, settings.save_replays,
+                "{said}: save_replays"
+            );
+            assert_eq!(
+                held.player_name, settings.player_name,
+                "{said}: player_name"
+            );
+            assert_eq!(
+                held.ask_at_startup, settings.ask_at_startup,
+                "{said}: ask_at_startup"
+            );
+            assert!(
+                !settings.save_replays,
+                "{said} would keep its replay without asking, and the cases that wait for the question \
+                 could never pass"
+            );
+            assert!(
+                !settings.ask_at_startup,
+                "{said} would put the settings dialog up, and nobody is at the machine to answer it"
             );
         }
     }

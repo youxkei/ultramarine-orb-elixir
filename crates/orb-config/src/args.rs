@@ -41,12 +41,15 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser};
 
-use crate::{Config, LogLevel};
+use crate::{Config, Language, LogLevel, Screen};
 
 /// The three reasons to give an option at all, which are what `--help` lists them under.
 const TABLE: &str = "Building the midstage chapter table, over a replay of a run";
 const ENDING: &str = "Getting to an ending, which only clearing the game reaches";
 const FAULT: &str = "Looking into a fault";
+/// **The settings that are otherwise `orb.yaml`'s**, given here so that a launch says them and a copy's own
+/// file answers none of it — which is what a case of `cargo xtask real` needs, its verdict being its own.
+const SETTINGS: &str = "The settings orb.yaml would otherwise hold";
 
 /// The last thing `--help` says, which is where the other half of the settings are. It lives
 /// beside the options it is about rather than in the launcher that prints it.
@@ -305,6 +308,13 @@ pub struct Options {
     #[arg(long, help_heading = FAULT)]
     hold_for_a_debugger: bool,
 
+    /// write a minidump of the process beside the log when it crashes — `orb-<pid>.dmp` under this
+    /// directory, opened afterwards with `cdb -z`. For a fault nothing of orb's is in: a th10 launch died
+    /// inside `nvd3dum.dll` on 2026-10-28 and the five lines the crash filter wrote were all there was to
+    /// read of it
+    #[arg(long, require_equals = true, value_name = "DIR", help_heading = FAULT)]
+    dump_on_a_crash: Option<PathBuf>,
+
     /// keep the files orb writes of its own — the run left unfinished, its replay, the name it
     /// remembers, and a trace naming no directory — under this directory rather than beside the
     /// game. For a launch that is a test: what an earlier session left beside the game then
@@ -339,6 +349,66 @@ pub struct Options {
     /// do not hook the game's frame at all
     #[arg(long, help_heading = FAULT)]
     no_hooks: bool,
+
+    /// how much of the screen the game gets: `fullscreen` or a size like `1280x720`. The same answer as
+    /// `screen` in `orb.yaml`, for a launch that has to be told rather than read the file beside the game
+    #[arg(long, require_equals = true, value_name = "SCREEN", help_heading = SETTINGS)]
+    screen: Option<Screen>,
+
+    /// which language orb's own screens are in: `japanese`, `english` or `auto` for the machine's. The same
+    /// answer as `language` in `orb.yaml`
+    #[arg(
+        long,
+        require_equals = true,
+        value_name = "LANGUAGE",
+        help_heading = SETTINGS,
+    )]
+    language: Option<LanguageAnswer>,
+
+    /// put the translation patch beside the game into it: `true`, `false` or `auto` for the answer the
+    /// language gives. The same answer as `thcrap` in `orb.yaml`
+    #[arg(long, require_equals = true, value_name = "SWITCH", help_heading = SETTINGS)]
+    thcrap: Option<SwitchAnswer>,
+
+    /// keep drawing the game's frames when it would not: `true` or `false`. The same answer as
+    /// `always_draw` in `orb.yaml`
+    #[arg(long, require_equals = true, value_name = "SWITCH", help_heading = SETTINGS)]
+    always_draw: Option<bool>,
+
+    /// wash the play field the moment a chapter begins: `true` or `false`. The same answer as
+    /// `boundary_flash` in `orb.yaml`
+    #[arg(long, require_equals = true, value_name = "SWITCH", help_heading = SETTINGS)]
+    boundary_flash: Option<bool>,
+
+    /// run an ending out without drawing it: `true` or `false`. The same answer as `skip_ending` in
+    /// `orb.yaml`
+    #[arg(long, require_equals = true, value_name = "SWITCH", help_heading = SETTINGS)]
+    skip_ending: Option<bool>,
+
+    /// take the mouse pointer off the screen while it is still: `true` or `false`. The same answer as
+    /// `hide_mouse` in `orb.yaml`
+    #[arg(long, require_equals = true, value_name = "SWITCH", help_heading = SETTINGS)]
+    hide_mouse: Option<bool>,
+
+    /// let the d-pad move the player: `true` or `false`. The same answer as `dpad_moves` in `orb.yaml`
+    #[arg(long, require_equals = true, value_name = "SWITCH", help_heading = SETTINGS)]
+    dpad_moves: Option<bool>,
+
+    /// keep the replay of every pointdevice run without asking: `true` or `false`. The same answer as
+    /// `save_replays` in `orb.yaml`, and what a case that waits for the question has to be given as
+    /// `false` where the copy's own file says otherwise
+    #[arg(long, require_equals = true, value_name = "SWITCH", help_heading = SETTINGS)]
+    save_replays: Option<bool>,
+
+    /// whose run a replay says it is: the name orb reads out of the game's own name entry, given here so
+    /// that a launch says it rather than the copy's file. The same key as `player_name` in `orb.yaml`
+    #[arg(long, require_equals = true, value_name = "NAME", help_heading = SETTINGS)]
+    player_name: Option<String>,
+
+    /// ask the settings before starting the game: `true` or `false`. The same answer as `ask_at_startup`
+    /// in `orb.yaml`
+    #[arg(long, require_equals = true, value_name = "SWITCH", help_heading = SETTINGS)]
+    ask_at_startup: Option<bool>,
 }
 
 /// A whole command line with the options somewhere in it, which is the shape the DLL is given
@@ -360,6 +430,13 @@ impl Options {
         let words = command_line
             .split_whitespace()
             .filter(|word| word.starts_with("--"));
+        CommandLine::try_parse_from(std::iter::once("orb").chain(words)).map(|line| line.options)
+    }
+
+    /// **The same out of words already split**, which is how `cargo xtask real` reads the settings
+    /// `orb-real list` printed: there is no line to split and nothing before the options, and a value with a
+    /// space in it — a player's name — arrives as one word because it was printed as one.
+    pub fn from_words<'a>(words: impl IntoIterator<Item = &'a str>) -> Result<Self, clap::Error> {
         CommandLine::try_parse_from(std::iter::once("orb").chain(words)).map(|line| line.options)
     }
 
@@ -530,6 +607,9 @@ impl Config {
         if options.hold_for_a_debugger {
             self.hold_for_a_debugger = true;
         }
+        if let Some(dir) = &options.dump_on_a_crash {
+            self.dump_on_a_crash = Some(dir.clone());
+        }
         if options.trace_the_world {
             self.trace_the_world = true;
         }
@@ -555,6 +635,50 @@ impl Config {
         }
         if options.no_hooks {
             self.frame_hooks = false;
+        }
+        // **The settings `orb.yaml` would otherwise hold, said at the launch and winning over the file.** A
+        // launch that names one is a launch whose answer has to be its own: `cargo xtask real` plays a case
+        // into a copy whose `orb.yaml` is the copy's, and a setting somebody left in it there turned a check
+        // that waits for the replay question into one that could never be asked.
+        self.apply_the_settings(options);
+    }
+
+    /// The half of [`Config::apply`] that is `orb.yaml`'s own keys, kept apart because the launcher needs
+    /// them before it asks the settings — the dialog is whether to ask at all, which the file and the flag
+    /// both answer — and answers them again with everything else afterwards.
+    pub fn apply_the_settings(&mut self, options: &Options) {
+        if let Some(screen) = options.screen {
+            self.screen = screen;
+        }
+        if let Some(language) = options.language {
+            self.language = language.answer();
+        }
+        if let Some(thcrap) = options.thcrap {
+            self.thcrap = thcrap.answer();
+        }
+        if let Some(on) = options.always_draw {
+            self.always_draw = on;
+        }
+        if let Some(on) = options.boundary_flash {
+            self.boundary_flash = on;
+        }
+        if let Some(on) = options.skip_ending {
+            self.skip_ending = on;
+        }
+        if let Some(on) = options.hide_mouse {
+            self.hide_mouse = on;
+        }
+        if let Some(on) = options.dpad_moves {
+            self.dpad_moves = on;
+        }
+        if let Some(on) = options.save_replays {
+            self.save_replays = on;
+        }
+        if let Some(name) = &options.player_name {
+            self.player_name = name.clone();
+        }
+        if let Some(asks) = options.ask_at_startup {
+            self.ask_at_startup = asks;
         }
     }
 }
@@ -588,6 +712,54 @@ fn a_card_or_none(value: &str) -> Result<u32, String> {
     }
 }
 
+/// **`--language`'s value, `auto` meaning the machine's answer** — the word `orb.yaml` writes for the same
+/// thing. A type of its own rather than `Option<Option<Language>>`, which clap cannot tell from "the flag was
+/// not given": both spell the same `Option`, and a parser answering `None` for `auto` left it mismatched
+/// against the field.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LanguageAnswer(Option<Language>);
+
+impl LanguageAnswer {
+    pub fn answer(self) -> Option<Language> {
+        self.0
+    }
+}
+
+impl std::str::FromStr for LanguageAnswer {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text.trim().eq_ignore_ascii_case("auto") {
+            return Ok(Self(None));
+        }
+        text.parse().map(|language| Self(Some(language)))
+    }
+}
+
+/// And `--thcrap`'s, which takes the two words a switch is written with as well as `auto`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SwitchAnswer(Option<bool>);
+
+impl SwitchAnswer {
+    pub fn answer(self) -> Option<bool> {
+        self.0
+    }
+}
+
+impl std::str::FromStr for SwitchAnswer {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("auto") {
+            return Ok(Self(None));
+        }
+        text.parse::<bool>()
+            .map(|switch| Self(Some(switch)))
+            .map_err(|_| format!("`{text}` is not true, false or auto"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Options;
@@ -615,6 +787,51 @@ mod tests {
         let judge = with("--judge");
         assert!(judge.chapter_tuning && judge.during_replay && judge.chapter_stepping);
         assert_eq!(judge.speed, 1);
+    }
+
+    /// **And the settings `orb.yaml` would otherwise answer, said at the launch and winning over the file.**
+    /// What it is for is `cargo xtask real`: a copy's `orb.yaml` is the copy's, and a setting somebody left in
+    /// it answered a case that had to say its own — th06c's two cases waiting on the replay question failed on
+    /// 2026-10-28 against a copy whose file said `save_replays: true`, which keeps the replay without asking.
+    #[test]
+    fn a_launch_says_the_settings_the_file_would_otherwise_answer() {
+        // Something the file says, so that the flag is seen to win over it rather than over a default.
+        let from_the_file = || {
+            let mut held = config();
+            held.save_replays = true;
+            held.screen = crate::Screen::Window {
+                width: 1280,
+                height: 720,
+            };
+            held.player_name = "somebody".to_owned();
+            held
+        };
+        let mut unsaid = from_the_file();
+        unsaid.apply(&Options::from_command_line("").unwrap());
+        assert!(
+            unsaid.save_replays,
+            "a launch saying nothing keeps the file's"
+        );
+
+        let mut said = from_the_file();
+        said.apply(
+            &Options::from_command_line(
+                "--save-replays=false --screen=fullscreen --language=english --player-name=ORB",
+            )
+            .unwrap(),
+        );
+        assert!(!said.save_replays);
+        assert_eq!(said.screen, crate::Screen::Fullscreen);
+        assert_eq!(said.language, Some(crate::Language::English));
+        assert_eq!(said.player_name, "ORB");
+
+        // `auto` is the machine's answer, which is the file's `auto` and not a switch.
+        let mut auto = from_the_file();
+        auto.apply(&Options::from_command_line("--language=auto --thcrap=auto").unwrap());
+        assert_eq!(auto.language, None);
+        assert_eq!(auto.thcrap, None);
+        assert!(Options::from_command_line("--language=klingon").is_err());
+        assert!(Options::from_command_line("--thcrap=sometimes").is_err());
     }
 
     /// **A launch being checked says where its trace goes and where its files are kept**, and neither is

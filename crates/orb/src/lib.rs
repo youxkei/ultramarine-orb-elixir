@@ -281,6 +281,12 @@ fn attach() {
     // from the line until somebody remembered both. `--pace` was added and left out, and the launch that ran
     // without it had nothing in its log to say so. Derived, the line cannot fall behind the struct.
     log!("config: {config:?}");
+    // **Where a crash's dump goes, settled before the first line of the game runs**: the filter reads this
+    // when it fires, and a fault in the game's own first moments is one it would otherwise fire on with the
+    // directory not yet known — see `crash::wants_a_dump_in`.
+    if let Some(dir) = &config.dump_on_a_crash {
+        crash::wants_a_dump_in(dir.clone());
+    }
     // Set after the line that says what it is, so the log always states the level it
     // is then written at.
     log::set_level(config.log_level);

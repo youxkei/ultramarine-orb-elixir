@@ -14,7 +14,9 @@ launch of one is driven and watched.
 - Drive a **copy of the install**, with the game's own files and none of its `replay*/` directories. A
   played game writes its records beside itself, and the copy is where they land.
 - Put the build under test into the copy before each launch: `cargo xtask build --release`, then copy
-  `target/i686-pc-windows-msvc/release/orb.exe` into it. The copy's `orb.yaml` stays as it is.
+  `target/i686-pc-windows-msvc/release/orb.exe` into it. A launch driven by hand reads the copy's
+  `orb.yaml`, so it stays as it is; `cargo xtask real` answers every key of it at the launch instead and
+  never reads the copy's.
 - Read the commit off the launch's first log line — `orb <version> attached to pid N, built from <commit>`
   — and hold it against `jj log -r @ -T commit_id.short(12)` before reading anything else off the run.
 
@@ -219,8 +221,24 @@ Leave it playing in these:
 ## When the game dies and says nothing
 
 A process that goes with nothing more in the log has left no line to read, and `orb::crash`'s filter
-catches only what reaches it. **A debugger attached across the launch says in one sitting what a
-bisection of flags takes twenty launches to circle** — `cdb` is on this machine:
+catches only what reaches it.
+
+- **A fault the filter did catch leaves a minidump, and opening it afterwards is what a fault in a driver
+  needs.** `--dump-on-a-crash=<dir>` writes `orb-<pid>.dmp` there when the process faults, beside the five
+  lines the filter says — and `cargo xtask real` gives every launch `<case>/crashes/` for it, so a case that
+  died that way has a dump under its own directory and the session goes on to the next:
+  ```sh
+  "/c/Program Files (x86)/Windows Kits/10/Debuggers/x86/cdb.exe" -z '<case>\crashes\orb-1234.dmp' \
+    -c ".ecxr; .lastevent; r; kb; ~*kb; lm; q"
+  ```
+  `.ecxr` puts the fault's own thread first — without it `kb` walks whichever thread cdb stopped on, and a
+  driver's fault is on the thread that made the present. `.lastevent` and `r` name the fault and its
+  registers, `kb` the stack, `~*kb` every thread's (a driver fault is often a deadlock between two), and
+  `lm` the module list as it was loaded. **The debugger has to be the game's own width**, as below. A dump
+  is a file and not a live process, so nothing is held and nothing is killed opening one.
+- **A fault the filter did not live through leaves nothing but the launch, and a debugger attached across
+  it says in one sitting what a bisection of flags takes twenty launches to circle** — `cdb` is on this
+  machine:
 
 ```sh
 # the launch in the background, then its pid off orb.log's first line

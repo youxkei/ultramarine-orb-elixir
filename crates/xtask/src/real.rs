@@ -17,8 +17,13 @@
 //!
 //! **Nothing in that directory is deleted.** Every launch keeps orb's own files — the run it leaves, its
 //! replay, the trace — in a directory of this session's under `orb-real/`, through `--keep-in`, made fresh
-//! for each case, so that a run left by an earlier session or case answers no question of this one. The
-//! settings stay the copy's own `orb.yaml`.
+//! for each case, so that a run left by an earlier session or case answers no question of this one.
+//!
+//! **And the settings are the case's own, given at the launch and not read from the copy.** Every key
+//! `orb.yaml` holds is passed as an option — see `orb_real::Settings`, which says why — so a copy somebody
+//! has played in answers none of a case's questions with the settings they left there. th06c's two replay
+//! cases failed on 2026-10-28 for exactly that: the copy's `orb.yaml` said `save_replays: true`, and the
+//! question those checks wait for is one that setting never asks.
 //!
 //! **And the game's own records are moved aside so that a case starts from the same ones every time** — see
 //! [`Records`]: the score file, the configuration beside it and the file orb forks the first into are the
@@ -203,7 +208,21 @@ struct Case {
     speed: u32,
     /// And how many times its own rate it asks to be paced to — see `orb_real::Case::pace`.
     pace: u32,
+    /// **The settings its launch is given, as the arguments themselves** — `--screen=1280x720` and the rest
+    /// of the `orb.yaml` keys — see `orb_real::Settings`, which is where the flag names are written.
+    ///
+    /// **Given at the launch rather than left to the copy's `orb.yaml`**, which is the copy's pick of
+    /// settings and not the case's: th06c's two replay cases failed on 2026-10-28 against a copy whose file
+    /// said `save_replays: true`, and the question they wait for is one that setting never asks.
+    ///
+    /// **Handed on as they were printed and never rebuilt from a list of names here**: a name written in
+    /// both crates is a rename that has to be found twice, and the value-to-name pairing is `orb-real`'s.
+    settings: Vec<String>,
 }
+
+/// How many settings `orb-real list` prints for a case, which is `orb_real::Settings`' fields — counted here
+/// because this side has no copy of that type, a line of the list being the whole of what crosses.
+const SETTINGS_ORB_REAL_PRINTS: usize = 11;
 
 pub fn real(args: Vec<String>) -> ExitCode {
     let mut args = args.into_iter();
@@ -445,6 +464,14 @@ fn launched(
         // plays the same way every time, so only the kept one says whether another way gets through it.
         // th06c's stage 6 hit a no-hit case twice in one session and in none of fifteen attempts after it.
         format!("--keep-hits-in={}", windows_path(&launch_dir.join("hits"))),
+        // **And a minidump of the process beside the trace if it crashes**, which is what a fault nothing
+        // of orb's is in needs: a th10 launch died inside `nvd3dum.dll` on 2026-10-28 and five log lines were
+        // all there was of it, the crash coming again every few hundred launches and never on demand. A
+        // launch that does not crash writes nothing.
+        format!(
+            "--dump-on-a-crash={}",
+            windows_path(&launch_dir.join("crashes"))
+        ),
         "--log=verbose".to_owned(),
         // **Pressed through the virtual pad**, so that a case plays the game the way somebody at a pad does:
         // through the game's own read of one and through orb's menus' — and a game that takes no word as a
@@ -459,6 +486,11 @@ fn launched(
     if case.pace > 1 {
         launch.arg(format!("--pace={}", case.pace));
     }
+    // **And the settings the case is played with, said rather than read out of the copy's `orb.yaml`.**
+    // Nothing of the copy's own file reaches the run: a launch that leaves a key unsaid has the file's answer,
+    // and the file is whatever somebody last played in that copy left there. Printed as arguments by
+    // `orb-real list` and handed on as they stand — see [`Case::settings`].
+    launch.args(&case.settings);
     // **Started and not waited on.** orb.exe stays until the game ends — it is the process Steam counts
     // as the game — and what one launch waits for here is the game's own exe, which is `wait_out`'s. An
     // orb.exe that has already gone while no game came up said why above and left a code, which is said
@@ -583,6 +615,17 @@ impl Again {
         }
         // **At the game's own speed and at the pace asked for**: a pace is the same updates in less wall time, where a
         // speed is more updates a frame and plays another game — see `orb_real::Case::pace`.
+        //
+        // **And the settings the case of that name is played with, or the game's first case's where the recipe is
+        // a measurement's own** — a launch that left them to the copy's `orb.yaml` would be measuring whatever
+        // somebody last played in that copy left there.
+        let settings = game
+            .cases
+            .iter()
+            .find(|case| case.name == self.recipe)
+            .or_else(|| game.cases.first())
+            .map(|case| case.settings.clone())
+            .ok_or_else(|| format!("{} has no case to take the settings from", game.name))?;
         let played = Case {
             name: self.recipe.clone(),
             before: Vec::new(),
@@ -590,6 +633,7 @@ impl Again {
             within: self.within,
             speed: 1,
             pace: self.pace,
+            settings,
         };
         let mut chapters = Chapters::default();
         let mut lost = 0;
@@ -750,7 +794,8 @@ fn copied(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// What `orb-real list` prints, read back: one line per case, `game exe records target case before starts_from
-/// within speed pace`, tab-separated, the records and the cases before comma-separated among them.
+/// within speed pace` and then the settings the case is played with, tab-separated, the records and the cases
+/// before comma-separated among them.
 fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
     let listed = Command::new(checker)
         .arg("list")
@@ -767,6 +812,15 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
     let mut games: Vec<Game> = Vec::new();
     for line in text.lines() {
         let fields: Vec<&str> = line.split('\t').collect();
+        // **Ten fields of the case and then the settings**, which are counted rather than pattern-matched: a
+        // slice pattern is an exact length, and what is wanted here is a prefix and a rest.
+        if fields.len() != 10 + SETTINGS_ORB_REAL_PRINTS {
+            return Err(format!(
+                "orb-real list printed {} field(s), where {} were expected: {line:?}",
+                fields.len(),
+                10 + SETTINGS_ORB_REAL_PRINTS
+            ));
+        }
         let [
             name,
             exe,
@@ -778,12 +832,11 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
             within,
             speed,
             pace,
-        ] = fields[..]
+        ] = fields[..10]
         else {
-            return Err(format!(
-                "orb-real list printed a line of another shape: {line:?}"
-            ));
+            unreachable!("ten fields of a line already counted");
         };
+        let settings = &fields[10..];
         let case = Case {
             name: case.to_owned(),
             before: match before {
@@ -800,6 +853,7 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
             pace: pace
                 .parse()
                 .map_err(|why| format!("orb-real list printed {pace:?} as a pace: {why}"))?,
+            settings: settings.iter().map(|field| (*field).to_owned()).collect(),
         };
         match games.iter_mut().find(|game| game.name == name) {
             Some(game) => game.cases.push(case),

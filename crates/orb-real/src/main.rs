@@ -20,8 +20,8 @@
 //!
 //! `list` prints the cases for `cargo xtask real` to drive — one line each, `game`, the game's exe, the
 //! records it keeps of its own as one comma-separated field, the target orb has to be built for to attach
-//! to it, the case, the cases whose recipes it plays first, the records it starts from and how long its launch may
-//! take, tab-separated —
+//! to it, the case, the cases whose recipes it plays first, the records it starts from, how long its launch may
+//! take, the speed it is played at, the pace it is paced to, and the settings its launch is given — tab-separated —
 //! so that which games and cases there are is said in one place, this crate, and `xtask` carries no copy
 //! of it.
 //!
@@ -156,7 +156,7 @@ fn main() -> ExitCode {
     if session == "list" {
         for case in orb_real::cases() {
             println!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 case.game.name(),
                 case.game.exe(),
                 case.game.records().join(","),
@@ -170,6 +170,10 @@ fn main() -> ExitCode {
                 case.within,
                 case.speed(),
                 case.pace(),
+                // **And the settings the case is played with, already as arguments**: `cargo xtask real`
+                // hands them on as they stand instead of leaving the copy's `orb.yaml` to answer — see
+                // `orb_real::Settings`, which is the one place the flag names are written.
+                case.settings().as_arguments().join("\t"),
             );
         }
         return ExitCode::SUCCESS;
