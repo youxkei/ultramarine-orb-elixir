@@ -156,7 +156,7 @@ fn main() -> ExitCode {
     if session == "list" {
         for case in orb_real::cases() {
             println!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 case.game.name(),
                 case.game.exe(),
                 case.game.records().join(","),
@@ -174,6 +174,9 @@ fn main() -> ExitCode {
                 // hands them on as they stand instead of leaving the copy's `orb.yaml` to answer — see
                 // `orb_real::Settings`, which is the one place the flag names are written.
                 case.settings().as_arguments().join("\t"),
+                // **And whether its launches press a pad or a keyboard** — see
+                // `orb_real::Case::presses_through_a_pad`.
+                u8::from(case.presses_through_a_pad()),
             );
         }
         return ExitCode::SUCCESS;
@@ -646,15 +649,41 @@ fn over_a_hit(over: &orb_core::trace::OverAHit) -> Vec<String> {
     enemies.chain(bullets).collect()
 }
 
+/// **Every word orb drew since the record before, and the rectangle each went into**, each line beginning
+/// `drawn` so that a `show` can be asked for them alone — see `orb_core::trace::WhatWasDrawn`.
+fn drawn(what: &orb_core::trace::WhatWasDrawn) -> Vec<String> {
+    let (left, top, width, height) = what.area;
+    let mut lines = vec![format!(
+        "drawn into {left:.1},{top:.1} {width:.1}x{height:.1}: every word {} it",
+        if what.all_inside() {
+            "inside"
+        } else {
+            "OUTSIDE"
+        }
+    )];
+    lines.extend(what.words.iter().map(|word| {
+        format!(
+            "drawn {:?} at {:.1},{:.1} {:.1}x{:.1}",
+            word.text, word.x, word.y, word.width, word.height
+        )
+    }));
+    lines
+}
+
 fn shown(path: &str, needle: Option<&str>) -> Result<(), String> {
     each_record(path, |record| {
         // **And what stood over a hit, as lines of their own** beside the log's — see
         // `orb_core::trace::OverAHit`, which a check reads as fields and a person reads here.
         let over: Vec<String> = record.over_a_hit.iter().flat_map(over_a_hit).collect();
+        // **And every word orb drew since the record before, with the rectangle it went into** — see
+        // `orb_core::trace::WhatWasDrawn`, which is how a menu of orb's is checked to be on the screen where
+        // the launch keeps its window hidden and there is nothing to photograph.
+        let drawn: Vec<String> = record.drawn.iter().flat_map(drawn).collect();
         let lines: Vec<&String> = record
             .lines
             .iter()
             .chain(over.iter())
+            .chain(drawn.iter())
             .filter(|line| needle.is_none_or(|needle| line.contains(needle)))
             .collect();
         if lines.is_empty() {
@@ -705,6 +734,7 @@ mod tests {
             the_world: None,
             spans: Vec::new(),
             phases: Vec::new(),
+            drawn: None,
         })
         .unwrap()
     }

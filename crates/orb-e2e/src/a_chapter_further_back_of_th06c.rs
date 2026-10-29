@@ -113,17 +113,19 @@ fn dies_in(game: &Fake, number: u32, from: usize) {
 /// Read off [`Launched::a_frame_that_says`] rather than the next frame, which a frame orb was late for draws
 /// nothing in — see that method's own doc.
 fn reads(game: &Fake, header: &str, items: &[&str], under_the_cursor: &str) {
+    // **The menu's own words and not the line beside the picture's**, which says a chapter's name too —
+    // see [`Launched::on_the_menu`].
     let above: Vec<_> = game
         .a_frame_that_says(header)
         .into_iter()
-        .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+        .filter(|quad| game.on_the_menu(quad))
         .collect();
     let mut lines = Vec::new();
     for item in items {
         let drawn: Vec<_> = game
             .says(item)
             .into_iter()
-            .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+            .filter(|quad| game.on_the_menu(quad))
             .collect();
         assert_eq!(drawn.len(), 1, "{item} is not one line of the menu");
         assert_eq!(
@@ -250,12 +252,13 @@ fn the_chapters_behind_the_one_lost_in_th06c_are_listed_and_are_where_choosing_o
             THE_CARD,
         );
         // Above the line, which says the chapter the run is in — and that is the one that was lost, not one
-        // of the list: every word of a menu this file counts is counted above [`crate::fake::THE_LINE_BEGINS`].
+        // of the list: every word of a menu this file counts is one of the menu's own
+        // ([`Launched::on_the_menu`]).
         assert!(
             !game
                 .says(AFTER_THE_CARD)
                 .iter()
-                .any(|quad| quad.y < crate::fake::THE_LINE_BEGINS),
+                .any(|quad| game.on_the_menu(quad)),
             "the chapter that was lost is listed among the ones behind it",
         );
 
@@ -330,7 +333,7 @@ fn the_chapters_behind_the_one_lost_in_th06c_are_listed_and_are_where_choosing_o
         assert_eq!(
             game.says("RETRY 1")
                 .into_iter()
-                .filter(|quad| quad.y < crate::fake::THE_LINE_BEGINS)
+                .filter(|quad| game.on_the_menu(quad))
                 .count(),
             1,
             "the list does not say what the run has already spent",

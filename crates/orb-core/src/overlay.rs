@@ -824,6 +824,12 @@ impl Label {
         self.size.1 as f32
     }
 
+    /// **The word this label was baked from**, which is what a trace records beside where it was put — see
+    /// `crate::trace::drew`.
+    pub fn text(&self) -> &str {
+        &self.baked
+    }
+
     /// # Safety
     /// Must run on the device's thread.
     pub unsafe fn set(&mut self, overlay: &Overlay, text: &str) {

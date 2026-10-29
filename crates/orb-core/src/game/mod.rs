@@ -2821,6 +2821,42 @@ pub trait Game {
         None
     }
 
+    /// **The keys the machine's own keyboard presses this game's buttons with** — a virtual-key code and
+    /// the bit the game's own read sets for it, one entry per button.
+    ///
+    /// **What a launch pressing from the host sends with, and what it reads back**, one table for both
+    /// directions: [`Game::keys_of`] turns a word into keys and [`Game::word_of`] turns a keyboard's state
+    /// back into a word, so a press cannot be sent as one button and come back as another.
+    ///
+    /// **Every game but th11 starts with the same controls** — Z, X, shift, escape, the arrows, ctrl and
+    /// return — and th11 puts focus, the menu and the skip on other bits. A bit no entry here holds is a
+    /// button the host's keyboard cannot press, and it comes back off the keyboard absent rather than being
+    /// pressed as some other button: `runtime::through_the_host` says so once when the two differ.
+    fn keys(&self) -> &'static [(u8, u16)] {
+        THE_USUAL_KEYS
+    }
+
+    /// The keys that press the buttons `word` holds, for a launch pressing through the host — see
+    /// [`Game::keys`], which a bit outside cannot be pressed by.
+    fn keys_of(&self, word: u16) -> Vec<u8> {
+        self.keys()
+            .iter()
+            .filter(|(_, bit)| word & bit != 0)
+            .map(|(key, _)| *key)
+            .collect()
+    }
+
+    /// And the word a host's keyboard state says, which is [`Game::keys_of`] read the other way.
+    fn word_of(&self, state: &[u8; KEYS_IN_A_KEYBOARD]) -> u16 {
+        let mut word = 0;
+        for (key, bit) in self.keys() {
+            if state[usize::from(*key)] & A_KEY_THAT_IS_DOWN != 0 {
+                word |= bit;
+            }
+        }
+        word
+    }
+
     /// **Everything of one frame of a run that a bot decides from**, written into a buffer the caller keeps, and
     /// `false` where there is no stage to read one off.
     ///
@@ -3212,6 +3248,38 @@ pub enum Kind {
 /// with nothing open in it; one read as a warning is ground to be off before it fires and ground that may
 /// be crossed to get out of something that already is.
 pub const FIRES_WHEN_NOTHING_SAYS: i32 = i32::MAX;
+
+/// How many keys a `GetKeyboardState` snapshot and a `GetAsyncKeyState` read cover — every virtual-key
+/// code, which is what [`Game::word_of`] indexes.
+pub const KEYS_IN_A_KEYBOARD: usize = 256;
+
+/// What a key that is down reads as in one of those, and nothing else: the bit Windows puts on a key a
+/// device is holding.
+const A_KEY_THAT_IS_DOWN: u8 = 0x80;
+
+/// **The controls every game of this line starts with**, as a virtual-key code and the bit that game's
+/// own read sets for it — see [`Game::keys`].
+///
+/// **Read off th06c's own table** (`Th06c::BUTTONS`, which maps each of its nine buttons to the virtual
+/// key it is) — shot, bomb, focus, the menu, the decide and the four arrows — and ctrl for the skip, which
+/// th06c has no button of and the other games do. The rest of what those games read is the same controls
+/// on the same bits.
+///
+/// **A bit and not a mask**: Z is `0x0001` and return is `0x1000`, and the games that test
+/// `word & 0x1001` are testing those two buttons at once — so what presses a decide is both keys, and
+/// what reads it back is both bits.
+const THE_USUAL_KEYS: &[(u8, u16)] = &[
+    (0x5a, 0x0001), // Z: shot
+    (0x58, 0x0002), // X: bomb
+    (0x10, 0x0004), // shift: focus
+    (0x1b, 0x0008), // escape: the menu
+    (0x26, 0x0010), // up
+    (0x28, 0x0020), // down
+    (0x25, 0x0040), // left
+    (0x27, 0x0080), // right
+    (0x11, 0x0100), // ctrl: skip
+    (0x0d, 0x1000), // return: the menu's ok
+];
 
 /// **A beam**, which is a line rather than a box and so is not a [`Hazard`] at all.
 #[derive(Clone, Copy)]

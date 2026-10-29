@@ -452,6 +452,29 @@ impl Case {
             _ => 1,
         }
     }
+
+    /// **Whether this case's launches press through the virtual pad**, which is every case's answer but one
+    /// of each game's.
+    ///
+    /// **A pad is not a keyboard, and the suite pressed only the pad.** `--through-a-pad` hands the bot's
+    /// word to a virtual controller the game and orb's own menus both read, and it is what lets a recipe
+    /// answer a question of orb's on the frame it comes up. What it does not do is walk the read a person at
+    /// a keyboard walks: th06c reads its keys through `GetKeyboardState` — the branch orb puts it on by
+    /// taking DirectInput's device away — and a case pressed through the pad never touches that branch.
+    /// Which is how twenty-three green cases sat beside a title that a hand could not get the mode question
+    /// out of, on 2026-10-30.
+    ///
+    /// So one case of every game is played the way the person reporting that played it: no pad, and the
+    /// bot's word pressed into the keyboard the game's own read is answered from — see
+    /// `orb_core::runtime::through_the_host`. Everything else keeps the pad, which is what every other
+    /// case was measured with.
+    ///
+    /// **The same case of every one of them**, so that what a difference between the games says is the
+    /// game and not the recipe: `a_run_left_in_its_second_chapter`, which every game has a recipe for and
+    /// which walks the title, orb's mode question and a run into its second chapter.
+    pub fn presses_through_a_pad(&self) -> bool {
+        self.name != "a_run_left_in_its_second_chapter"
+    }
 }
 
 /// Every case, in the order they are played.

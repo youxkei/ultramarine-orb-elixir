@@ -25,11 +25,13 @@
 //! | `--judge` | step between them at one update a frame and decide about each: the pass somebody watches |
 //!
 //! and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--compose=N`,
-//! `--self-check`, `--stress=N`, `--sent-keys`, and `--no-pacing`, `--no-chapters`, `--no-memory`,
-//! `--no-resume`, `--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops happening.
+//! `--self-check`, `--stress=N`, `--sent-keys`, `--press-through-the-host`, and `--no-pacing`, `--no-chapters`,
+//! `--no-memory`, `--no-resume`, `--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops
+//! happening.
 //! What each does is the doc of the module that does it: the passes and the keys `orb_core::tuning`, the
-//! pacing's switches `orb_core::frame`, `--sent-keys` `orb_core::input`, `--self-check` and `--stress`
-//! `orb_core::snapshot`, `--clear` and the ending `orb_core::runtime`, `--no-resume` `orb_core::resume`.
+//! pacing's switches `orb_core::frame`, `--sent-keys` and `--press-through-the-host` `orb_core::input`,
+//! `--self-check` and `--stress` `orb_core::snapshot`, `--clear` and the ending `orb_core::runtime`,
+//! `--no-resume` `orb_core::resume`.
 //!
 //! One clap definition for all of them, read by both halves: the launcher out of its own arguments, the DLL
 //! out of the command line the launcher wrote. A value goes onto its option, `--speed=64` rather than
@@ -267,6 +269,12 @@ pub struct Options {
     /// goes through rather than having its word handed to the game
     #[arg(long, requires = "autoplay", help_heading = FAULT)]
     through_a_pad: bool,
+
+    /// press the keyboard from the host: every word a launch playing itself presses goes into the keyboard
+    /// state the game's own read is answered from — turned back into a word by the game's own key table —
+    /// so a run is played by the read a person's keys take, with nobody's focus taken
+    #[arg(long, requires = "autoplay", help_heading = FAULT)]
+    press_through_the_host: bool,
 
     /// write down what every frame held — the run's state as the game's memory has it, the word it
     /// was played with, which question of orb's own was up, and the log's lines — as MessagePack
@@ -585,6 +593,9 @@ impl Config {
         // read at all leaves this as nothing, which is a launch that plays nothing and says why.
         if options.through_a_pad {
             self.through_a_pad = true;
+        }
+        if options.press_through_the_host {
+            self.press_through_the_host = true;
         }
         if let Some(recipe) = &options.autoplay {
             match std::fs::read_to_string(recipe) {

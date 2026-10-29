@@ -361,6 +361,8 @@ mod keys_from_another_program_into_th10;
 #[cfg(all(test, target_arch = "x86"))]
 mod keys_from_another_program_into_th11;
 #[cfg(all(test, target_arch = "x86"))]
+mod keys_pressed_from_the_host;
+#[cfg(all(test, target_arch = "x86"))]
 mod legacy_run;
 #[cfg(all(test, target_arch = "x86"))]
 mod legacy_run_of_th07;

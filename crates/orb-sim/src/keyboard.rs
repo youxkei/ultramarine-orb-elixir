@@ -55,6 +55,16 @@ impl Keyboard {
         self.sent.lock().unwrap()[key as usize] = if sending { DOWN } else { 0 };
     }
 
+    /// What the keyboard's device answers: every key a hand holds and every key another program sent —
+    /// the read `GetAsyncKeyState` is for, which does not go quiet with the focus.
+    pub fn device(&self) -> [u8; 256] {
+        let mut keys = *self.keys.lock().unwrap();
+        for (key, sent) in keys.iter_mut().zip(self.sent.lock().unwrap().iter()) {
+            *key |= *sent;
+        }
+        keys
+    }
+
     /// Lets everything up, which is what an e2e test does between two presses of the same key: a
     /// press is an edge, so a key held across frames is one press however many frames it is held.
     pub fn release_all(&self) {

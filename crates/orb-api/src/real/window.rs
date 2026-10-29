@@ -36,6 +36,26 @@ pub fn foreground() -> Hwnd {
     Hwnd(unsafe { GetForegroundWindow() } as usize)
 }
 
+/// **Whether the window in front belongs to the process orb is inside**, asked of the window itself
+/// rather than of a handle orb was given.
+///
+/// **Because the handle a game's window is known by is not always the one that is in front.** th06c's is
+/// read off its swapchain's `OutputWindow`, and a game may hand the keyboard to a window of its own
+/// making — or make its swapchain's window anew — so a comparison with that one handle answers `behind`
+/// while the game is the window being typed at. A process is the thing that cannot be mistaken: the
+/// foreground window's thread names the process it belongs to, and this is that process.
+pub fn foreground_is_in_this_process() -> bool {
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+    let front = unsafe { GetForegroundWindow() };
+    if front.is_null() {
+        return false;
+    }
+    let mut owner = 0u32;
+    unsafe { GetWindowThreadProcessId(front, &mut owner) };
+    owner == unsafe { GetCurrentProcessId() }
+}
+
 pub fn bring_forward(window: Hwnd) -> bool {
     unsafe { SetForegroundWindow(window.0 as _) != 0 }
 }

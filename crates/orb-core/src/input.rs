@@ -36,6 +36,13 @@
 //! held `DISCL_EXCLUSIVE | DISCL_FOREGROUND` does not see keys injected with `SendInput`, and every screen
 //! orb has a question over is the game's own screen answered on the game's own keyboard. Nothing else about
 //! a run changes — the same code turns those keys into the same buttons.
+//!
+//! **`--press-through-the-host`** is that read turned back on orb: a launch playing itself presses its own
+//! keys, into the keyboard state orb keeps rather than into the system's input stream, and orb's keyboards
+//! — its own menus' here, and the game's `GetKeyboardState` read in `runtime` — are answered with it. The
+//! window stays where it is and nobody's focus is taken, which is what a virtual keyboard device would
+//! have bought and what a driver would be needed for otherwise. See `runtime::through_the_host` for the
+//! round trip and what it was measured against.
 
 use orb_api::{Hwnd, keyboard, window};
 
@@ -132,9 +139,18 @@ impl Keyboard {
     /// typing elsewhere drive the game.
     pub fn poll(&mut self, ours: Hwnd) {
         self.previous = self.current;
-        let reading = !ours.is_null() && window::foreground() == ours;
+        // **A launch pressing the keyboard from the host reads it wherever its window is**, which is what
+        // makes a press it sent answer orb's own menus: the keys it sends are down in the machine's
+        // keyboard and not in the queue this process has while it is behind — see
+        // `runtime::through_the_host`. Nothing else about the rule below changes.
+        let from_the_host = crate::runtime::presses_from_the_host();
+        let reading = from_the_host || (!ours.is_null() && window::foreground() == ours);
         let was_reading = std::mem::replace(&mut self.reading, reading);
-        self.current = reading.then(keyboard::state).flatten().unwrap_or([0; 256]);
+        self.current = match (reading, from_the_host) {
+            (false, _) => [0; 256],
+            (true, true) => keyboard::device_state(),
+            (true, false) => keyboard::state().unwrap_or([0; 256]),
+        };
         // Whatever is down on the first frame orb is reading again counts as already held, not as
         // just pressed. Zeroing while away is what keeps a key from sticking down, and it is also
         // what would make the way back an edge: everything read as up, then read as down, which is

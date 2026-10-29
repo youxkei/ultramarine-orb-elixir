@@ -58,6 +58,17 @@ mod sight;
 /// Where the exe asks to be loaded, which is what the addresses below are written against.
 const IMAGE_BASE: usize = 0x1_4000_0000;
 
+/// **The field a run is played in**, on the game's 640x480 output: the four floats at `0x14053cac0`, which
+/// the build writes `236`, `16`, `384` and `448` to (`0x14003c2bd`) and the pause menu writes over with the
+/// same sixteen bytes — see `asm.md`, *The run's own numbers*. The left is this game's own and not th06c's
+/// `32`: New Classic draws the field further right than the game it is of.
+const PLAY_AREA: Rect = Rect {
+    left: 236.0,
+    top: 16.0,
+    width: 384.0,
+    height: 448.0,
+};
+
 /// How far it turned out to be from that ask — see [`Game::set_image_base`], which writes it, and
 /// [`at`], which is the only place it is read.
 static SLIDE: AtomicUsize = AtomicUsize::new(0);
@@ -3643,13 +3654,16 @@ impl Game for Th06nc {
         live
     }
 
+    /// **The field a run is played in, out of the four floats the run keeps it in**: `0x14053cac0`, which
+    /// the build writes `236`, `16`, `384` and `448` to at `0x14003c2bd`, and the pause menu writes the same
+    /// sixteen bytes over at `0x14003bb7c` — see `asm.md`, *The run's own numbers*. **`236` and not th06c's
+    /// `32`**, which is this game's own layout: New Classic draws the field further right than the game it
+    /// is of.
+    ///
+    /// **Nought for a long time**: nothing here was read, so a menu centred on this rect was a menu centred
+    /// on the origin — the pointdevice retry menu drawn off the top of the picture.
     fn play_area(&self) -> Rect {
-        Rect {
-            left: 0.0,
-            top: 0.0,
-            width: 0.0,
-            height: 0.0,
-        }
+        PLAY_AREA
     }
 
     unsafe fn panel_tile(&self) -> Option<PanelTile> {

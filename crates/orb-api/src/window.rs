@@ -22,6 +22,16 @@ pub fn foreground() -> Hwnd {
     host::foreground()
 }
 
+/// **Whether the window in front belongs to the process orb is inside**, which is the question a game's
+/// window handle cannot always answer — see `real::window::foreground_is_in_this_process`.
+pub fn foreground_is_in_this_process() -> bool {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.window_is_this_processes(win.foreground_window());
+    }
+    host::foreground_is_in_this_process()
+}
+
 /// **Brings a window to the front and gives it the keyboard** — `SetForegroundWindow` — and whether the host did.
 pub fn bring_forward(window: Hwnd) -> bool {
     #[cfg(feature = "sim")]
@@ -200,6 +210,9 @@ mod host {
 
     pub fn foreground() -> Hwnd {
         no_windows("window::foreground")
+    }
+    pub fn foreground_is_in_this_process() -> bool {
+        no_windows("window::foreground_is_in_this_process")
     }
     pub fn bring_forward(_window: Hwnd) -> bool {
         no_windows("window::bring_forward")

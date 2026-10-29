@@ -121,6 +121,64 @@ pub struct Record {
     /// Defaulted for the reason [`Record::picture`] is.
     #[serde(default)]
     pub phases: Vec<(String, u32)>,
+    /// **Every word orb drew since the record before, and the area it drew them in** — see [`WhatWasDrawn`].
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub drawn: Option<WhatWasDrawn>,
+}
+
+/// **A word orb drew on the frame, and where** — in the game's own 640x480, which is the space every menu of
+/// orb's is laid out in.
+///
+/// **What a picture is for, on a launch a picture cannot be taken of.** An unattended launch keeps its window
+/// hidden and off the desktop — `window::plays_out_of_the_way` — so nothing of orb's can be photographed
+/// there; what says a menu of orb's is on the screen rather than above it is the rectangle each word went
+/// into, held against the area the menu was drawn in.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Placed {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// **The words orb drew since the last record, and the rectangle it drew them into** — the picture's own
+/// 640x480 unless a menu says the smaller area it was given — `Game::play_area`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct WhatWasDrawn {
+    /// `left, top, width, height`, in the game's own 640x480.
+    pub area: (f32, f32, f32, f32),
+    pub words: Vec<Placed>,
+}
+
+impl Default for WhatWasDrawn {
+    /// **The whole picture until a menu says otherwise**, which is the question a word drawn off the screen
+    /// fails: a rect of nought left the retry menu's lines at a negative y, above the picture.
+    ///
+    /// The picture's own 640x480 as a number rather than `window::the_content()`: that is what the canvas
+    /// every overlay of orb's draws in is, and the other is a setting a laid-out host can have moved.
+    fn default() -> Self {
+        Self {
+            area: (0.0, 0.0, 640.0, 480.0),
+            words: Vec::new(),
+        }
+    }
+}
+
+impl WhatWasDrawn {
+    /// **Whether every word is wholly inside the area**, which is the question a menu drawn off the screen
+    /// fails: a rect of nought left the retry menu's lines at a negative y, above the picture.
+    pub fn all_inside(&self) -> bool {
+        let (left, top, width, height) = self.area;
+        self.words.iter().all(|word| {
+            word.x >= left
+                && word.y >= top
+                && word.x + word.width <= left + width
+                && word.y + word.height <= top + height
+        })
+    }
 }
 
 /// **What a game holds of a run's world, as its own fields hold it**: its numbers by name, and its tables —
@@ -330,6 +388,41 @@ struct Tracing {
     spans: Vec<(String, u32)>,
     /// What orb's own phases spent of it, for the next record — see [`phases`].
     phases: Vec<(String, u32)>,
+    /// The words drawn since the last record, for the next one — see [`drew`].
+    drawn: Option<WhatWasDrawn>,
+}
+
+/// **A word orb has just drawn, with the rectangle it went into**, kept for the next record — see [`Placed`].
+///
+/// Called by the one place every line of orb's own menus is drawn (`menu_ui`), so a launch that draws none
+/// has none. Nothing while no trace is being written, the same as [`picture`].
+pub fn drew(text: &str, x: f32, y: f32, width: f32, height: f32) {
+    if !on() {
+        return;
+    }
+    let mut held = tracing();
+    if let Some(tracing) = held.as_mut() {
+        let drawn = tracing.drawn.get_or_insert_with(WhatWasDrawn::default);
+        drawn.words.push(Placed {
+            text: text.to_owned(),
+            x,
+            y,
+            width,
+            height,
+        });
+    }
+}
+
+/// **Says the rectangle the menu about to be drawn is drawn into**, which is the play area — the area a test
+/// holds every word of [`drew`] against. Nothing while no trace is being written.
+pub fn drew_in(area: (f32, f32, f32, f32)) {
+    if !on() {
+        return;
+    }
+    let mut held = tracing();
+    if let Some(tracing) = held.as_mut() {
+        tracing.drawn.get_or_insert_with(WhatWasDrawn::default).area = area;
+    }
 }
 
 /// **Whether a launch wants the world in every record**, `Config::trace_the_world` — set once as the trace
@@ -387,6 +480,7 @@ pub fn open(path: &Path) {
         the_world: None,
         spans: Vec::new(),
         phases: Vec::new(),
+        drawn: None,
     });
     ON.store(true, Ordering::Release);
     crate::log!("trace: every frame written to {}", path.display());
@@ -583,6 +677,7 @@ pub fn frame(
             the_world: tracing.the_world.take(),
             spans: std::mem::take(&mut tracing.spans),
             phases: std::mem::take(&mut tracing.phases),
+            drawn: tracing.drawn.take(),
         };
         // Named, so that any MessagePack reader prints a record back without being told the shape —
         // the same choice `resume` made for the file a run is left in.
@@ -747,7 +842,44 @@ mod tests {
             }),
             spans: vec![("gap".to_owned(), 8333), ("update".to_owned(), frame)],
             phases: vec![("steering".to_owned(), 2100)],
+            drawn: None,
         }
+    }
+
+    /// **A menu's words are inside the area it was drawn into, and a menu off the picture is not** — which is
+    /// the reading a launch whose window cannot be photographed is checked by: the retry menu of a game whose
+    /// `play_area` was nought had its first line at a negative y, above the field.
+    #[test]
+    fn the_words_drawn_are_held_against_the_area_they_were_drawn_into() {
+        let word = |x: f32, y: f32| Placed {
+            text: "RETRY 1".to_owned(),
+            x,
+            y,
+            width: 60.0,
+            height: 16.0,
+        };
+        let field = (32.0, 16.0, 384.0, 448.0);
+        let inside = WhatWasDrawn {
+            area: field,
+            words: vec![word(194.0, 200.0)],
+        };
+        assert!(inside.all_inside(), "a line of the field is not inside it");
+        let above = WhatWasDrawn {
+            area: field,
+            words: vec![word(194.0, -8.0)],
+        };
+        assert!(
+            !above.all_inside(),
+            "a line above the field read as inside it"
+        );
+        let past_the_right = WhatWasDrawn {
+            area: field,
+            words: vec![word(390.0, 200.0)],
+        };
+        assert!(
+            !past_the_right.all_inside(),
+            "a line past the right of the field read as inside it"
+        );
     }
 
     /// **The close orb's detach makes returns with the trace's lock held by another thread**: at process exit

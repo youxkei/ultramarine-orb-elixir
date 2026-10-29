@@ -70,6 +70,17 @@ mod sight;
 /// Where the exe asks to be loaded, which is what the addresses below are written against.
 const IMAGE_BASE: usize = 0x1_4000_0000;
 
+/// **The field a run is played in**, on the game's 640x480 output: the four floats at `0x1403ed01c`, which
+/// `.data` initialises to these and the stage callback writes the same four to as a run starts
+/// (`0x140024329` onwards) — see `asm.md`, *The field the player may move in*. What moves them between is a
+/// job of the game's own (`0x140055c70`), and it is not up while a menu of orb's is.
+const PLAY_AREA: Rect = Rect {
+    left: 32.0,
+    top: 16.0,
+    width: 384.0,
+    height: 448.0,
+};
+
 /// How far it turned out to be from that ask — see [`Game::set_image_base`], which writes it, and
 /// [`at`], which is the only place it is read. Nought until told, which is a game laid out at the
 /// addresses it is written down with.
@@ -2876,14 +2887,18 @@ impl Game for Th06c {
         live
     }
 
-    /// Unread, and what asks is the overlay and the panel: neither is drawn here.
+    /// **The field a run is played in, out of the four floats the game keeps it in**: `0x1403ed01c`
+    /// onwards, initialised in `.data` to `32`, `16`, `384` and `448` — the corner the field is drawn at on
+    /// its 640x480 output, and the field's own size — see `asm.md`, *The field the player may move in*. The
+    /// same four th06 1.02h has, this being that game's space.
+    ///
+    /// **Nought for a long time and not by mistake**: the overlay's own menus were placed against the
+    /// whole screen and nothing here was read, so a menu centred on this rect was a menu centred on the
+    /// origin — drawn from a negative y and off the top of the picture, which is where the pointdevice
+    /// retry menu was seen. A field that moves is not answered here: `0x140055c70` moves the corner and the
+    /// size for the frames it draws over, and no menu of orb's is up while it does.
     fn play_area(&self) -> Rect {
-        Rect {
-            left: 0.0,
-            top: 0.0,
-            width: 0.0,
-            height: 0.0,
-        }
+        PLAY_AREA
     }
 
     unsafe fn panel_tile(&self) -> Option<PanelTile> {
@@ -3321,11 +3336,21 @@ impl Game for Th06c {
     }
 
     /// The item under the title menu's cursor, and only while the front end is what the supervisor is
-    /// running and has been since before this frame — both of its states, for the reason th06's gives: the
-    /// frame a run leaves for the front end ends with the one already saying front end and the front end not
-    /// yet rebuilt.
+    /// running.
+    ///
+    /// **The supervisor's two states are not both asked for**, which they were: the frame a run leaves for
+    /// the front end ends with the one already saying front end and the front end not yet rebuilt, and
+    /// requiring `CUR_STATE` and `LAST_STATE` to agree excluded it. What that cost is the press: the pair
+    /// flickers while the title animates — a launch played by hand on 2026-10-30 logged `so the decide is
+    /// held true` and `… held false` on alternate lines with the cursor sitting still on Run — so a person
+    /// pressing in one of the false windows got no question and started the run natively. The transition
+    /// frame is excluded where it should be, by [`Th06c::menu_takes_a_press`]'s grace frames and not here.
     unsafe fn menu_pointed_at(&self) -> Option<Menu> {
-        if !unsafe { self.front_end_settled_on(front_end::TITLE) } {
+        if mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))
+            != Some(STATE_MAINMENU)
+            || mem::read_committed::<i32>(at(FRONT_END + front_end::STATE))
+                != Some(front_end::TITLE)
+        {
             return None;
         }
         match mem::read_committed::<i32>(at(FRONT_END + front_end::CURSOR))? {

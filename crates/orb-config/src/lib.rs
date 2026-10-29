@@ -115,6 +115,15 @@ pub struct Config {
     /// read through answers the virtual one as well, so the game's own pad read, orb's mapping of each game's
     /// buttons and orb's menus on a pad are all what the run goes through.
     pub through_a_pad: bool,
+    /// **Whether a launch playing itself presses the keyboard from the host** — `--press-through-the-host`,
+    /// and nothing unless `--autoplay` names a recipe.
+    ///
+    /// What it presses is not a word handed to the game's read but the keyboard state that read is answered
+    /// with: each frame's word is pressed into the keyboard orb keeps and read back out of it, through the
+    /// game's own `GetKeyboardState` and its own key table. A run is then played by the read a person's keys
+    /// go through, with the game's window behind and nobody's focus taken. See
+    /// `orb_core::runtime::through_the_host`.
+    pub press_through_the_host: bool,
     /// **Where to write down what every frame held, and nothing unless `--trace` names a file.** The same
     /// reason as [`Config::autoplay`]: a launch somebody plays is not one being checked, and a settings file
     /// cannot ask for the file a check reads. Relative to the game's own directory where it names no other.
@@ -593,6 +602,7 @@ impl Config {
             sent_keys: false,
             autoplay: None,
             through_a_pad: false,
+            press_through_the_host: false,
             trace: None,
             shot_every: 0,
             trace_the_field_in: None,

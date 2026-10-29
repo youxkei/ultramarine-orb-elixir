@@ -564,6 +564,17 @@ pub trait Win: Send + Sync + 'static {
     /// is not in front comes out wrong.
     fn foreground_window(&self) -> Hwnd;
 
+    /// **Whether `window` belongs to the process orb is inside** — `GetWindowThreadProcessId` against this
+    /// process, which is the question a handle cannot answer where a game hands the keyboard to a window of
+    /// its own making. See [`crate::window::foreground_is_in_this_process`].
+    ///
+    /// A laid-out host answers for the windows it was asked to make and for no others: a handle no test
+    /// made is another program's window, which is what an e2e test says by putting one in front.
+    fn window_is_this_processes(&self, window: Hwnd) -> bool {
+        let _ = window;
+        false
+    }
+
     /// `SetForegroundWindow` — see [`crate::window::bring_forward`].
     fn bring_forward(&self, window: Hwnd) -> bool;
 
@@ -672,6 +683,10 @@ pub trait Win: Send + Sync + 'static {
     /// per key would be several reads of a state that may have moved between them, and orb's menus
     /// read more than one key a frame.
     fn keyboard_state(&self) -> Option<[u8; 256]>;
+
+    /// `GetAsyncKeyState` read for each of the 256 keys — what the machine's keyboard has down whether
+    /// or not this process is in front, which is what a game's own device read answers.
+    fn keyboard_device(&self) -> [u8; 256];
 
     // --- the mouse pointer ------------------------------------------------------
 

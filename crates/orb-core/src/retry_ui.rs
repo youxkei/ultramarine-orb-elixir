@@ -636,6 +636,9 @@ impl RetryMenu {
 
         let frame = unsafe { overlay.frame() };
         let Some(frame) = frame else { return };
+        // **The rectangle every line of this screen goes into**, said before any of them is drawn so that a
+        // trace read afterwards holds the words and the area together — see `crate::trace::drew_in`.
+        crate::trace::drew_in((area.left, area.top, area.width, area.height));
         frame.fill(area.left, area.top, area.width, area.height, DIM_FIELD);
 
         let center = area.center_x();

@@ -468,6 +468,17 @@ pub struct Runtime {
     /// Whether the bracket a game whose one read is at startup has up since the attach is still up for a
     /// launch that will never be asked — see where [`on_update`] takes it down.
     startup_read_bracketed: bool,
+    /// **Whether this game asks for its keyboard read by name**, which is the one read orb stands in front
+    /// of by answering the lookup rather than by patching code — see `game::Read::LookedUp`.
+    ///
+    /// **Kept because the device has to be taken away on a frame of orb's and not from inside that read.**
+    /// th06c takes DirectInput's device where there is one, and orb's `GetKeyboardState` is the other branch
+    /// of the same read: taking the device away from inside the answer is taking it away on a branch the
+    /// game is not on. Measured on 2026-10-30: a launch played by hand ran on the device from its first
+    /// frame, orb's word was nought on every frame of its trace, and the game went on taking the person's
+    /// keys itself — with orb's read called on the frame the device was taken, and 600 times in 600 frames
+    /// once it was taken on a frame of orb's own.
+    answers_a_lookup: bool,
     /// `Some` while the game is frozen on that question.
     asking: Option<ModeMenu>,
     /// Whether the game is being held on a chapter boundary stepped to during a
@@ -910,6 +921,15 @@ pub static DPAD_MOVES: AtomicBool = AtomicBool::new(false);
 /// **Whether a launch playing itself presses through the virtual pad** — `Config::through_a_pad` — written by
 /// [`attached`] for the same reason [`DPAD_MOVES`] is.
 static THROUGH_A_PAD: AtomicBool = AtomicBool::new(false);
+
+/// **Whether a launch playing itself presses the keyboard from the host** — `Config::press_through_the_host`,
+/// written by [`attached`] for the reason [`DPAD_MOVES`] is.
+///
+/// What it changes is where a word goes before it reaches the game: into the keyboard state orb keeps, which
+/// the game's own read and orb's own menus are answered from — see [`through_the_host`]. A launch with it is
+/// one whose presses are the game's own `GetKeyboardState` read, through the game's own key table, rather
+/// than a word written into what the game expects its input to have come out as.
+static PRESSES_FROM_THE_HOST: AtomicBool = AtomicBool::new(false);
 /// Whether the record of captures in memory is emptied before a read of the score file that is about to
 /// define it, which is a launch with two files to keep apart — see [`ranking_read`] and
 /// `Game::forget_captures`.
@@ -1532,6 +1552,18 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
         true => joystick::plug_in_the_virtual_pad(),
         false => joystick::unplug_the_virtual_pad(),
     }
+    // **And a launch pressing the keyboard from the host**: the word goes out as the system's own keyboard
+    // input and comes back through what the machine's keyboard has down — see [`through_the_host`]. Said
+    // in the log because every press of the run is going to a place the machine can see.
+    PRESSES_FROM_THE_HOST.store(
+        config.press_through_the_host && config.autoplay.is_some(),
+        Ordering::Relaxed,
+    );
+    if PRESSES_FROM_THE_HOST.load(Ordering::Relaxed) {
+        log!(
+            "input: the keyboard is pressed from the host; every word is a key the game's own read is answered with"
+        );
+    }
 
     // Which language every screen of orb's own is in, settled once here: the file says, or the machine
     // does where it says nothing. Said in the log because a screenshot of a menu somebody could not
@@ -1597,6 +1629,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             bombs: BombRun::default(),
             asks_mode,
             startup_read_bracketed: game.reads_its_file_once_at_startup() && !asks_mode,
+            answers_a_lookup: matches!(game.hooks().input, Some(crate::game::Read::LookedUp(_))),
             asking: None,
             held: false,
             walled: false,
@@ -1882,6 +1915,44 @@ pub unsafe fn presses_through_a_pad(game: &dyn Game) -> bool {
     THROUGH_A_PAD.load(Ordering::Relaxed) && unsafe { game.pushed_for(0) }.is_some()
 }
 
+/// **Whether this launch presses the keyboard from the host** — see [`through_the_host`].
+pub fn presses_from_the_host() -> bool {
+    PRESSES_FROM_THE_HOST.load(Ordering::Relaxed)
+}
+
+/// **The word pressed into the keyboard a launch of orb's own keeps**, and read back off it, which is
+/// the road every press of a launch playing itself takes when it presses from the host — see
+/// [`PRESSES_FROM_THE_HOST`].
+///
+/// **The press goes into a keyboard state orb holds, not into the system's input stream.** `SendInput`
+/// was tried and is the wrong road: it is delivered to whichever window is in front, so a launch
+/// pressing it with the game behind types the arrows into whatever somebody else has up, and the only
+/// way to stop that is to take the focus — which leaves the machine unusable for as long as the run
+/// lasts. What a launch needs is what a virtual keyboard device would give it: a state every reader of
+/// the keyboard sees, belonging to nobody's hands, that works with another window in front. Without a
+/// driver, that is orb's own: `orb_api::keyboard::press` holds it, `state` and `device_state` answer it
+/// with the machine's keys, and the game's own `GetKeyboardState` — and orb's own menus — read it.
+///
+/// **What comes back and not what went out**, because that is what the round trip is for: a bit no key
+/// of this game presses is a button the run did not press, and the log says so once instead of the
+/// launch quietly answering a word it never pressed.
+fn through_the_host(game: &dyn Game, word: u16) -> u16 {
+    if !presses_from_the_host() {
+        return word;
+    }
+    orb_api::keyboard::press(&game.keys_of(word));
+    let came_back = game.word_of(&orb_api::keyboard::state().unwrap_or([0; 256]));
+    if came_back != word && THE_ROUND_TRIP_SAID.load(Ordering::Relaxed) != i32::from(came_back) {
+        THE_ROUND_TRIP_SAID.store(i32::from(came_back), Ordering::Relaxed);
+        detail!("input: pressed {word:#06x} into the keyboard and it reads {came_back:#06x} back");
+    }
+    came_back
+}
+
+/// The word the round trip last came back with a difference, so that a press the game's keys cannot make
+/// is said once and not on every read of the run that holds it.
+static THE_ROUND_TRIP_SAID: AtomicI32 = AtomicI32::new(0xffff);
+
 fn question_up(runtime: &Runtime) -> Option<Question> {
     if let Some(asking) = &runtime.asking {
         Some(match asking.on_the_cursor().list {
@@ -1943,6 +2014,7 @@ pub(crate) unsafe fn the_frames_word(game: &dyn Game) -> Option<u16> {
     // carries the pair of launches that measured it.
     unsafe { game.forgets_when_it_read() };
     if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame, game.generator()) }) {
+        let buttons = through_the_host(game, buttons);
         WORD_THIS_FRAME.store(i32::from(buttons), Ordering::Relaxed);
         return Some(buttons);
     }
@@ -2006,7 +2078,7 @@ pub(crate) unsafe fn the_frames_word(game: &dyn Game) -> Option<u16> {
         .is_some_and(|playing| playing.through_the_pad);
     let word = handed_over()
         .or_else(|| through_the_pad.then(|| unsafe { game.pad_word(joystick::reading(), true) }))
-        .map(|word| unsafe { noted(game, frame, held_back(game, word)) });
+        .map(|word| unsafe { noted(game, frame, held_back(game, through_the_host(game, word))) });
     WORD_THIS_FRAME.store(word.map_or(NO_WORD, i32::from), Ordering::Relaxed);
     word
 }
@@ -3209,6 +3281,7 @@ fn the_read(original: impl FnOnce() -> u16, pads_alone: impl FnOnce() -> u16) ->
             CARRYING_NOTHING => buttons,
             carrying => u16::try_from(carrying).unwrap_or(0),
         };
+        let buttons = through_the_host(game, buttons);
         unsafe { game.hand_the_read_to_the_run(buttons, the_first_read_of(frame)) };
         return buttons;
     }
@@ -3249,14 +3322,14 @@ fn the_read(original: impl FnOnce() -> u16, pads_alone: impl FnOnce() -> u16) ->
             } else {
                 0
             };
-            return unsafe { noted(game, frame, word) };
+            return unsafe { noted(game, frame, through_the_host(game, word)) };
         }
     }
     if let Some(word) = the_press_a_hand_over_waits_for(game, frame) {
-        return unsafe { noted(game, frame, word) };
+        return unsafe { noted(game, frame, through_the_host(game, word)) };
     }
     if let Some(word) = handed_over() {
-        return unsafe { noted(game, frame, held_back(game, word)) };
+        return unsafe { noted(game, frame, held_back(game, through_the_host(game, word))) };
     }
 
     // Not read at all while behind, rather than read and thrown away. The game's
@@ -3316,7 +3389,15 @@ fn the_read(original: impl FnOnce() -> u16, pads_alone: impl FnOnce() -> u16) ->
 /// Must run on the game's main thread.
 unsafe fn the_window_is_in_front(game: &dyn Game) -> bool {
     let window = unsafe { game.window() };
-    let active = !window.is_null() && orb_api::window::foreground() == window;
+    let front = orb_api::window::foreground();
+    // **The handle orb has, or failing that the process that owns the window in front.** A game's handle
+    // is the one orb was given — th06c's read off its swapchain's `OutputWindow` — and a game that makes
+    // its keyboard's window another of its own leaves that handle naming something the host never puts in
+    // front, which reads as `behind` while the game is exactly what is being typed at. Measured on
+    // 2026-10-30: a launch played by hand had `input: window behind, keys not read` on every frame of its
+    // trace, and the game went on taking the person's keys itself.
+    let active =
+        !window.is_null() && (front == window || orb_api::window::foreground_is_in_this_process());
     if INPUT_ACTIVE.swap(active, Ordering::Relaxed) != active {
         log!(
             "input: window {}",
@@ -3364,6 +3445,14 @@ unsafe fn the_keyboard_state(state: *mut u8) -> i32 {
     let original: extern "system" fn(*mut u8) -> i32 =
         unsafe { std::mem::transmute(GET_KEYBOARD_STATE.load(Ordering::Relaxed)) };
     let answer = original(state);
+    // **And a launch pressing from the host reads the keyboard orb keeps rather than what the system told
+    // this thread**, which is nought while the window is behind: the game's own read is answered with the
+    // keys the launch pressed — see [`through_the_host`] — and what the game does with the snapshot is its
+    // own either way, which is what the round trip is for.
+    if presses_from_the_host() && !state.is_null() {
+        let keys = orb_api::keyboard::state().unwrap_or([0; 256]);
+        unsafe { std::ptr::copy_nonoverlapping(keys.as_ptr(), state, keys.len()) };
+    }
     // Nothing of orb's in a process the attach settled on no game in, the same as [`get_input`].
     let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
         return answer;
@@ -4569,6 +4658,15 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         return unsafe { call_original(&RUN_CALC_CHAIN, chain) };
     };
     runtime.keyboard.poll(unsafe { runtime.game.window() });
+    // **And the device taken away on a frame of orb's**, for a game whose keyboard read orb answers by
+    // name: the game reads DirectInput's device where it has one, and orb's `GetKeyboardState` is the other
+    // branch of that same read — so noughting the device from inside orb's answer is noughting it on the
+    // branch the game is not taking. Done here, every frame, until it stays nought: `acquire_input` is the
+    // game's own statement of what taking it away means, and answers `true` at once where there is none to
+    // take. See [`Runtime::answers_a_lookup`], which has the launch this was measured on.
+    if runtime.answers_a_lookup {
+        unsafe { runtime.game.acquire_input() };
+    }
     // **And this is the frame the rules are asked on, whichever read a game's own word comes through.**
     // A game that looks its keyboard read up reaches [`keyboard_state`], and that read is made more often
     // than the game moves — so where orb has a frame of its own the rules are asked here and that read
@@ -4578,6 +4676,12 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // moved since the answer before.
     THE_FRAME_IS_THE_SEAM.store(true, Ordering::Relaxed);
     unsafe { what_is_reached(runtime) };
+    // **And a frame that presses nothing lets go of what the one before it pressed** — a `wait_until` step
+    // would otherwise hold the last word of the step before it for its whole length. Nothing here while a
+    // word is being pressed: the read that hands it over presses that, into the keyboard orb keeps.
+    if presses_from_the_host() && pressing().is_none() {
+        orb_api::keyboard::press(&[]);
+    }
     // **And the focus handed back where the window orb plays in took it** — see
     // [`crate::window::keeps_the_focus_where_it_was`]. Every frame orb stands in, as well as the keyboard's read
     // for a game it stands in no frame of: th10 reads its pad, and that read is the only one it makes.

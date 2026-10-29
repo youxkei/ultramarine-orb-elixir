@@ -31,8 +31,13 @@ pub const LINE_HEIGHT: f32 = 24.0;
 const CURSOR_GAP: f32 = 6.0;
 
 /// A line centred on `center`, which is every line these menus draw.
+///
+/// **And written down where it went** — see `crate::trace::drew`, which is what a launch whose window cannot
+/// be photographed is read by.
 pub fn centred(frame: &Frame, label: &Label, center: f32, y: f32, colour: u32) {
-    frame.label(label, center - label.width() / 2.0, y, colour);
+    let x = center - label.width() / 2.0;
+    crate::trace::drew(label.text(), x, y, label.width(), label.height());
+    frame.label(label, x, y, colour);
 }
 
 /// The items, with the cursor on one of them. Returns the y the line after them goes on, since
@@ -56,8 +61,9 @@ pub fn list(
             if chosen { SELECTED } else { NORMAL },
         );
         if chosen {
-            let x = center - label.width() / 2.0;
-            frame.label(cursor, x - cursor.width() - CURSOR_GAP, y, SELECTED);
+            let x = center - label.width() / 2.0 - cursor.width() - CURSOR_GAP;
+            crate::trace::drew(cursor.text(), x, y, cursor.width(), cursor.height());
+            frame.label(cursor, x, y, SELECTED);
         }
         y += LINE_HEIGHT;
     }

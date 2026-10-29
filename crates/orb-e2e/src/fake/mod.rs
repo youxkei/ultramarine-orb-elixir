@@ -1011,6 +1011,30 @@ pub trait Launched {
         self.sim().drawing().drawn()
     }
 
+    /// **How tall a line of one of orb's own menus is drawn**, which is what tells the menu's words from the
+    /// line beside the picture's: `runtime::draw_the_line_beside` bakes that line at half a menu's scale, so
+    /// a chapter's name in the bar is a quad of half the height of the same name in a list.
+    ///
+    /// **Read off the cursor, which no bar draws**, and a size rather than a place because
+    /// [`THE_LINE_BEGINS`] stopped being a place: it held while a menu was drawn above y 400, and since
+    /// `Game::play_area` became the field a list deep enough reaches past that — th06c's ways list put its
+    /// third item at 431.75 of a 1280x720 frame, where the line begins at 476.
+    #[cfg(all(test, target_arch = "x86_64"))]
+    fn a_menu_line(&self) -> f32 {
+        self.says("▶")
+            .into_iter()
+            .map(|quad| quad.height)
+            .fold(0.0, f32::max)
+    }
+
+    /// Whether `quad` is one of a menu's own words, rather than the line beside the picture's copy of one —
+    /// see [`Launched::a_menu_line`]. Compared with a quarter of the height to spare, the stretch onto the
+    /// buffer being arithmetic in floats: th06c's fourth item measured `29.99997` where its first was `30`.
+    #[cfg(all(test, target_arch = "x86_64"))]
+    fn on_the_menu(&self, quad: &Quad) -> bool {
+        quad.height > self.a_menu_line() * 0.75
+    }
+
     /// The quads that drew `text`, and the colour each was drawn in — which for an item of one of
     /// orb's menus is what says whether the cursor was on it.
     fn says(&self, text: &str) -> Vec<Quad> {

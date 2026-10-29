@@ -612,6 +612,13 @@ impl Win for Sim {
         self.display.foreground()
     }
 
+    /// **One process is what a simulated host is, so a window it was asked to make is this one's** — and a
+    /// handle it never made is another program's, which is what `Display::set_foreground` is given when an
+    /// e2e test puts somebody else's window in front.
+    fn window_is_this_processes(&self, window: Hwnd) -> bool {
+        self.windows.asked_for(window).is_some()
+    }
+
     /// A window brought to the front, written down and put in front — see [`Windows::bring_forward`].
     fn bring_forward(&self, window: Hwnd) -> bool {
         self.windows.bring_forward(window);
@@ -696,6 +703,10 @@ impl Win for Sim {
 
     fn keyboard_state(&self) -> Option<[u8; 256]> {
         self.keyboard.state()
+    }
+
+    fn keyboard_device(&self) -> [u8; 256] {
+        self.keyboard.device()
     }
 
     fn mouse_position(&self) -> Option<(i32, i32)> {

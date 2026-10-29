@@ -206,6 +206,7 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
     // played with the same ones: a case whose answer depends on `save_replays` or the language was a case
     // whose fake passed for the file's defaults and whose real launch passed for whatever the copy held.
     let as_the_real_game = case.settings().as_arguments();
+    let presses_through_a_pad = case.presses_through_a_pad();
     move |config| {
         config.autoplay = Some(recipe);
         config.log_level = LogLevel::Verbose;
@@ -216,7 +217,13 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
         // The trace and the pad are this crate's own and not the case's, so they go on after — the
         // settings above say nothing of either.
         config.trace = Some(PathBuf::from(TRACE_FILE));
-        config.through_a_pad = true;
+        // **The device the case presses through, which is the case's own answer** — a pad where it presses
+        // one, and the host's keyboard where it presses keys: `--through-a-pad` and `--press-through-the-host`
+        // are the two the real harness gives a launch, and never both.
+        match presses_through_a_pad {
+            true => config.through_a_pad = true,
+            false => config.press_through_the_host = true,
+        }
     }
 }
 

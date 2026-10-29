@@ -218,6 +218,10 @@ struct Case {
     /// **Handed on as they were printed and never rebuilt from a list of names here**: a name written in
     /// both crates is a rename that has to be found twice, and the value-to-name pairing is `orb-real`'s.
     settings: Vec<String>,
+    /// **Whether its launches press through the virtual pad**, which every case does but one of each game's —
+    /// see `orb_real::Case::presses_through_a_pad`. The one presses a keyboard, which is the read a person at
+    /// one walks, and it presses it from the host.
+    presses_through_a_pad: bool,
 }
 
 /// How many settings `orb-real list` prints for a case, which is `orb_real::Settings`' fields — counted here
@@ -325,16 +329,19 @@ pub fn real(args: Vec<String>) -> ExitCode {
         }
         target_dir().join(&game.target).join("release")
     };
+    // **Before the exe is copied in**, because a game still running is holding the copy it was launched
+    // from: the copy then fails with Windows' `os error 1224` — the file is open in a mapped section — and
+    // says that rather than the thing to do about it. Measured on 2026-10-30, a th06c left running by an
+    // earlier session.
+    if running(&game.exe) > 0 {
+        eprintln!("xtask: {} is already running; close it first", game.exe);
+        return ExitCode::FAILURE;
+    }
     if let Err(why) = std::fs::copy(installed.join("orb.exe"), dir.join("orb.exe")) {
         eprintln!(
             "xtask: orb.exe could not be copied into {}: {why}",
             dir.display()
         );
-        return ExitCode::FAILURE;
-    }
-
-    if running(&game.exe) > 0 {
-        eprintln!("xtask: {} is already running; close it first", game.exe);
         return ExitCode::FAILURE;
     }
 
@@ -473,11 +480,19 @@ fn launched(
             windows_path(&launch_dir.join("crashes"))
         ),
         "--log=verbose".to_owned(),
-        // **Pressed through the virtual pad**, so that a case plays the game the way somebody at a pad does:
-        // through the game's own read of one and through orb's menus' — and a game that takes no word as a
-        // pad has its word handed over as before, and its log says so.
-        "--through-a-pad".to_owned(),
     ]);
+    // **Pressed through the virtual pad**, so that a case plays the game the way somebody at a pad does:
+    // through the game's own read of one and through orb's menus' — and a game that takes no word as a
+    // pad has its word handed over as before, and its log says so.
+    //
+    // **And the case that presses the keyboard instead presses it from the host** — `--press-through-the-host`,
+    // where every word is pressed into the keyboard state the game's own read is answered with, which is
+    // the read a person's keys take, with the window wherever it is. A launch is one or the other: both at
+    // once would press every button twice.
+    match case.presses_through_a_pad {
+        true => launch.arg("--through-a-pad"),
+        false => launch.arg("--press-through-the-host"),
+    };
     // The flag where one was given, and the case's own otherwise.
     match speed.is_empty() {
         true => launch.arg(format!("--speed={}", case.speed)),
@@ -634,6 +649,7 @@ impl Again {
             speed: 1,
             pace: self.pace,
             settings,
+            presses_through_a_pad: true,
         };
         let mut chapters = Chapters::default();
         let mut lost = 0;
@@ -794,8 +810,8 @@ fn copied(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// What `orb-real list` prints, read back: one line per case, `game exe records target case before starts_from
-/// within speed pace` and then the settings the case is played with, tab-separated, the records and the cases
-/// before comma-separated among them.
+/// within speed pace`, then the settings the case is played with, tab-separated, the records and the cases
+/// before comma-separated among them, and then `1` or `0` for whether it presses through a pad.
 fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
     let listed = Command::new(checker)
         .arg("list")
@@ -813,12 +829,13 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
     for line in text.lines() {
         let fields: Vec<&str> = line.split('\t').collect();
         // **Ten fields of the case and then the settings**, which are counted rather than pattern-matched: a
-        // slice pattern is an exact length, and what is wanted here is a prefix and a rest.
-        if fields.len() != 10 + SETTINGS_ORB_REAL_PRINTS {
+        // slice pattern is an exact length, and what is wanted here is a prefix and a rest. And the one field
+        // after them, which is not a setting — see `orb_real::Case::presses_through_a_pad`.
+        if fields.len() != 10 + SETTINGS_ORB_REAL_PRINTS + 1 {
             return Err(format!(
                 "orb-real list printed {} field(s), where {} were expected: {line:?}",
                 fields.len(),
-                10 + SETTINGS_ORB_REAL_PRINTS
+                10 + SETTINGS_ORB_REAL_PRINTS + 1
             ));
         }
         let [
@@ -836,7 +853,7 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
         else {
             unreachable!("ten fields of a line already counted");
         };
-        let settings = &fields[10..];
+        let settings = &fields[10..10 + SETTINGS_ORB_REAL_PRINTS];
         let case = Case {
             name: case.to_owned(),
             before: match before {
@@ -854,6 +871,15 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
                 .parse()
                 .map_err(|why| format!("orb-real list printed {pace:?} as a pace: {why}"))?,
             settings: settings.iter().map(|field| (*field).to_owned()).collect(),
+            presses_through_a_pad: match fields[10 + SETTINGS_ORB_REAL_PRINTS] {
+                "0" => false,
+                "1" => true,
+                other => {
+                    return Err(format!(
+                        "orb-real list printed {other:?} as whether a case presses through a pad"
+                    ));
+                }
+            },
         };
         match games.iter_mut().find(|game| game.name == name) {
             Some(game) => game.cases.push(case),

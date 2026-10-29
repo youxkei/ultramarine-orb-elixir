@@ -606,6 +606,24 @@ const MENU_CANCEL: u16 = 0x0102;
 /// Ctrl among them, which th10's copy leaves out.
 const RUN_INPUT: u16 = 0x03fb;
 
+/// **The controls a copy of this game starts with**, as a virtual-key code and the bit its own read sets —
+/// see [`Game::keys`], whose shared table has focus, the menu and the skip on th06's bits and not this
+/// game's.
+///
+/// Return is the one key left out: a menu of this game decides on `& 0x80001` and Enter is `0x80000`,
+/// past the `u16` a word of orb's is, so Z is the whole of the decide a launch here can press.
+const THE_KEYS_OF_TH11: &[(u8, u16)] = &[
+    (0x5a, BUTTON_SHOT),  // Z
+    (0x58, BUTTON_BOMB),  // X
+    (0x10, BUTTON_FOCUS), // shift
+    (0x1b, BUTTON_MENU),  // escape
+    (0x26, PAD_UP),
+    (0x28, PAD_DOWN),
+    (0x25, PAD_LEFT),
+    (0x27, PAD_RIGHT),
+    (0x11, BUTTON_SKIP), // ctrl
+];
+
 /// **The pad's mapping**, the nine `i16` `th11.cfg` holds from its `+0x4`, at `+0x134` of the input (0x429f41
 /// through 0x429f76) — a button's number, negative for none — the read taking five of them (0x4572e8 through
 /// 0x457382).
@@ -2663,6 +2681,17 @@ impl Game for Th11 {
             ],
             tables: vec![("enemies".to_owned(), enemies)],
         })
+    }
+
+    /// **This game's own controls**, which put focus, the menu and the skip on other bits than the ones
+    /// every other game of the line uses — see [`Game::keys`], whose shared table would press the wrong
+    /// button for each of the three.
+    ///
+    /// Read off the bits this exe's read sets: shot `0x0001`, bomb `0x0002`, focus `0x0008`, the four
+    /// arrows `0x0010`–`0x0080`, the menu `0x0100` and the skip `0x0200`. The keys are the controls a
+    /// copy starts with, which is what a launch pressing through the host has to press.
+    fn keys(&self) -> &'static [(u8, u16)] {
+        THE_KEYS_OF_TH11
     }
 
     fn button_bit(&self, name: &str) -> Option<u16> {
