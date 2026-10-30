@@ -39,7 +39,7 @@ const HELD_IN: &str = "snapshot";
 const AT_MOST: usize = 20;
 
 /// What the next frame is to be written out as, and how many have been written.
-static WANTED: Mutex<Option<String>> = Mutex::new(None);
+static WANTED: Mutex<Option<(String, ThePicture)>> = Mutex::new(None);
 static TAKEN: AtomicUsize = AtomicUsize::new(0);
 
 /// **The label a picture asked for by the clock is taken under**, which is the one label whose picture goes
@@ -54,12 +54,31 @@ pub const INTO_THE_TRACE: &str = "trace";
 /// own kept the first twenty and then stopped: `--shot-every=10` over a half-hour run left every picture
 /// inside the first two stages, and the screens a reader wants are the ones late in it.
 pub fn wanted(label: &str) {
+    wanted_of(label, ThePicture::TheGames);
+}
+
+/// **Which frame a picture is of**, for a launch whose question is the buffer rather than the game's own
+/// picture — see `Canvas::a_picture_of_the_buffer`, which a `3840x2160` frame needs to be looked at at all.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum ThePicture {
+    /// The game's own picture, the 4:3 box centred in the buffer.
+    TheGames,
+    /// The whole buffer the frame was drawn into.
+    TheWholeBuffer,
+    /// **The window as the desktop has it**, taken with Windows.Graphics.Capture — the picture a person
+    /// looking at the window sees, which is not what the buffer holds: measured on 2026-11-02, a frame whose
+    /// buffer was one copy of everything showed a window with the picture in it twice.
+    TheWindow,
+}
+
+/// And the same, saying which of the two the frame is to be photographed as.
+pub fn wanted_of(label: &str, what: ThePicture) {
     if label != INTO_THE_TRACE && TAKEN.load(Ordering::Relaxed) >= AT_MOST {
         return;
     }
     *WANTED
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(label.to_owned());
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((label.to_owned(), what));
 }
 
 /// Write out whatever was asked for, at the end of a frame's drawing.
@@ -67,7 +86,7 @@ pub fn wanted(label: &str) {
 /// # Safety
 /// Must run on the thread the device belongs to, inside a frame whose scene has ended.
 pub unsafe fn taken(device: Device) {
-    let Some(label) = asked_for() else {
+    let Some((label, _)) = asked_for() else {
         return;
     };
     let (_, back) = d3d8::get_back_buffer(device, 0, D3DBACKBUFFER_TYPE_MONO);
@@ -78,7 +97,7 @@ pub unsafe fn taken(device: Device) {
     let taken = unsafe { off(device, back) };
     d3d8::release_surface(back);
     if let Some(bytes) = taken {
-        filed(&label, &bytes);
+        filed(&label, &bytes, ThePicture::TheGames);
     }
 }
 
@@ -92,7 +111,7 @@ pub unsafe fn taken(device: Device) {
 /// # Safety
 /// Must run on the thread the device belongs to, after the frame's scene has ended.
 pub unsafe fn taken_through_direct3d_9(device: Device) {
-    let Some(label) = asked_for() else {
+    let Some((label, _)) = asked_for() else {
         return;
     };
     let (_, back) = d3d9::get_back_buffer(device, 0, 0, D3DBACKBUFFER_TYPE_MONO);
@@ -103,12 +122,63 @@ pub unsafe fn taken_through_direct3d_9(device: Device) {
     let taken = unsafe { off_through_direct3d_9(device, back) };
     d3d9::release_surface(back);
     if let Some(bytes) = taken {
-        filed(&label, &bytes);
+        filed(&label, &bytes, ThePicture::TheGames);
+    }
+}
+
+/// **The frame as it stands, out of a swapchain** — what a `screenshot` step asks a game with no Direct3D 8
+/// device for, and the only way such a frame reaches a check: the canvas draws it, the draw is orb's, and
+/// what a panel's pixels are is not something the log or the game's memory can say.
+///
+/// # Safety
+/// Must run on the thread the device belongs to, with the frame drawn and not yet handed over.
+pub unsafe fn taken_over_a_swapchain(overlay: &crate::overlay::Overlay, window: orb_api::Hwnd) {
+    let Some((label, what)) = asked_for() else {
+        return;
+    };
+    let taken = match what {
+        ThePicture::TheGames => unsafe { overlay.a_picture_of_the_frame() },
+        ThePicture::TheWholeBuffer => unsafe { overlay.a_picture_of_the_buffer() },
+        // **The window and not the buffer**, which is the picture a person sees: Windows.Graphics.Capture
+        // answers the frame the desktop composites, so a window whose top holds one frame and the rest
+        // another is photographed as it is.
+        ThePicture::TheWindow => window_picture(window),
+    };
+    match taken {
+        Some(bytes) => filed(&label, &bytes, what),
+        None => crate::log!("shot: the swapchain's frame could not be read back"),
+    }
+}
+
+/// The window's frame, as Windows.Graphics.Capture answers it.
+fn window_picture(window: orb_api::Hwnd) -> Option<Vec<u8>> {
+    let Some(picture) = orb_api::window::capture(window) else {
+        // **Why and not merely that**: a capture that answers nothing is the one thing about a picture nobody
+        // can look at, and the seam keeps the step that gave up — see `orb_api::window::why_the_capture_failed`.
+        crate::log!(
+            "shot: the window's frame could not be read back: {}",
+            orb_api::window::why_the_capture_failed(),
+        );
+        return None;
+    };
+    {
+        // **What the frame said of its own rows**, said once: a picture that comes out wrong at one size
+        // and right at another is a question about its rows first — see `orb_api::window::Picture`.
+        static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            crate::log!(
+                "shot: the window's frame is {}x{} with a row pitch of {}",
+                picture.width,
+                picture.height,
+                picture.row_pitch,
+            );
+        }
+        Some(bmp(picture.width, picture.height, &picture.rows))
     }
 }
 
 /// What the next frame was asked to be written out as, taken so it is asked once.
-fn asked_for() -> Option<String> {
+fn asked_for() -> Option<(String, ThePicture)> {
     WANTED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -116,17 +186,23 @@ fn asked_for() -> Option<String> {
 }
 
 /// A frame's picture put where it was asked for.
-fn filed(label: &str, bytes: &[u8]) {
+fn filed(label: &str, bytes: &[u8], what: ThePicture) {
     // **And into the trace where one is being written**, which is where a picture belongs: a trace already
     // holds the state, the word and every line the log said on the frame it was said on, so a frame's
     // picture beside those is the whole of what that frame looked like in the one file a check reads. See
     // [`crate::trace::picture`], and [`INTO_THE_TRACE`] for the label a periodic one is asked for under —
     // that one is not written beside the exe at all, a run's worth of them being a directory nobody asked
     // for.
-    crate::trace::picture(bytes);
+    crate::trace::picture(bytes, what);
     if label == INTO_THE_TRACE {
         return;
     }
+    beside_the_exe(label, bytes);
+}
+
+/// **A frame's picture written beside the exe and nowhere else** — what the same frame's second look is, a
+/// trace holding one picture a frame and the one a `screenshot` step asked for being the one it keeps.
+fn beside_the_exe(label: &str, bytes: &[u8]) {
     // Counted here and not above, [`AT_MOST`] being the bound on the files — see [`wanted`].
     TAKEN.fetch_add(1, Ordering::Relaxed);
     let Some(exe) = module::host_exe() else {
@@ -252,7 +328,7 @@ unsafe fn read(bits: usize, pitch: i32, width: u32, height: u32, format: u32) ->
 }
 
 /// A 32-bit bottom-up BMP over rows given top-first.
-fn bmp(width: u32, height: u32, rows: &[u8]) -> Vec<u8> {
+pub(crate) fn bmp(width: u32, height: u32, rows: &[u8]) -> Vec<u8> {
     const HEADER: u32 = 14 + 40;
     let stride = width as usize * 4;
     let pixels = stride * height as usize;

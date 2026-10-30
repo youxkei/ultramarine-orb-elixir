@@ -293,10 +293,16 @@ fn strips(area: Rect, row: Rect) -> [Rect; 2] {
     ]
 }
 
-/// **A part of a life gone, shown on the star the game draws for the run's last life** — 完全無欠ボムモード's,
-/// see [`crate::bomb`]: the part cut out of the star like a slice of cake, clockwise from twelve o'clock, and
+/// **A part of a life gone, shown on the star the game draws for the run's last life** — 完全無欠ボムモード's,/// see [`crate::bomb`]: the part cut out of the star like a slice of cake, clockwise from twelve o'clock, and
 /// painted over with the panel the game lays under its stars. So what is left of the star is what is left of
-/// the life — three quarters of it after one hit without the press on Normal.
+/// the life — three quarters of it after one hit without the press on Easy.
+///
+/// **What does the painting is the game's own background, and which of three it is is the game's to say**:
+/// the panel's own tile where orb has read it — `Game::panel_tile`; the game's pixels copied out of the
+/// frame beside the star where it has not — `Game::a_starless_slot`, see
+/// [`Overlay::copied_from_the_frame`]; and a colour measured off a picture of the panel only where neither
+/// is there — `Game::panel_colour`. A flat colour is a patch on a panel that is a noise, which is what a
+/// launch of th06c showed: a rectangle of orb's own blue-grey beside the star, and the star itself whole.
 ///
 /// Painted over rather than drawn as a mark of orb's: the star is the game's own count, and a part of it gone
 /// is the count saying so, where a figure beside the row was a second count somebody has to read.
@@ -309,18 +315,42 @@ fn strips(area: Rect, row: Rect) -> [Rect; 2] {
 /// Must run between the game's `BeginScene` and `EndScene`, with `panel` naming a live texture of the game's
 /// device.
 ///
-/// `colour` is the panel's own, for a game whose tile orb has not got — see `Game::panel_colour`.
+/// `colour` is the panel's own, for a game whose tile orb has not got — see `Game::panel_colour` — and
+/// `background` the game's own pixels where even that is not to be had: a piece of the frame, copied out
+/// before orb draws over it, which is painted in place of the part of the star that is gone.
 pub unsafe fn shave(
     overlay: &Overlay,
     star: Rect,
     gone: f32,
     panel: Option<PanelTile>,
     colour: Option<u32>,
+    background: Option<&Picture>,
 ) {
     let Some(frame) = (unsafe { overlay.frame() }) else {
         return;
     };
     for span in cut_out(star, gone) {
+        if let Some(background) = background {
+            // **The piece of the picture the span corresponds to**, which is the frame's own pixels at
+            // that place: the picture is a star's own box taken from the panel beside it, so a span of
+            // the cut maps into it by the same fraction it sits at inside `star`.
+            let uv = [
+                (span.left - star.left) / star.width,
+                (span.top - star.top) / star.height,
+                (span.left + span.width - star.left) / star.width,
+                (span.top + span.height - star.top) / star.height,
+            ];
+            frame.piece_of(
+                background,
+                span.left,
+                span.top,
+                span.width,
+                span.height,
+                uv,
+                0xffff_ffff,
+            );
+            continue;
+        }
         match (&panel, colour) {
             (None, Some(colour)) => {
                 frame.fill(span.left, span.top, span.width, span.height, colour)
@@ -330,22 +360,37 @@ pub unsafe fn shave(
     }
 }
 
-/// **The pixels of `star` a cut of `gone` of a turn takes**, clockwise from twelve o'clock about its centre,
-/// as one span a pixel row — where a row has more than one, each.
+/// **Where a star's own middle is, as a fraction of the height of the box it fills** — and it is not the
+/// middle of that box.
 ///
-/// By the pixel's centre, so that a quarter of a square star is exactly its top-right quarter, and the whole of
-/// it where `gone` is a turn or more.
+/// The panels draw a five-pointed star with a point up, and a box drawn tight around one runs from its top
+/// point to the two points at the bottom. Those reach `cos 36°` = 0.809 of the radius the top one does, so
+/// the shape's own centre is `1 / (1 + 0.809)` = 0.553 of the box's height down from its top — the star's
+/// top arm is longer than the box's middle allows for, and a cut pivoted at the middle of the box takes that
+/// arm and leaves the star's own middle whole. A person looking at the panel said so before any of this was
+/// written down: the cut is not centred on the star.
+const THE_STARS_OWN_MIDDLE: f32 = 0.5528;
+
+/// **The pixels of `star` a cut of `gone` of a turn takes**, clockwise from twelve o'clock about the star's
+/// own middle, as one span a pixel row — where a row has more than one, each.
+///
+/// By the pixel's centre, so that a quarter of a square star is very nearly its top-right quarter, and the
+/// whole of it where `gone` is a turn or more.
 pub fn cut_out(star: Rect, gone: f32) -> Vec<Rect> {
     let turn = std::f32::consts::TAU;
     let cut = gone.clamp(0.0, 1.0) * turn;
-    let (columns, rows) = (star.width as i32, star.height as i32);
+    // **Rounded up, and every span cut off at the star's own edge**: a star's box is not always a whole
+    // number of pixels — th06nc's are nine and three quarters — and a column and row counted down from it
+    // leave the last fraction of the star's right and bottom edges whole, which is a sliver of star in the
+    // part that is gone.
+    let (columns, rows) = (star.width.ceil() as i32, star.height.ceil() as i32);
     let mut spans = Vec::new();
     for row in 0..rows {
         let mut from = None;
         for column in 0..=columns {
             let taken = column < columns && {
                 let dx = column as f32 + 0.5 - star.width / 2.0;
-                let dy = row as f32 + 0.5 - star.height / 2.0;
+                let dy = row as f32 + 0.5 - star.height * THE_STARS_OWN_MIDDLE;
                 // From twelve o'clock and clockwise: up is -y on the screen.
                 let angle = dx.atan2(-dy).rem_euclid(turn);
                 angle < cut
@@ -353,10 +398,12 @@ pub fn cut_out(star: Rect, gone: f32) -> Vec<Rect> {
             match (taken, from) {
                 (true, None) => from = Some(column),
                 (false, Some(start)) => {
+                    let left = star.left + start as f32;
+                    let right = (star.left + column as f32).min(star.left + star.width);
                     spans.push(Rect {
-                        left: star.left + start as f32,
+                        left,
                         top: star.top + row as f32,
-                        width: (column - start) as f32,
+                        width: right - left,
                         height: 1.0,
                     });
                     from = None;
@@ -439,15 +486,18 @@ mod tests {
         assert_eq!(area(&cut_out(STAR, 1.0)), 256.0);
     }
 
-    /// A quarter is the top-right quarter, clockwise from twelve o'clock, and a half the right half.
+    /// A quarter is the top-right quarter **about the star's own middle**, which is a little below the middle
+    /// of the box it fills: nine of the sixteen rows and the right eight of its columns. A half is the right
+    /// half whatever that middle is.
     #[test]
     fn a_quarter_is_the_top_right_and_a_half_the_right() {
         let quarter = cut_out(STAR, 0.25);
-        assert_eq!(area(&quarter), 64.0);
+        assert_eq!(area(&quarter), 72.0);
         assert!(
-            quarter
-                .iter()
-                .all(|span| span.left >= STAR.left + 8.0 && span.top < STAR.top + 8.0)
+            quarter.iter().all(
+                |span| span.left >= STAR.left + 8.0 && span.top + span.height <= STAR.top + 9.0
+            ),
+            "the quarter does not reach from the star's top to a little below the middle of its box",
         );
 
         let half = cut_out(STAR, 0.5);

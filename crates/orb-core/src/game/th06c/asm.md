@@ -863,6 +863,13 @@ what a launch that plays itself is: orb holds the client at `320x240` and leaves
 released since: the real game's first frame after a retry faulted at `0x140252ab9`, `jmp [rax+0x10]` off
 a vtable of nought, which is why `Th06c::live_handles` holds the whole table back.
 
+**And the buffer the views are of is the one the frame is presented from**, which is what makes one made
+once enough: `IDXGISwapChain1::GetDesc1` answers this launch's chain as `3840x2160` with two buffers,
+scaling nought and swap effect nought, and `GetBuffer(0)` answered one address — `0x1d9e20d54e0` — on
+every frame of a run of 2026-11-02, at the frame's own beginning and at its present alike. A chain whose
+presents moved `GetBuffer` between two surfaces would be a game drawing into one nothing shows, and this
+one does not.
+
 ## The player
 
 **A static object at `0x140bb89f0`**, `0x9b88` bytes of it — `0x140049bb0` clears it in two pieces,

@@ -91,7 +91,7 @@ fn the_pad_answers_th11s_mode_question_and_is_named_as_the_hand_that_did() {
         let game = asking("th11-pad-answers");
         let log = game.log();
         game.sim().joystick().pushes(1 << SHOT_BUTTON, centred());
-        game.frames_until("the pad's answer", 60, || outcomes(&game) == 1);
+        game.frames_until_a_thread("the pad's answer", || outcomes(&game) == 1);
         assert!(
             log.said("mode: answered on the pad"),
             "the answer was not named as the pad's:\n  {}",
@@ -119,7 +119,7 @@ fn the_stick_moves_th11s_mode_question() {
         game.sim().joystick().pushes(0, centred());
         game.frames(READS_KEYS_AFTER);
         game.sim().joystick().pushes(1 << SHOT_BUTTON, centred());
-        game.frames_until("the pad's answer", 60, || outcomes(&game) == 1);
+        game.frames_until_a_thread("the pad's answer", || outcomes(&game) == 1);
         assert!(
             log.said("mode: normal, was pointdevice"),
             "the stick did not move the cursor to the other mode:\n  {}",
@@ -140,7 +140,7 @@ fn the_hat_moves_th11s_mode_question() {
         game.sim().joystick().pushes_the_hat(orb_sim::POV_CENTERED);
         game.frames(READS_KEYS_AFTER);
         game.sim().joystick().pushes(1 << SHOT_BUTTON, centred());
-        game.frames_until("the pad's answer", 60, || outcomes(&game) == 1);
+        game.frames_until_a_thread("the pad's answer", || outcomes(&game) == 1);
         assert!(
             log.said("mode: normal, was pointdevice"),
             "the hat did not move the cursor to the other mode:\n  {}",
@@ -154,7 +154,7 @@ fn cancelled_on(name: &str, button: u32) {
     let game = asking(name);
     let log = game.log();
     game.sim().joystick().pushes(1 << button, centred());
-    game.frames_until("the pad's cancel", 60, || outcomes(&game) == 1);
+    game.frames_until_a_thread("the pad's cancel", || outcomes(&game) == 1);
     assert!(
         log.said("mode: not chosen on the pad"),
         "the pad's button {button} did not cancel:\n  {}",
@@ -194,7 +194,7 @@ fn the_pad_answers_th11s_retry_menu() {
         game.frames_until("the death seen", 16, || log.said("died in chapter 1"));
         game.frames(READS_KEYS_AFTER);
         game.sim().joystick().pushes(1 << SHOT_BUTTON, centred());
-        game.frames_until("the retry menu answered on the pad", 60, || {
+        game.frames_until_a_thread("the retry menu answered on the pad", || {
             log.said("retry: the chapter again on the pad")
         });
         let state = game.state();

@@ -276,6 +276,12 @@ pub struct Options {
     #[arg(long, requires = "autoplay", help_heading = FAULT)]
     press_through_the_host: bool,
 
+    /// keep the window the settings name: a launch playing itself is put in a small one in a corner unless
+    /// this says otherwise, and a case measuring what the game draws has to be played at a window a person
+    /// would have given it — no frame about it, and on the monitor it fits
+    #[arg(long, requires = "autoplay", help_heading = FAULT)]
+    the_settings_window: bool,
+
     /// write down what every frame held — the run's state as the game's memory has it, the word it
     /// was played with, which question of orb's own was up, and the log's lines — as MessagePack
     /// records to this file, beside the game where the path names no directory, for a check to read
@@ -596,6 +602,9 @@ impl Config {
         }
         if options.press_through_the_host {
             self.press_through_the_host = true;
+        }
+        if options.the_settings_window {
+            self.the_settings_window = true;
         }
         if let Some(recipe) = &options.autoplay {
             match std::fs::read_to_string(recipe) {

@@ -217,6 +217,10 @@ Leave it playing in these:
   `orb-real picture <trace> <out.bmp> [<frame>]` writes one of them out — the newest, or the first taken on
   or after a frame — so that a screen kept can actually be looked at. A 32-bit BMP, which reads as an image.
   The count alone (`orb-real watching`) says a screen was kept and nothing about what was on it.
+- **And a capture answers only for a window that was shown**: a window hidden for a whole launch is one no
+  capture can take, and the step that gave up is named — `shot: the window's frame could not be read back: …`,
+  `orb_api::window::why_the_capture_failed` keeping the seam's own answer. The first readings were
+  `the window is not one Windows.Graphics.Capture makes an item of`.
 
 ## When the game dies and says nothing
 

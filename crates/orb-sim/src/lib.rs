@@ -41,7 +41,7 @@ mod window;
 mod xinput;
 pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
-pub use drawing::{DEVICE, Drawn, Quad, Recording, State};
+pub use drawing::{DEVICE, Drawn, Quad, Recording, State, WHAT_THE_FRAME_HOLDS};
 pub use files::Files;
 pub use joystick::{Joystick, POV_CENTERED, SOCKETS};
 pub use keyboard::{Keyboard, keys};
@@ -634,6 +634,44 @@ impl Win for Sim {
         self.windows.monitor_now()
     }
 
+    /// **The frame its canvas drew, as the window shows it** — the back buffer this host's drawing holds,
+    /// stretched onto the window's client, which is what DXGI does with a buffer and a window of two sizes:
+    /// a sample per client pixel, taken from the buffer at the place that pixel shows. A window the host
+    /// does not know, or one of no client, answers the buffer as it is.
+    ///
+    /// **Because a window's picture is not the buffer's**, and a case may hold one against the other: this
+    /// host does with the two sizes what the machine does, so a laid-out launch answers a window's picture
+    /// the way a real one does.
+    fn capture_window(&self, window: Hwnd) -> Option<orb_api::window::Picture> {
+        let (width, height, pixels) = self.drawing.the_back_buffers_picture();
+        let (shown_width, shown_height) = self
+            .windows
+            .client(window)
+            .filter(|client| client.width() > 0 && client.height() > 0)
+            .map_or((width, height), |client| {
+                (client.width() as u32, client.height() as u32)
+            });
+        let mut rows = Vec::with_capacity((shown_width * shown_height * 4) as usize);
+        for y in 0..shown_height {
+            let from_y = (u64::from(y) * u64::from(height) / u64::from(shown_height)) as u32;
+            for x in 0..shown_width {
+                let from_x = (u64::from(x) * u64::from(width) / u64::from(shown_width)) as u32;
+                let pixel = pixels
+                    .get((from_y * width + from_x) as usize)
+                    .copied()
+                    .unwrap_or(0);
+                // `0xAARRGGBB` little-endian is `B, G, R, X`, which is the order a BMP keeps them in.
+                rows.extend_from_slice(&pixel.to_le_bytes());
+            }
+        }
+        Some(orb_api::window::Picture {
+            width: shown_width,
+            height: shown_height,
+            rows,
+            row_pitch: shown_width * 4,
+        })
+    }
+
     /// The one monitor a laid-out host has, which is what [`Windows::set_monitor`] declares.
     ///
     /// **Which of several is the leftmost is settled above the seam** — see
@@ -1029,10 +1067,10 @@ impl Win for Sim {
         Some(d3d11::Context(self.drawing.a_d3d11_object()))
     }
 
-    /// A handle and no rows: what the canvas does with a back buffer is make a render target view over it
-    /// and release it again, and nothing reads what is in it.
+    /// **The frame the game has drawn**, with rows of this host's own: what the canvas makes a render target
+    /// view over, and what a piece of a frame copied out of it holds — see [`Recording::the_back_buffer`].
     fn d3d11_back_buffer(&self, _swapchain: usize) -> Option<d3d11::Texture> {
-        Some(d3d11::Texture(self.drawing.a_d3d11_object()))
+        Some(d3d11::Texture(self.drawing.the_back_buffer()))
     }
 
     fn d3d11_render_target(
@@ -1089,13 +1127,40 @@ impl Win for Sim {
         &self,
         _device: d3d11::Device,
         desc: d3d11::Texture2dDesc,
-        pixels: &[u32],
+        pixels: Option<&[u32]>,
     ) -> Option<d3d11::Texture> {
         Some(d3d11::Texture(self.drawing.create_d3d11_texture(
             desc.width,
             desc.height,
-            pixels,
+            pixels.unwrap_or(&[]),
         )))
+    }
+
+    /// **A copy of one texture's pixels into another**, which is what lets a laid-out game's own frame be
+    /// read back the way the real one's is: the copy moves the rows over, and a quad drawn from them then
+    /// says what the game drew.
+    fn d3d11_copy_subresource_region(
+        &self,
+        _context: d3d11::Context,
+        from: d3d11::Texture,
+        region: d3d11::SubresourceBox,
+        to: d3d11::Texture,
+        at: (u32, u32),
+    ) -> bool {
+        self.drawing
+            .copy_d3d11_region(from.0, region, to.0, (at.0 as usize, at.1 as usize))
+    }
+
+    /// **What a texture holds**, which is what the real device's map hands back: the rows of the texture
+    /// copied into it, as the processor reads them.
+    fn d3d11_read(
+        &self,
+        _context: d3d11::Context,
+        texture: d3d11::Texture,
+        _width: u32,
+        _height: u32,
+    ) -> Option<Vec<u32>> {
+        self.drawing.pixels_of(texture.0)
     }
 
     /// **The texture's own handle**, so that a quad drawn through this view carries the handle whose rows
@@ -1252,6 +1317,19 @@ impl Win for Sim {
 
     fn d3d11_draw(&self, _context: d3d11::Context, vertices: u32, _first: u32) {
         self.drawing.canvas_drew(vertices);
+    }
+
+    /// **Nothing, because a laid-out host has no vtable to swap**: what a case holds against the real game's
+    /// draw count is the count it logs, and a simulation draws through its own canvas — see
+    /// [`d3d11::draws_taken`](orb_api::d3d11::draws_taken).
+    fn d3d11_the_draw_slot(&self, _context: d3d11::Context) -> usize {
+        0
+    }
+
+    fn d3d11_count_a_draw(&self) {}
+
+    fn d3d11_draws_taken(&self) -> u32 {
+        0
     }
 
     /// Nothing given back and nothing counted, for the reason [`release_texture`](Self::release_texture)

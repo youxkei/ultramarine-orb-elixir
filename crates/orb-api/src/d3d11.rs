@@ -134,10 +134,15 @@ pub const DXGI_FORMAT_B8G8R8A8_UNORM: u32 = 0x57;
 
 pub const D3D11_USAGE_DEFAULT: u32 = 0;
 pub const D3D11_USAGE_DYNAMIC: u32 = 2;
+/// A texture the processor reads: what a frame is copied into before its pixels can be had.
+pub const D3D11_USAGE_STAGING: u32 = 3;
 pub const D3D11_BIND_VERTEX_BUFFER: u32 = 0x1;
 pub const D3D11_BIND_SHADER_RESOURCE: u32 = 0x8;
 pub const D3D11_CPU_ACCESS_WRITE: u32 = 0x10000;
+pub const D3D11_CPU_ACCESS_READ: u32 = 0x20000;
 pub const D3D11_MAP_WRITE_DISCARD: u32 = 4;
+/// And the map a staging texture is read through.
+pub const D3D11_MAP_READ: u32 = 1;
 pub const D3D11_INPUT_PER_VERTEX_DATA: u32 = 0;
 pub const D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP: u32 = 5;
 
@@ -208,6 +213,33 @@ pub struct SubresourceData {
     pub sys_mem: *const c_void,
     pub sys_mem_pitch: u32,
     pub sys_mem_slice_pitch: u32,
+}
+
+/// `D3D11_BOX`, as the six edges a copy of a piece of a texture is described by: a left, top and front,
+/// and the right, bottom and back that are exclusive.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubresourceBox {
+    pub left: u32,
+    pub top: u32,
+    pub front: u32,
+    pub right: u32,
+    pub bottom: u32,
+    pub back: u32,
+}
+
+impl SubresourceBox {
+    /// The box over `(left, top)` of `width` by `height`, one plane deep.
+    pub fn of(left: u32, top: u32, width: u32, height: u32) -> Self {
+        Self {
+            left,
+            top,
+            front: 0,
+            right: left + width,
+            bottom: top + height,
+            back: 1,
+        }
+    }
 }
 
 /// `D3D11_INPUT_ELEMENT_DESC`. The semantic name is a C string the caller keeps alive across the call.
@@ -427,7 +459,22 @@ pub struct ContextVtable {
     // **And the twelve that read the same state back**, which is what the drawing has to put back — see
     // `orb_core::canvas::Saved`. Direct3D 11 has no state block, so every piece is its own call, and each
     // of these adds a reference to whatever it hands back.
-    pub _slot_45_to_72: [usize; 28],
+    //
+    // Slot 45 is `RSSetScissorRects`, which orb does not set; slot 46 is the copy the canvas makes of the
+    // frame the game has drawn, and 47 to 72 are left as they are.
+    pub _slot_45: usize,
+    pub copy_subresource_region: unsafe extern "system" fn(
+        *mut c_void,
+        *mut c_void,
+        u32,
+        u32,
+        u32,
+        u32,
+        *mut c_void,
+        u32,
+        *const SubresourceBox,
+    ),
+    pub _slot_47_to_72: [usize; 26],
     pub get_pixel_shader_resources:
         unsafe extern "system" fn(*mut c_void, u32, u32, *mut *mut c_void),
     pub get_pixel_shader:
@@ -474,6 +521,8 @@ const _: () =
     assert!(offset_of!(ContextVtable, set_depth_stencil_state) == 36 * size_of::<usize>());
 const _: () = assert!(offset_of!(ContextVtable, set_rasterizer_state) == 43 * size_of::<usize>());
 const _: () = assert!(offset_of!(ContextVtable, set_viewports) == 44 * size_of::<usize>());
+const _: () =
+    assert!(offset_of!(ContextVtable, copy_subresource_region) == 46 * size_of::<usize>());
 const _: () =
     assert!(offset_of!(ContextVtable, get_pixel_shader_resources) == 73 * size_of::<usize>());
 const _: () = assert!(offset_of!(ContextVtable, get_pixel_shader) == 74 * size_of::<usize>());
@@ -633,15 +682,62 @@ pub unsafe fn buffer(device: Device, desc: BufferDesc, bytes: Option<&[u8]>) -> 
     unsafe { host::buffer(device, desc, bytes) }
 }
 
-/// A texture of `desc` filled with `pixels`, whose rows are `desc.width` long.
+/// A texture of `desc`, with `pixels` as what it starts holding where it is given — a texture another
+/// resource is copied into starts with nothing.
 ///
 /// # Safety
-/// `device` must be live, and `pixels` must hold `desc.width * desc.height` of them.
-pub unsafe fn texture(device: Device, desc: Texture2dDesc, pixels: &[u32]) -> Option<Texture> {
+/// `device` must be live, and `pixels` — where given — must hold `desc.width * desc.height` of them.
+pub unsafe fn texture(
+    device: Device,
+    desc: Texture2dDesc,
+    pixels: Option<&[u32]>,
+) -> Option<Texture> {
     if let Some(win) = sim() {
         return win.d3d11_texture(device, desc, pixels);
     }
     unsafe { host::texture(device, desc, pixels) }
+}
+
+/// `CopySubresourceRegion`: the box `region` of `from`'s pixels, copied into `to` at `at` — which is how
+/// the frame the game has just drawn is read back without the CPU seeing it.
+///
+/// **A copy and not a read-back**: both textures are the device's, so what the copy buys is a texture a
+/// shader may read, which a render target — the swapchain's own buffer — may not be at the same time as
+/// it is being drawn into.
+///
+/// # Safety
+/// Both must be live textures of the same device, the box inside `from` and the destination inside `to`.
+pub unsafe fn copy_subresource_region(
+    context: Context,
+    from: Texture,
+    region: SubresourceBox,
+    to: Texture,
+    at: (u32, u32),
+) -> bool {
+    if let Some(win) = sim() {
+        return win.d3d11_copy_subresource_region(context, from, region, to, at);
+    }
+    unsafe { host::copy_subresource_region(context, from, region, to, at) }
+}
+
+/// **The pixels of a staging texture, read through `Map`** — `width` by `height` of `0xAARRGGBB`, rows as the
+/// device hands them over: a row of a texture may be longer than its width, which is what the pitch says.
+///
+/// Nothing where the map failed, which is a texture the processor may not read.
+///
+/// # Safety
+/// `context` and `texture` must be live objects of the same device, `texture` made `STAGING` with
+/// `CPU_ACCESS_READ`, and `width` and `height` its own.
+pub unsafe fn read(
+    context: Context,
+    texture: Texture,
+    width: u32,
+    height: u32,
+) -> Option<Vec<u32>> {
+    if let Some(win) = sim() {
+        return win.d3d11_read(context, texture, width, height);
+    }
+    unsafe { host::read(context, texture, width, height) }
 }
 
 /// A shader's view of a texture, with the description left to the device.
@@ -718,6 +814,19 @@ pub unsafe fn set_render_targets(context: Context, targets: &[Target], depth: De
         return win.d3d11_sets(context, Set::RenderTargets(targets.to_vec(), depth));
     }
     unsafe { host::set_render_targets(context, targets, depth) }
+}
+
+/// **Empties a target to one colour**, which is `ClearRenderTargetView` and nothing else: a buffer nothing
+/// draws into keeps the frame before it.
+///
+/// # Safety
+/// As [`set_render_targets`], with `target` a view of the buffer being emptied.
+pub unsafe fn clear(context: Context, target: Target, colour: [f32; 4]) {
+    if sim().is_some() {
+        // A laid-out host draws its own frames whole, so there is no leftover for this to take away.
+        return;
+    }
+    unsafe { host::clear(context, target, colour) }
 }
 
 /// # Safety
@@ -841,6 +950,36 @@ pub unsafe fn draw(context: Context, vertices: u32, first: u32) {
         return win.d3d11_draw(context, vertices, first);
     }
     unsafe { host::draw(context, vertices, first) }
+}
+
+/// **The address of a context's own `Draw` slot**, which a caller above the seam swaps for a wrapper of its
+/// own — see `orb_core::dxgi`, which counts the game's draws to say whether a frame is drawn once.
+///
+/// Nought where there is no Direct3D under this build.
+///
+/// # Safety
+/// `context` must be a live `ID3D11DeviceContext`.
+pub unsafe fn the_draw_slot(context: Context) -> usize {
+    if let Some(win) = sim() {
+        return win.d3d11_the_draw_slot(context);
+    }
+    unsafe { host::the_draw_slot(context) }
+}
+
+/// **One draw counted**, for the wrapper a caller above the seam puts in the slot — see [`draws_taken`].
+pub fn count_a_draw() {
+    if let Some(win) = sim() {
+        return win.d3d11_count_a_draw();
+    }
+    host::count_a_draw();
+}
+
+/// **How many draws were counted since this was last called**, which noughts the count.
+pub fn draws_taken() -> u32 {
+    if let Some(win) = sim() {
+        return win.d3d11_draws_taken();
+    }
+    host::draws_taken()
 }
 
 // ---- and the same state read back, which is what a drawing has to put back ------------------------
@@ -995,7 +1134,7 @@ mod host {
     use super::{
         Blend, BlendDesc, Buffer, BufferDesc, Context, DepthStencil, DepthView, Device,
         InputElementDesc, Layout, Object, PixelShader, Rasterizer, ResourceView, Sampler,
-        SamplerDesc, Target, Texture, Texture2dDesc, VertexShader, Viewport,
+        SamplerDesc, SubresourceBox, Target, Texture, Texture2dDesc, VertexShader, Viewport,
     };
     use crate::no_windows;
 
@@ -1037,9 +1176,29 @@ mod host {
     pub unsafe fn texture(
         _device: Device,
         _desc: Texture2dDesc,
-        _pixels: &[u32],
+        _pixels: Option<&[u32]>,
     ) -> Option<Texture> {
         no_windows("d3d11::texture")
+    }
+    pub unsafe fn copy_subresource_region(
+        _context: Context,
+        _from: Texture,
+        _region: SubresourceBox,
+        _to: Texture,
+        _at: (u32, u32),
+    ) -> bool {
+        no_windows("d3d11::copy_subresource_region")
+    }
+    pub unsafe fn clear(_context: Context, _target: Target, _colour: [f32; 4]) {
+        no_windows("d3d11::clear")
+    }
+    pub unsafe fn read(
+        _context: Context,
+        _texture: Texture,
+        _width: u32,
+        _height: u32,
+    ) -> Option<Vec<u32>> {
+        no_windows("d3d11::read")
     }
     pub unsafe fn resource_view(_device: Device, _texture: Texture) -> Option<ResourceView> {
         no_windows("d3d11::resource_view")
@@ -1132,6 +1291,14 @@ mod host {
     }
     pub unsafe fn draw(_context: Context, _vertices: u32, _first: u32) {
         no_windows("d3d11::draw")
+    }
+    /// Nought, for the reason [`draw`] answers nothing: there is no context whose slot could be swapped.
+    pub unsafe fn the_draw_slot(_context: Context) -> usize {
+        0
+    }
+    pub fn count_a_draw() {}
+    pub fn draws_taken() -> u32 {
+        0
     }
     pub unsafe fn release(_object: Object) -> u32 {
         no_windows("d3d11::release")

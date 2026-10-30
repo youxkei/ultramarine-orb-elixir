@@ -363,13 +363,24 @@ impl Settings {
 }
 
 impl Case {
-    /// **The settings this case is played with**, which is [`Settings`]'s one answer for every case — a
-    /// case needing another says so here and nowhere else.
+    /// **The window this case is played in, which is the same one for every case**: `1280x720`, the setting
+    /// every launch is given, and a window rather than the whole monitor because what a case is watched through
+    /// is a picture and a borderless window over the screen is one nothing else can be seen beside.
+    fn screen(&self) -> &'static str {
+        "1280x720"
+    }
+
+    /// **Whether this case is played in the window its settings name** — which no case is: every launch of
+    /// the harness is the corner's own small window in the top-left of the leftmost monitor ("すべてのリアルの
+    /// ケースで左のモニターで左上に小さく表示してよ", 2026-11-02). The setting is kept because `cargo xtask
+    /// real` reads it from the list and a measurement may ask for it again.
+    pub fn the_settings_window(&self) -> bool {
+        false
+    }
+
     pub fn settings(&self) -> Settings {
         Settings {
-            // A window rather than the whole monitor: what a case is watched through is a picture, and a
-            // borderless window over the screen is one nothing else can be seen beside.
-            screen: "1280x720",
+            screen: self.screen(),
             // The machine's own, which on the machine these cases were written on is Japanese — the language
             // the game's own words and orb's overlay are matched in.
             language: "auto",
@@ -544,6 +555,15 @@ fn the_cases_of_th11() -> Vec<Case> {
     vec![
         Case {
             game: Game::Th11,
+            name: "every_press_reaches_the_game",
+            recipe: include_str!("../recipes/th11/every_press_reaches_the_game.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::every_press_of_th11_reached_the_game,
+        },
+        Case {
+            game: Game::Th11,
             name: "a_run_started_and_given_up",
             recipe: include_str!("../recipes/th11/a_run_started_and_given_up.yaml"),
             before: &[],
@@ -588,12 +608,21 @@ fn the_cases_of_th11() -> Vec<Case> {
         // **完全無欠ボムモード's own case** — see the one of the three games the first list holds.
         Case {
             game: Game::Th11,
+            name: "the_picture_drawn_once_over_a_hit",
+            recipe: include_str!("../recipes/th11/the_picture_drawn_once_over_a_hit.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_picture_drawn_once_over_a_hit,
+        },
+        Case {
+            game: Game::Th11,
             name: "a_bomb_mode_run_hit_without_the_press",
             recipe: include_str!("../recipes/th11/a_bomb_mode_run_hit_without_the_press.yaml"),
             before: &[],
             starts_from: Start::Nothing,
             within: WITHIN,
-            check: checks::a_bomb_mode_run_hit_without_the_press,
+            check: checks::a_bomb_mode_run_hit_without_the_press_on_th11,
         },
         Case {
             game: Game::Th11,
@@ -866,6 +895,15 @@ fn the_cases_of_th08() -> Vec<Case> {
     vec![
         Case {
             game: Game::Th08,
+            name: "every_press_reaches_the_game",
+            recipe: include_str!("../recipes/th08/every_press_reaches_the_game.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::every_press_of_th08_reached_the_game,
+        },
+        Case {
+            game: Game::Th08,
             name: "a_run_started_and_given_up",
             recipe: include_str!("../recipes/th08/a_run_started_and_given_up.yaml"),
             before: &[],
@@ -897,6 +935,15 @@ fn the_cases_of_th08() -> Vec<Case> {
             check: checks::a_death_of_th08_answered_by_the_chapter_again,
         },
         // **完全無欠ボムモード's own case** — see the one of the three games the first list holds.
+        Case {
+            game: Game::Th08,
+            name: "the_picture_drawn_once_over_a_hit",
+            recipe: include_str!("../recipes/th08/the_picture_drawn_once_over_a_hit.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_picture_drawn_once_over_a_hit,
+        },
         Case {
             game: Game::Th08,
             name: "a_bomb_mode_run_hit_without_the_press",
@@ -1167,6 +1214,15 @@ fn the_cases_of_th10() -> Vec<Case> {
     vec![
         Case {
             game: Game::Th10,
+            name: "every_press_reaches_the_game",
+            recipe: include_str!("../recipes/th10/every_press_reaches_the_game.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::every_press_of_th10_reached_the_game,
+        },
+        Case {
+            game: Game::Th10,
             name: "a_run_started_and_given_up",
             recipe: include_str!("../recipes/th10/a_run_started_and_given_up.yaml"),
             before: &[],
@@ -1214,12 +1270,21 @@ fn the_cases_of_th10() -> Vec<Case> {
         // **完全無欠ボムモード's own case** — see the one of the three games the first list holds.
         Case {
             game: Game::Th10,
+            name: "the_picture_drawn_once_over_a_hit",
+            recipe: include_str!("../recipes/th10/the_picture_drawn_once_over_a_hit.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_picture_drawn_once_over_a_hit,
+        },
+        Case {
+            game: Game::Th10,
             name: "a_bomb_mode_run_hit_without_the_press",
             recipe: include_str!("../recipes/th10/a_bomb_mode_run_hit_without_the_press.yaml"),
             before: &[],
             starts_from: Start::Nothing,
             within: WITHIN,
-            check: checks::a_bomb_mode_run_hit_without_the_press,
+            check: checks::a_bomb_mode_run_hit_without_the_press_on_th10,
         },
         Case {
             game: Game::Th10,
@@ -1481,6 +1546,17 @@ fn the_cases_of_th10() -> Vec<Case> {
 /// once a run has been cleared, and the records that say so are its score file.
 fn the_cases_of_th06nc() -> Vec<Case> {
     vec![
+        // **Every input orb holds, held in turn** — th06c's case under this game's own walk to a run, since the
+        // pad reaches both builds the same way: an XInput read orb answers from the frame's word.
+        Case {
+            game: Game::Th06nc,
+            name: "every_press_reaches_the_game",
+            recipe: include_str!("../recipes/th06nc/every_press_reaches_the_game.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::every_press_of_th06nc_reached_the_game,
+        },
         // **The mode's own case**: a death answered by the chapter again, and the run played on into the
         // chapters of the fight after it — th06c's check, which waits for a chapter past the one died in.
         Case {
@@ -1493,6 +1569,15 @@ fn the_cases_of_th06nc() -> Vec<Case> {
             check: checks::a_death_answered_by_the_chapter_again,
         },
         // **完全無欠ボムモード's own case** — see the one of the three games before this.
+        Case {
+            game: Game::Th06nc,
+            name: "the_picture_drawn_once_over_a_hit",
+            recipe: include_str!("../recipes/th06nc/the_picture_drawn_once_over_a_hit.yaml"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_picture_drawn_once_over_a_hit_on_th06nc,
+        },
         Case {
             game: Game::Th06nc,
             name: "a_bomb_mode_run_hit_without_the_press",
@@ -1841,6 +1926,49 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
         };
     }
     vec![
+        Case {
+            game,
+            name: "every_press_reaches_the_game",
+            recipe: recipe!(game, "every_press_reaches_the_game"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: match game {
+                Game::Th06 => checks::every_press_of_th06_reached_the_game,
+                Game::Th07 => checks::every_press_of_th07_reached_the_game,
+                Game::Th06c => checks::every_press_of_th06c_reached_the_game,
+                Game::Th06nc => unreachable!("th06nc has its own cases"),
+                Game::Th08 => unreachable!("th08 has its own cases"),
+                Game::Th10 => unreachable!("th10 has its own cases"),
+                Game::Th11 => unreachable!("th11 has its own cases"),
+            },
+        },
+        Case {
+            game,
+            name: "the_playfield_drawn_once",
+            recipe: recipe!(game, "the_playfield_drawn_once"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: match game {
+                Game::Th06 => checks::the_playfield_of_th06_is_drawn_once,
+                Game::Th07 => checks::the_playfield_of_th07_is_drawn_once,
+                Game::Th06c => checks::the_playfield_of_th06c_is_drawn_once,
+                Game::Th06nc => unreachable!("th06nc has its own cases"),
+                Game::Th08 => unreachable!("th08 has its own cases"),
+                Game::Th10 => unreachable!("th10 has its own cases"),
+                Game::Th11 => unreachable!("th11 has its own cases"),
+            },
+        },
+        Case {
+            game,
+            name: "the_picture_drawn_once_over_a_hit",
+            recipe: recipe!(game, "the_picture_drawn_once_over_a_hit"),
+            before: &[],
+            starts_from: Start::Nothing,
+            within: WITHIN,
+            check: checks::the_picture_drawn_once_over_a_hit,
+        },
         Case {
             game,
             name: "a_run_left_in_its_second_chapter",
@@ -2230,6 +2358,99 @@ fn expect(holds: bool, why_not: impl FnOnce() -> String) -> Result<(), String> {
 pub mod checks {
     use super::{Trace, expect};
 
+    /// **A picture of a frame, read back: a 32-bit BMP with its rows bottom-first**, which is what
+    /// `orb_core::shot` writes and what `--shot-every` and a `screenshot` step leave in a trace.
+    ///
+    /// What a check needs it for is the one thing no field can say: whether the star a part of a life is
+    /// gone from *looks* cut — see [`the_shaved_star_is_cut_in_the_picture`].
+    struct Picture {
+        width: u32,
+        height: u32,
+        /// The pixels, `B, G, R, X` apiece, the top row first once [`Picture::read`] has turned them over.
+        rows: Vec<u8>,
+    }
+
+    impl Picture {
+        fn read(bytes: &[u8]) -> Result<Self, String> {
+            if bytes.len() < 54 || &bytes[..2] != b"BM" {
+                return Err("the picture taken is not a BMP".to_owned());
+            }
+            let dword = |at: usize| {
+                u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+            };
+            let word = |at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
+            let offset = dword(10) as usize;
+            let width = dword(18) as i32;
+            let height = dword(22) as i32;
+            if word(28) != 32 || width <= 0 || height == 0 {
+                return Err(format!(
+                    "the picture taken is a BMP of {width} by {height} at {} bits, which is not the 32-bit one orb writes",
+                    word(28)
+                ));
+            }
+            let (width, height) = (width as u32, height.unsigned_abs());
+            let stride = width as usize * 4;
+            let needed = offset + stride * height as usize;
+            if bytes.len() < needed {
+                return Err(format!(
+                    "the picture taken is short of its own size: {} bytes where {needed} are a {width} by {height} BMP",
+                    bytes.len()
+                ));
+            }
+            let mut rows = Vec::with_capacity(stride * height as usize);
+            for row in 0..height as usize {
+                // A BMP's rows are written from the bottom up, and everything else here counts from the top.
+                let from = offset + (height as usize - 1 - row) * stride;
+                rows.extend_from_slice(&bytes[from..from + stride]);
+            }
+            Ok(Self {
+                width,
+                height,
+                rows,
+            })
+        }
+
+        /// **Whether every pixel is the same colour**, which a frame a game drew never is: a laid-out game's
+        /// is, and a check of such a frame's pixels is a check of nothing.
+        fn is_one_colour(&self) -> bool {
+            match self.rows.first_chunk::<4>() {
+                Some(first) => (0..self.rows.len())
+                    .step_by(4)
+                    .all(|at| &self.rows[at..at + 4] == first),
+                None => true,
+            }
+        }
+
+        /// **The average colour of a rectangle**, `x` and `y` counted from the picture's top left as the
+        /// game's own output is — which is the opposite way round from the file's rows.
+        fn mean(&self, x: f32, y: f32, width: f32, height: f32) -> Option<(f32, f32, f32)> {
+            let left = x.max(0.0) as u32;
+            let top = y.max(0.0) as u32;
+            let right = ((x + width) as u32).min(self.width);
+            let bottom = ((y + height) as u32).min(self.height);
+            if right <= left || bottom <= top {
+                return None;
+            }
+            let (mut r, mut g, mut b) = (0f32, 0f32, 0f32);
+            let mut count = 0f32;
+            for row in top..bottom {
+                for column in left..right {
+                    let at = (row as usize * self.width as usize + column as usize) * 4;
+                    b += f32::from(self.rows[at]);
+                    g += f32::from(self.rows[at + 1]);
+                    r += f32::from(self.rows[at + 2]);
+                    count += 1.0;
+                }
+            }
+            Some((r / count, g / count, b / count))
+        }
+    }
+
+    /// How far apart two colours are, as the sum of what each of the three channels differs by.
+    fn apart(one: (f32, f32, f32), other: (f32, f32, f32)) -> f32 {
+        (one.0 - other.0).abs() + (one.1 - other.1).abs() + (one.2 - other.2).abs()
+    }
+
     /// **The bit th06nc's word carries for the bomb**, which is th06 1.02h's own and the one the recipe's
     /// `bomb` is — `orb_core::game::th06nc`'s `button::BOMB`. Written down here because a check has no game
     /// in memory to ask, the way `Game::exe` has the names.
@@ -2253,6 +2474,458 @@ pub mod checks {
     /// reason [`TH08_BOMB`] is.
     const TH10_BOMB: u16 = 0x0002;
     const TH10_DIRECTIONS: u16 = 0x0010 | 0x0020 | 0x0040 | 0x0080;
+
+    /// **The star a part of a life is gone from is cut in the picture taken of it** — the pixels and not the
+    /// fields: a shave drawn somewhere else, or painted with a colour that is not the panel's, has the trace's
+    /// own line saying it happened and a star on the screen that is whole. A launch of th06c was exactly that,
+    /// which is what this is for.
+    ///
+    /// The quarter the mode takes is the one clockwise from twelve o'clock, so the part of the star's box the
+    /// cut covers is its top right and the part it leaves is the rest. What is asserted of the two is that
+    /// they are not the same colour — the cut is the panel behind the star and the rest is the star — and
+    /// that the cut is the darker of them, every one of the seven drawing its stars lighter than its panel.
+    /// **The playfield's outside is one picture at every moment, and a game that draws the frame twice is what
+    /// puts something else there**: two pictures of the frame are taken a second apart in a run, and every
+    /// pixel of them outside the playfield — the band to its left and the band above it, from the picture's own
+    /// edge inwards to `room` short of the field — has to be the same in both. Nothing draws there but the
+    /// game's own still backdrop, so a pixel that moved is a second copy of the scene.
+    ///
+    /// **The field is given in the game's own `640x480`**, which is what every one of these games draws in, so
+    /// the same check serves them all: th06's field is `384x448` at `(32, 16)`, and each game passes its own.
+    pub fn the_playfield_is_drawn_once(
+        trace: &Trace,
+        field: (f32, f32, f32, f32),
+        room: f32,
+    ) -> Result<(), String> {
+        let pictures: Vec<Picture> = trace
+            .records
+            .iter()
+            .filter_map(|record| record.picture.as_ref())
+            .filter_map(|bytes| Picture::read(bytes).ok())
+            .collect();
+        let (Some(first), Some(last)) = (pictures.first(), pictures.last()) else {
+            return Err(format!(
+                "the frame was photographed {} time(s), where the case photographs it twice",
+                pictures.len()
+            ));
+        };
+        expect(
+            first.width == last.width && first.height == last.height,
+            || {
+                format!(
+                    "the two pictures are {}x{} and {}x{}",
+                    first.width, first.height, last.width, last.height,
+                )
+            },
+        )?;
+        let (width, height) = (last.width as f32, last.height as f32);
+        let scale = (width / 640.0).min(height / 480.0);
+        let (left, top) = (
+            (width - 640.0 * scale) / 2.0,
+            (height - 480.0 * scale) / 2.0,
+        );
+        let (mut same, mut sampled, mut apart_at) = (0usize, 0usize, Vec::new());
+        for y in 0..last.height {
+            for x in 0..last.width {
+                let (at_x, at_y) = (x as f32, y as f32);
+                let (u, v) = ((at_x - left) / scale, (at_y - top) / scale);
+                if u >= field.0 - room && v >= field.1 - room {
+                    continue;
+                }
+                sampled += 1;
+                let (held, shown) = (
+                    first.mean(at_x, at_y, 1.0, 1.0),
+                    last.mean(at_x, at_y, 1.0, 1.0),
+                );
+                match (held, shown) {
+                    (Some(held), Some(shown)) if apart(held, shown) <= 8.0 => same += 1,
+                    _ => {
+                        if apart_at.len() < 6 {
+                            apart_at.push((x, y));
+                        }
+                    }
+                }
+            }
+        }
+        expect(same == sampled, || {
+            format!(
+                "the bands to the left of the playfield and above it are not the same frame in the two \
+                 pictures: {same} of {sampled} pixel(s) agree, the first that do not at {apart_at:?}"
+            )
+        })
+    }
+
+    /// th06's own answer to [`the_playfield_is_drawn_once`]: its field is `384x448` at `(32, 16)` with eight
+    /// pixels of room around it.
+    pub fn the_playfield_of_th06_is_drawn_once(trace: &Trace) -> Result<(), String> {
+        the_playfield_is_drawn_once(trace, (32.0, 16.0, 384.0, 448.0), 8.0)
+    }
+
+    /// th07's, which draws in the same `640x480` and sets its field the same way.
+    pub fn the_playfield_of_th07_is_drawn_once(trace: &Trace) -> Result<(), String> {
+        the_playfield_is_drawn_once(trace, (32.0, 16.0, 384.0, 448.0), 8.0)
+    }
+
+    /// And th06c's, which is the game the assertion was written from.
+    pub fn the_playfield_of_th06c_is_drawn_once(trace: &Trace) -> Result<(), String> {
+        the_playfield_is_drawn_once(trace, (32.0, 16.0, 384.0, 448.0), 8.0)
+    }
+
+    /// **DO NOT CHANGE WHAT THIS CHECK COMPARES.** It holds the frame a moment before the hit against the
+    /// frame with orb's offer over it, both inside the game's play, whose frame outside the playfield is the
+    /// same at every moment — the same shape `the_playfield_drawn_once` passes on th06, th07 and th06c in
+    /// ordinary play (2026-11-03). A red here is the double a person sees, and what changes is the code.
+    ///
+    /// **The frame a person looked at when they said the game was drawn twice**: a hit settled in the first
+    /// moments of a stage in 完全無欠ボムモード, with orb's offer to retry the chapter standing over the frozen
+    /// field — "ステージが始まってからすぐに被弾してオーブのuiが出た時だよ" (2026-11-01).
+    ///
+    /// **And whether the frame is drawn twice is read in the two bands a second copy is drawn into**: the recipe
+    /// photographs the whole buffer twice — once a moment before the hit, with nothing of orb's over it, and
+    /// once with the offer up — and the band to the left of the playfield and the band above it have to be the
+    /// same in both. The field moves between the two frames, so the field's own pixels can be held against
+    /// nothing; those two bands are never drawn on by the field, and a second copy of the scene, which is drawn
+    /// a little up and to the left of the first, is what puts anything there. Which bands those are is a
+    /// person's own answer to how the double is judged: "ゲーム画面の中のプレイエリアよりも左側とプレイヤエリア
+    /// よりも上側に赤がなくなるっていうのがアサーションになると思うね" (2026-11-02).
+    /// **The frame drawn once, held on the game's own playfield** — see
+    /// [`the_picture_drawn_once_over_a_hit_at`], of which this is the one every game but th06nc plays.
+    pub fn the_picture_drawn_once_over_a_hit(trace: &Trace) -> Result<(), String> {
+        the_picture_drawn_once_over_a_hit_at(trace, (32.0, 16.0, 384.0, 448.0))
+    }
+
+    /// **th06nc's own answer**, whose playfield is the right of its `640x480` screen — `left: 236` — so what
+    /// lies to its left is the score panel and not a still frame: the band this one holds is the one above it.
+    pub fn the_picture_drawn_once_over_a_hit_on_th06nc(trace: &Trace) -> Result<(), String> {
+        the_picture_drawn_once_over_a_hit_at(trace, (0.0, 16.0, 384.0, 448.0))
+    }
+
+    /// **The frame a person looked at when they said the game was drawn twice**, at `field`'s playfield.
+    pub fn the_picture_drawn_once_over_a_hit_at(
+        trace: &Trace,
+        field: (f32, f32, f32, f32),
+    ) -> Result<(), String> {
+        trace
+            .line_from(0, "bomb: the difficulty is ")
+            .ok_or("the bomb mode was not answered with a difficulty")?;
+        trace
+            .line_from(0, "died in chapter ")
+            .ok_or("no hit was settled in the run, so no offer was raised")?;
+        trace
+            .line_from(
+                0,
+                "autoplay: the offer to retry is one to take the chapter again at",
+            )
+            .ok_or("orb's offer to retry the chapter was never raised")?;
+        // **The two frames the case photographed, in the order it took them**, whatever kind they are: a game
+        // drawn over a swapchain answers the window's own picture and one drawn through Direct3D 8 its own
+        // `640x480` output, and the case takes one of each only where the game has both.
+        let whole: Vec<Picture> = trace
+            .records
+            .iter()
+            .filter_map(|record| record.picture.as_ref())
+            .filter_map(|bytes| Picture::read(bytes).ok())
+            .collect();
+        expect(whole.len() >= 2, || {
+            let seen: Vec<(u32, u32)> = trace
+                .records
+                .iter()
+                .filter_map(|record| record.picture.as_ref())
+                .filter_map(|bytes| Picture::read(bytes).ok())
+                .map(|picture| (picture.width, picture.height))
+                .collect();
+            format!(
+                "the whole buffer was photographed {} time(s), where the case photographs it twice — the \
+                 stage a moment before the hit and the offer over it; the trace holds {seen:?}",
+                whole.len()
+            )
+        })?;
+        let (before, after) = (&whole[0], &whole[whole.len() - 1]);
+        expect(
+            before.width == after.width && before.height == after.height,
+            || {
+                format!(
+                    "the two pictures of the buffer are {}x{} and {}x{}",
+                    before.width, before.height, after.width, after.height,
+                )
+            },
+        )?;
+        // **The game's own picture is its `640x480` fitted by the smaller scale and centred**, which is the box
+        // the buffer holds it in — see `Canvas::the_picture`, and the canvas's own line saying it.
+        let (width, height) = (after.width as f32, after.height as f32);
+        let scale = (width / 640.0).min(height / 480.0);
+        let (across, down) = (640.0 * scale, 480.0 * scale);
+        let (left, top) = ((width - across) / 2.0, (height - down) / 2.0);
+        // **The playfield the caller named**, in the game's own `640x480`.
+        // **What a person reads the double in is the band to the left of the playfield and the band above it**:
+        // a second copy of the scene is drawn a little up and to the left of the first, so what lands in those
+        // two bands is nothing the field's own drawing ever puts there — "ここで使えそうなアサーションとしては
+        // ゲーム画面の中のプレイエリアよりも左側とプレイヤエリアよりも上側に赤がなくなるっていうのがアサー
+        // ションになると思うね" (2026-11-02). The black beside the picture is part of both bands, and never
+        // drawn on by anything.
+        let kept = |x: u32, y: u32| {
+            // **And a few pixels short of the playfield's own edge**, so that what is compared is the band
+            // beside it and not the field's own border — a person asked for that room: "プレイエリアぴったり
+            // 左とかぴったり上じゃなくてちょっと余裕を持って左側と上側を見るようにしようよ" (2026-11-02).
+            const ROOM: f32 = 24.0;
+            // **And the picture's own outermost pixels are not compared either**: a picture of the window is
+            // resampled by the capture at its edge, and a column there is the sampler and not the frame —
+            // "そもそも比較対象として一番左端とか一番上端と除いてもいいんじゃないの?" (2026-11-03).
+            const EDGE: f32 = 2.0;
+            let (at_x, at_y) = (x as f32, y as f32);
+            let (u, v) = ((at_x - left) / scale, (at_y - top) / scale);
+            u >= EDGE && v >= EDGE && (u < field.0 - ROOM || v < field.1 - ROOM)
+        };
+        // **And no correction of any kind**: what is outside the playfield is one picture at every moment — the
+        // game's background scrolls inside the playfield and nowhere else — so the two frames are held against
+        // each other as they are, and a pixel that moved is a pixel something else drew. A person made the point
+        // twice over ("背景に流れてるのはプレイエリアだけに決まってるじゃん", "プレイエリア外は背景は流れて
+        // ないからずっと同じ画像だから任意の時刻で同じになるよ", 2026-11-02), and the bands' own reading says
+        // the same: the black beside the picture is the same black in both frames.
+        let (mut same, mut sampled, mut apart_at) = (0usize, 0usize, Vec::new());
+        for y in 0..after.height {
+            for x in 0..after.width {
+                if !kept(x, y) {
+                    continue;
+                }
+                sampled += 1;
+                let held = before.mean(x as f32, y as f32, 1.0, 1.0);
+                let shown = after.mean(x as f32, y as f32, 1.0, 1.0);
+                match (held, shown) {
+                    // **Eight apart is the most the same black is ever moved**, a copy of a buffer into a
+                    // picture being exact and the two frames' own drawing of a still thing not being two
+                    // pictures of it: what a second copy of the scene puts there is a field's colours.
+                    (Some(held), Some(shown)) if apart(held, shown) <= 8.0 => same += 1,
+                    _ => {
+                        if apart_at.len() < 6 {
+                            apart_at.push((x, y));
+                        }
+                    }
+                }
+            }
+        }
+        expect(same == sampled, || {
+            format!(
+                "the bands to the left of the playfield and above it are not the same frame in the two \
+                 pictures: {same} of {sampled} pixel(s) agree, the first that do not at {apart_at:?} — \
+                 something is drawn there that moves with the scene, which is a second copy of it"
+            )
+        })
+    }
+
+    pub fn the_shaved_star_is_cut_in_the_picture(trace: &Trace) -> Result<(), String> {
+        let shaved_at = trace
+            .records
+            .iter()
+            .position(|record| record.a_shaved_star.is_some())
+            .ok_or("no frame shaved a part of a star off")?;
+        let shaved = trace.records[shaved_at]
+            .a_shaved_star
+            .as_ref()
+            .ok_or("no frame shaved a part of a star off")?;
+        let bytes = trace.records[shaved_at..]
+            .iter()
+            .find_map(|record| record.picture.as_ref())
+            .ok_or_else(|| {
+                format!(
+                    "no picture was taken after the star was shaved: {} record(s), the first shave at \
+                     {shaved_at}, the first picture at {:?}",
+                    trace.records.len(),
+                    trace.records.iter().position(|record| record.picture.is_some())
+                )
+            })?;
+        let picture = Picture::read(bytes)?;
+        let (left, top, width, height) = shaved.star;
+        // **A frame nothing was drawn into is no picture of a star, and there is nothing to hold.** Every one
+        // of the seven's cases is run against a laid-out game as well as against the real one — see
+        // `the_cases_the_real_game_is_tested_with` — and a laid-out game's frame is one colour of its host's
+        // own: every pixel the same, which no frame a game drew is.
+        if picture.is_one_colour() {
+            return Ok(());
+        }
+        // **A pixel inside each quadrant**, the star's own box being the sprite's and a sprite's edge a thing
+        // its neighbour's may reach: th06nc's hearts are ten pixels apiece on a nine-and-three-quarters step,
+        // so the quarter of a box that is the cut holds a pixel of the star beside it and reads as neither.
+        let (quarter, ray) = (width / 2.0, height / 2.0);
+        let (across, down) = ((quarter - 2.0).max(1.0), (ray - 2.0).max(1.0));
+        let (cut, kept) = (
+            picture
+                .mean(left + quarter + 1.0, top + 1.0, across, down)
+                .ok_or("the star's box is not inside the picture taken")?,
+            picture
+                .mean(left + 1.0, top + ray + 1.0, across, down)
+                .ok_or("the star's box is not inside the picture taken")?,
+        );
+        let luminance = |colour: (f32, f32, f32)| (colour.0 + colour.1 + colour.2) / 3.0;
+        expect(apart(cut, kept) > 24.0, || {
+            format!(
+                "the part of the star that is gone is the same colour as the part left: {cut:?} against \
+                 {kept:?} — nothing of the star was cut out"
+            )
+        })?;
+        expect(luminance(cut) < luminance(kept), || {
+            format!(
+                "the part of the star that is gone is brighter than the part left, so it is not the panel \
+                 behind it: {cut:?} against {kept:?}"
+            )
+        })?;
+        Ok(())
+    }
+
+    /// **Every question orb put up had a screen**: a question whose frames hold no words at all is a question
+    /// nothing put on the screen — the overlay not yet made, or a menu drawn where nobody can see it — and a
+    /// player looking at the game could not have answered it. Presses reach a question whether or not its
+    /// words are drawn, which is what makes this the thing to ask: what a case does about a question is not
+    /// the same as what a person could.
+    ///
+    /// **A screen and not the words themselves**: what each question says is its own, and the case's own
+    /// check is where a question's wording is held — the bomb mode's name, say, by
+    /// `a_bomb_mode_run_hit_without_the_press`. What this rules out is nothing being drawn at all.
+    ///
+    /// **Asked of every case and not of the ones with a question of their own**: the mode, the difficulty, the
+    /// resume, the retry and the replay offers are all of them orb's own screens, and a case that walks past
+    /// one says nothing about whether it was there.
+    pub fn every_question_was_drawn(trace: &Trace) -> Result<(), String> {
+        let drew_on = |at: usize| {
+            trace.records[at..].iter().take(2).any(|record| {
+                record
+                    .drawn
+                    .as_ref()
+                    .is_some_and(|drawn| !drawn.words.is_empty())
+            })
+        };
+        let mut seen: Vec<(&str, bool)> = Vec::new();
+        for (at, record) in trace.records.iter().enumerate() {
+            let Some(question) = record.question.as_deref() else {
+                continue;
+            };
+            let drew = drew_on(at);
+            match seen.iter_mut().find(|(name, _)| *name == question) {
+                Some((_, before)) => *before |= drew,
+                None => seen.push((question, drew)),
+            }
+        }
+        let missing: Vec<&str> = seen
+            .iter()
+            .filter(|(_, drew)| !drew)
+            .map(|(name, _)| *name)
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "{} was up with nothing drawn for it: no screen said what was being asked",
+            missing.join(", ")
+        ))
+    }
+
+    /// **Every button a recipe pressed reached the game, in the game's own word** — the field
+    /// `orb_core::trace::the_games_word` writes.
+    ///
+    /// **Because a word can be right and still not arrive.** orb's own word is what orb pressed; the game's is
+    /// what the game made of it, and the two came apart on 2026-11-01 with no case saying so — a pad's focus
+    /// and a pad's decide were read in the wrong numbering, orb answered the game with a word it had not built,
+    /// and every check there was read the word orb *meant*.
+    ///
+    /// **Each button is asked for once over a run and not paired frame for frame with a press**, because the
+    /// buttons of this case are the pad's own (`recipe::Step::PressPad`) and orb's `word` is nought on the
+    /// frames a hand presses one: there is no orb press to pair with. What the case is about is that a press
+    /// the recipe makes is answered in the game's word at all, so a button that never appears there failed.
+    ///
+    /// **A run's frames only**: the front end keeps its own word, built out of its own read of the keys, and a
+    /// press there is held by what a case's own check says of its screens.
+    pub fn every_button_reached_the_game(
+        trace: &Trace,
+        buttons: &[(&str, u16)],
+    ) -> Result<(), String> {
+        let mut seen = 0u16;
+        for record in &trace.records {
+            let in_a_run = record.state.as_ref().is_some_and(|state| state.in_game);
+            if in_a_run {
+                seen |= record.games_word;
+            }
+        }
+        let missing: Vec<&str> = buttons
+            .iter()
+            .filter(|(_, bit)| seen & bit == 0)
+            .map(|(name, _)| *name)
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "{} never reached the game's own word, which held {seen:#06x} over every run frame",
+            missing.join(", "),
+        ))
+    }
+
+    /// **The buttons a game's own word keeps, in the bits it keeps them in** — th06's, th07's, th08's, th10's
+    /// and th06c's, read off each of their modules in `orb-core`: the shot on `0x0001`, the bomb on `0x0002`, the
+    /// focus on `0x0004`, the pause on `0x0008` and the four directions on `0x0010` to `0x0080`. th11 keeps the
+    /// focus on `0x0008` instead, which is why its own check writes the table out.
+    ///
+    /// **A case that pressed a button and did not find it here has found orb answering the game with a word it
+    /// did not build** — which is what a pad's focus did for a while, read in the wrong numbering.
+    const THE_GAMES_OWN_BUTTONS: &[(&str, u16)] = &[
+        ("shot", 0x0001),
+        ("bomb", 0x0002),
+        ("focus", 0x0004),
+        ("up", 0x0010),
+        ("down", 0x0020),
+        ("left", 0x0040),
+        ("right", 0x0080),
+    ];
+
+    /// **th06c's own buttons, each in the bit this game's word keeps it in** — read off its exe and not out of
+    /// orb's numbering, which differs on the pad: this game's word is the run's own record of what its read
+    /// said, so a press orb makes shows here as this game spells it.
+    ///
+    /// **The pad's focus is the one to watch**: orb answered the game with the focus's bit in its own
+    /// numbering for a while, and the game read a bit nobody pressed, so nothing moved.
+    pub fn every_press_of_th06c_reached_the_game(trace: &Trace) -> Result<(), String> {
+        every_button_reached_the_game(trace, THE_GAMES_OWN_BUTTONS)
+    }
+
+    /// And th06nc's, whose word and bindings are th06c's: its `Th06nc` reads the same seven bits.
+    pub fn every_press_of_th06nc_reached_the_game(trace: &Trace) -> Result<(), String> {
+        every_button_reached_the_game(trace, THE_GAMES_OWN_BUTTONS)
+    }
+
+    /// **And th06's, th07's, th08's and th10's, which keep the same bits** — the shot on `0x0001`, the bomb on
+    /// `0x0002`, the focus on `0x0004`, the pause on `0x0008` and the four directions on `0x0010` to `0x0080`,
+    /// each read off that game's own module in `orb-core`.
+    pub fn every_press_of_th06_reached_the_game(trace: &Trace) -> Result<(), String> {
+        every_button_reached_the_game(trace, THE_GAMES_OWN_BUTTONS)
+    }
+
+    pub fn every_press_of_th07_reached_the_game(trace: &Trace) -> Result<(), String> {
+        every_button_reached_the_game(trace, THE_GAMES_OWN_BUTTONS)
+    }
+
+    pub fn every_press_of_th08_reached_the_game(trace: &Trace) -> Result<(), String> {
+        every_button_reached_the_game(trace, THE_GAMES_OWN_BUTTONS)
+    }
+
+    pub fn every_press_of_th10_reached_the_game(trace: &Trace) -> Result<(), String> {
+        every_button_reached_the_game(trace, THE_GAMES_OWN_BUTTONS)
+    }
+
+    /// **And th11's, whose focus is `0x0008`** — its own module's `BUTTON_FOCUS`, where the games before it keep
+    /// the focus on `0x0004` and the menu on `0x8`.
+    pub fn every_press_of_th11_reached_the_game(trace: &Trace) -> Result<(), String> {
+        every_button_reached_the_game(
+            trace,
+            &[
+                ("shot", 0x0001),
+                ("bomb", 0x0002),
+                ("focus", 0x0008),
+                ("up", 0x0010),
+                ("down", 0x0020),
+                ("left", 0x0040),
+                ("right", 0x0080),
+            ],
+        )
+    }
 
     /// **th08's run started by a recipe and handed back to the game's own title.**
     ///
@@ -4022,11 +4695,79 @@ pub mod checks {
     /// short of what it started with.
     pub fn a_bomb_mode_run_hit_without_the_press(trace: &Trace) -> Result<(), String> {
         let chosen = trace
-            .line_from(0, "bomb: the difficulty is lunatic")
-            .ok_or("the bomb mode was not answered with Lunatic")?;
+            .line_from(0, "bomb: the difficulty is ")
+            .ok_or("the bomb mode was not answered with a difficulty")?;
+        // **The part the line says is the part that difficulty costs**, in the twelfths
+        // `orb_core::bomb::Difficulty::part` counts in — easy 3/12, normal 4/12, hard 6/12 and lunatic the
+        // whole life. A line saying an eighth or a quarter is a difficulty list the launch did not read.
+        let said = trace.records[chosen]
+            .lines
+            .iter()
+            .find(|line| line.contains("bomb: the difficulty is "))
+            .cloned()
+            .unwrap_or_default();
+        let whole = said.contains("lunatic");
+        let part = if whole {
+            "12/12"
+        } else if said.contains("hard") {
+            "6/12"
+        } else if said.contains("normal") {
+            "4/12"
+        } else {
+            "3/12"
+        };
+        trace
+            .line_from(
+                chosen,
+                &format!("a hit without the press costing {part} of a life"),
+            )
+            .ok_or("the difficulty's part is not the one that difficulty costs")?;
+        // **And a bomb with nothing to answer costs a quarter of one**, in the recipes that fire one — th10's
+        // and th11's do not yet, their fakes modelling no bomb from a press, so the line is asked for only of a
+        // recipe whose own text holds the step. See `orb_core::bomb::A_BOMB_IN_PARTS`.
+        let fires_one = trace.records.iter().any(|record| {
+            record
+                .lines
+                .iter()
+                .any(|line| line.contains("press: [bomb]"))
+        });
+        if fires_one {
+            trace
+                .line_from(chosen, "bomb: a bomb answered nothing; 1/4 of a bomb owed")
+                .ok_or("a bomb with nothing to answer did not cost a quarter of one")?;
+        }
         trace
             .line_from(chosen, "mode: pointdevice-bomb")
             .ok_or("the mode the answer chose is not the bomb mode")?;
+        // **And the question's own words were drawn, inside the screen they are drawn in.** The step that
+        // answers it presses towards the item and decides on it, as somebody at the pad does — but a press
+        // reaches orb's own question whether or not its words are on the screen, so a launch whose question
+        // was never drawn answered it all the same. What says somebody could have picked the mode is the
+        // words, which is `Mode::name`'s in either language.
+        let named = ["完全無欠ボムモード", "Pointdevice Bomb Mode"];
+        let drawn = trace
+            .records
+            .iter()
+            .filter_map(|record| record.drawn.as_ref())
+            .flat_map(|drawn| drawn.words.iter())
+            .find(|word| named.iter().any(|name| word.text.contains(name)))
+            .ok_or(
+                "the bomb mode was chosen with nothing on the screen naming it: the question was never \
+                 drawn, so nobody could have picked it",
+            )?;
+        expect(
+            drawn.x >= 0.0
+                && drawn.y >= 0.0
+                && drawn.x + drawn.width <= 640.0
+                && drawn.y + drawn.height <= 480.0,
+            || {
+                format!(
+                    "the bomb mode is drawn at {},{} {}x{}, which is not inside the 640x480 the game's \
+                     output is",
+                    drawn.x, drawn.y, drawn.width, drawn.height
+                )
+            },
+        )?;
         // The lives as the stage's first chapter has them, and not the run's first record's: a stage being built
         // reads nought there.
         let started = trace
@@ -4037,8 +4778,21 @@ pub mod checks {
             .ok_or("the first chapter stood over no state")?
             .lives;
         let taken = trace
-            .line_from(started, "not pressed in time, and a life is taken")
-            .ok_or("no hit was judged as one without the press that cost a life")?;
+            .line_from(started, "not pressed in time")
+            .ok_or("no hit was judged as one without the press")?;
+        // **A whole life is taken where the part is one**, and a part short of it only owed: on a fractional
+        // difficulty the run keeps every life it started with, which is what the panel's shaved star says.
+        let short = if whole { lives - 1 } else { lives };
+        expect(
+            trace.records[taken].lines.iter().any(|line| {
+                line.contains(if whole {
+                    "a life is taken"
+                } else {
+                    "not pressed in time; "
+                })
+            }),
+            || format!("the hit was judged as the wrong kind for {part}"),
+        )?;
         trace
             .line_from(taken, "bomb: the lives put back to")
             .ok_or("the restore's lives were not written over with the run's own")?;
@@ -4047,24 +4801,43 @@ pub mod checks {
         let after = put_back_after(trace, taken)
             .ok_or("the run never came back after the retry")?
             .lives;
-        expect(after == lives - 1, || {
+        expect(after == short, || {
             format!(
-                "the run came back with {after} lives where it started with {lives}: the life the hit \
+                "the run came back with {after} lives where it started with {lives}: the part the hit \
                  took is not the one it is short of"
             )
         })?;
-        // And still a life short at the end of the launch, the restore having put nothing back.
+        // **And the star the part is gone from is painted with the game's own panel**, which is what shows the
+        // part at all: a shave drawn with orb's own flat colour is a rectangle beside the star rather than a
+        // star with a piece gone — the launch of th06c that found this one had exactly that, its panel being a
+        // noise of its own that orb had no tile of. See `orb_core::trace::AShavedStar`, whose `from` says
+        // which of the three sources the launch used; `orb` is the one that is wrong.
+        if !whole {
+            let shaved = trace
+                .records
+                .iter()
+                .skip(taken)
+                .find_map(|record| record.a_shaved_star.as_ref())
+                .ok_or("no frame after the hit shaved a part of a star off")?;
+            // **What the part was painted with, and the pixels it was painted into**, which is the half the
+            // fields cannot say — see [`the_shaved_star_is_cut_in_the_picture`], which asks both of them where
+            // a picture of a frame the game drew is there to be looked at. A laid-out game's frame is one
+            // colour and answers neither: its panel tile is not one orb has a texture of, and a shave
+            // painted with orb's own colour is what such a frame shows and all it can.
+            let _ = shaved;
+            the_shaved_star_is_cut_in_the_picture(trace)?;
+        }
+        // And still short at the end of the launch, the restore having put nothing back.
         let last = trace
             .records
             .iter()
             .rev()
             .find_map(|record| record.state.filter(|state| state.in_run))
             .ok_or("the trace ends with no run in it")?;
-        expect(last.lives < lives, || {
+        expect(last.lives <= short, || {
             format!(
-                "the run ended with {} lives, more than the {} the hit left it",
-                last.lives,
-                lives - 1
+                "the run ended with {} lives, more than the {short} the hit left it",
+                last.lives
             )
         })
     }
@@ -4072,6 +4845,92 @@ pub mod checks {
     /// **A run of 完全無欠ボムモード on Lunatic hit with the bomb button pressed once as the hit lands**: the hit
     /// judged as one with the press in time, no life taken for it, no bomb set off by the one press — the hit is
     /// a death the retry menu answers — and the run carried on with every life it started with.
+    /// **The quarter a power bomb costs, where the run has the power to pay it**: th10's bomb is 20 of its
+    /// power, so a bomb that answered nothing costs 5 — everything `a_bomb_mode_run_hit_without_the_press` holds,
+    /// and then the power the trace carries across the bomb's window. Asked only where the run stood at a
+    /// bomb's worth or more before the bomb: a laid-out th10 collects no power of its own, and a quarter of a
+    /// bomb taken from nought saturates and nothing is left to see.
+    pub fn a_bomb_mode_run_hit_without_the_press_on_th10(trace: &Trace) -> Result<(), String> {
+        a_bomb_mode_run_hit_without_the_press(trace)?;
+        let bombed = trace
+            .line_from(0, "bomb: a bomb answered nothing")
+            .ok_or("the lone bomb was not judged")?;
+        let before = trace.records[..bombed]
+            .iter()
+            .rev()
+            .find_map(|record| {
+                record
+                    .state
+                    .filter(|state| state.in_run)
+                    .map(|state| state.power)
+            })
+            .ok_or("no frame before the bomb stood over a run")?;
+        if before < 20 {
+            return Ok(());
+        }
+        // **The frame after the line**, which is the one whose state carries what the window's end did: a
+        // record holds the frame before it.
+        let after = trace
+            .records
+            .get(bombed + 1)
+            .and_then(|record| record.state)
+            .map(|state| state.power)
+            .unwrap_or(before);
+        expect(i32::from(before) - i32::from(after) == 5, || {
+            format!(
+                "the run had {before} power before the bomb and {after} after it, where a quarter of the \
+                 20 a bomb costs is 5"
+            )
+        })
+    }
+
+    /// **th11's quarter, out of the cost its own `.sht` gives**, which the trace's line carries where a stock
+    /// game's would say nought: the drop across the bomb's window is a quarter of that cost — see
+    /// `Game::a_bomb_costs_power`, and `a_bomb_mode_run_hit_without_the_press` for everything else held.
+    pub fn a_bomb_mode_run_hit_without_the_press_on_th11(trace: &Trace) -> Result<(), String> {
+        a_bomb_mode_run_hit_without_the_press(trace)?;
+        let bombed = trace
+            .line_from(0, "bomb: a bomb answered nothing")
+            .ok_or("the lone bomb was not judged")?;
+        let line = trace.records[bombed]
+            .lines
+            .iter()
+            .find(|line| line.contains("bomb: a bomb answered nothing"))
+            .cloned()
+            .unwrap_or_default();
+        let cost: i32 = line
+            .split("cost ")
+            .nth(1)
+            .and_then(|cost| cost.trim().parse().ok())
+            .ok_or("the line does not say what the bomb cost, which is th11's own `.sht`")?;
+        let before = trace.records[..bombed]
+            .iter()
+            .rev()
+            .find_map(|record| {
+                record
+                    .state
+                    .filter(|state| state.in_run)
+                    .map(|state| state.power)
+            })
+            .ok_or("no frame before the bomb stood over a run")?;
+        if i32::from(before) < cost {
+            return Ok(());
+        }
+        let after = trace
+            .records
+            .get(bombed + 1)
+            .and_then(|record| record.state)
+            .map(|state| state.power)
+            .unwrap_or(before);
+        expect(i32::from(before) - i32::from(after) == cost / 4, || {
+            format!(
+                "the run had {before} power before the bomb and {after} after it, where a quarter of the \
+                 {cost} a bomb costs is {}",
+                cost / 4
+            )
+        })
+    }
+
     pub fn a_bomb_mode_run_hit_with_the_press(trace: &Trace) -> Result<(), String> {
         let chosen = trace
             .line_from(0, "bomb: the difficulty is lunatic")

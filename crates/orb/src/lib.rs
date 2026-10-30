@@ -534,16 +534,15 @@ fn attach() {
     // launch: a run the machine plays is put in a corner, and a window somebody plays in is the settings'
     // — made at that place and size, and held there against the game's own moves. See
     // `orb_core::game::Hooks::makes_its_window` and `orb_core::window`.
-    let plays_itself = config.autoplay.is_some();
     let looked_up = runtime::Lookups {
         read: looked_up_read,
         // And the pad, which is how a run of a game like this is played at all — see
-        // `orb_core::game::Hooks::reads_a_pad`. Only where the launch plays itself: a pad somebody is
-        // holding is theirs, and orb answering the read would take it away from them.
-        pad: patches
-            .reads_a_pad
-            .filter(|_| plays_itself)
-            .map(|looked_up| looked_up.name),
+        // `orb_core::game::Hooks::reads_a_pad`. Every launch, and not only one that plays itself: orb's
+        // sample of the pads is the one read a pad comes through, so a pad somebody is holding is answered
+        // by orb as their keyboard is, and a question of orb's holds it the same way. Left to the game, the
+        // pads would be read behind orb's back and a press on one would reach orb's own screen as keys
+        // typed into the game's snapshot — the same device twice and one press twice.
+        pad: patches.reads_a_pad.map(|looked_up| looked_up.name),
         window_made: patches.makes_its_window.map(|looked_up| looked_up.name),
         window_moved: patches.moves_its_window.map(|looked_up| looked_up.name),
         // And the two that put it on the screen, which go with the corner: a window kept hidden until
@@ -781,14 +780,11 @@ fn attach() {
     // the monitor and a size is a window of that size, and either way it is a window rather than
     // the display taken exclusively — which is what leaves orb somewhere to draw the numbers
     // beside the game, and what the letterbox is presented into.
-    match unsafe {
-        window::install(
-            exe,
-            game.content_size(),
-            config.screen,
-            config.autoplay.is_some(),
-        )
-    } {
+    // **And a case's window is the settings' own in the corner**, rather than a small one there: see
+    // `orb_core::window::the_corner_window_is_the_settings`.
+    orb_core::window::the_corner_window_is_the_settings(config.the_settings_window);
+    let out_of_the_way = config.autoplay.is_some();
+    match unsafe { window::install(exe, game.content_size(), config.screen, out_of_the_way) } {
         Ok(()) => log!("screen: window hooks installed"),
         // **And everything the window is laid out from settled anyway.** A game that asks its own startup
         // for `CreateWindowExW` — th06c and th06nc both do — has no import to rewrite, and what is made
@@ -796,13 +792,7 @@ fn attach() {
         // the monitor's own pixels. See `orb_core::window::settle`, which is what `install_over` says for
         // a game whose entries were patched.
         Err(error) => {
-            unsafe {
-                orb_core::window::settle(
-                    game.content_size(),
-                    config.screen,
-                    config.autoplay.is_some(),
-                )
-            };
+            unsafe { orb_core::window::settle(game.content_size(), config.screen, out_of_the_way) };
             log!("screen: {error}; the window is laid out where the game asks for it");
         }
     }

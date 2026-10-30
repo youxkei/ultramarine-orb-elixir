@@ -19,6 +19,7 @@
 
 use orb_api::d3d11::{self, Object};
 
+use crate::game::Rect;
 use crate::log;
 
 /// **The vertex the shaders below agree on**: where it goes in the output, in pixels, the colour it
@@ -84,6 +85,11 @@ const POSITION: &[u8] = b"POSITION\0";
 const TEXCOORD: &[u8] = b"TEXCOORD\0";
 const COLOUR: &[u8] = b"COLOR\0";
 
+/// **The widest a picture of the whole buffer is kept**, which [`Canvas::a_picture_of_the_buffer`] samples
+/// down by a whole factor to: a `3840x2160` frame's picture is `1280x720` and no trace carries twelve times
+/// the pixels of the frame it is of.
+const THE_BUFFERS_PICTURE: u32 = 1280;
+
 /// Everything the drawing needs, made once for a swapchain and given back together.
 pub struct Canvas {
     device: d3d11::Device,
@@ -115,6 +121,11 @@ pub struct Canvas {
     /// space is mapped onto. Setting the viewport to the coordinate space instead is what left orb's
     /// own menus drawn in the top-left corner of a `1280x720` window at a quarter of its area.
     viewport: std::cell::Cell<(f32, f32)>,
+    /// **The size of the picture the game itself draws**, where that is not the shape of the buffer: a game
+    /// whose renderer keeps its own aspect leaves the rest of the buffer black, and orb's output belongs on
+    /// the picture rather than stretched over the black as well — see [`Canvas::the_picture`]. `None` where
+    /// the picture fills the buffer.
+    picture: Option<(u32, u32)>,
 }
 
 /// A texture and the view a shader reads it through, which are always made and released together.
@@ -134,7 +145,11 @@ impl Canvas {
     /// # Safety
     /// `swapchain` must be a live `IDXGISwapChain` of a D3D11 device, and this must run on the thread that
     /// made it.
-    pub unsafe fn new(swapchain: usize, output: (u32, u32)) -> Option<Self> {
+    pub unsafe fn new(
+        swapchain: usize,
+        output: (u32, u32),
+        picture: Option<(u32, u32)>,
+    ) -> Option<Self> {
         let device = unsafe { d3d11::device_of(swapchain) }?;
         let context = unsafe { d3d11::immediate_context(device) }?;
         let target = unsafe { a_view_of_this_frames_buffer(device, swapchain) }?;
@@ -199,6 +214,8 @@ impl Canvas {
             d3d11::sampler_state(
                 device,
                 d3d11::SamplerDesc {
+                    // The sampler the pictures orb draws are sampled with: linear, which is what a picture of
+                    // the frame stretched between two sizes is drawn back with.
                     filter: d3d11::D3D11_FILTER_MIN_MAG_MIP_LINEAR,
                     address_u: d3d11::D3D11_TEXTURE_ADDRESS_CLAMP,
                     address_v: d3d11::D3D11_TEXTURE_ADDRESS_CLAMP,
@@ -216,12 +233,17 @@ impl Canvas {
         // corner of a larger window — see [`Canvas::viewport`].
         let viewport = unsafe { crate::dxgi::the_size_of(swapchain) };
         log!(
-            "canvas: drawing through this game's own Direct3D 11, over {}x{} stretched onto {}",
+            "canvas: drawing through this game's own Direct3D 11, over {}x{} placed on {}, which is {}",
             output.0,
             output.1,
             match viewport {
-                Some((width, height)) => format!("{width}x{height}"),
+                Some((width, height)) => format!("a {width}x{height} buffer"),
                 None => "a buffer of a size the swapchain will not say".to_owned(),
+            },
+            match picture {
+                Some((across, down)) =>
+                    format!("the game's own {across}x{down} picture inside it, the rest black"),
+                None => "the whole of it".to_owned(),
             },
         );
         Some(Self {
@@ -244,6 +266,7 @@ impl Canvas {
                     (width as f32, height as f32)
                 }),
             ),
+            picture,
         })
     }
 
@@ -266,7 +289,7 @@ impl Canvas {
                     bind_flags: d3d11::D3D11_BIND_SHADER_RESOURCE,
                     ..d3d11::Texture2dDesc::default()
                 },
-                pixels,
+                Some(pixels),
             )
         }?;
         match unsafe { d3d11::resource_view(self.device, texture) } {
@@ -281,6 +304,355 @@ impl Canvas {
                 None
             }
         }
+    }
+
+    /// **A sheet holding the pixels the game has just drawn in `area`** — which is how a part of a life
+    /// shaved off a star has the game's own panel behind it rather than a colour of orb's.
+    ///
+    /// `area` is in [`Canvas::output`]'s own coordinates, the 640x480 every quad of orb's is placed in, and
+    /// the copy is made at the size the back buffer holds those pixels at: a game whose buffers are larger
+    /// than its output — th06c's are the window's, 3840x2160 on this machine — has its pixels copied at
+    /// that larger size, and the piece drawn back over the same share of the output is the same piece.
+    ///
+    /// **A copy and not a read-back.** What is drawn over the swapchain's buffer cannot be read by a
+    /// shader while it is being drawn into, so the piece goes into a texture of orb's own first; both are
+    /// the game's device's, so the graphics processor makes the copy and no pixels reach this side.
+    ///
+    /// Nothing where the buffer, its format or the copy cannot be had, which is a caller left to paint
+    /// with what it has.
+    ///
+    /// # Safety
+    /// Must run on the thread the device was made on, between the game's drawing and orb's, with the
+    /// frame's own buffer still holding what the game drew into it.
+    pub unsafe fn copied_from_the_frame(&self, area: Rect) -> Option<Sheet> {
+        let (from_left, from_top) = self.on_the_picture(area.left, area.top);
+        let (to_right, to_bottom) =
+            self.on_the_picture(area.left + area.width, area.top + area.height);
+        let left = from_left.round().max(0.0) as u32;
+        let top = from_top.round().max(0.0) as u32;
+        let width = ((to_right - from_left).round() as u32).max(1);
+        let height = ((to_bottom - from_top).round() as u32).max(1);
+        let buffer = unsafe { d3d11::back_buffer(self.swapchain) }?;
+        let format = match unsafe { crate::dxgi::the_format_of(self.swapchain) } {
+            Some(format) => format,
+            None => {
+                unsafe { d3d11::release(Object::Texture(buffer)) };
+                return None;
+            }
+        };
+        let texture = unsafe {
+            d3d11::texture(
+                self.device,
+                d3d11::Texture2dDesc {
+                    width,
+                    height,
+                    mip_levels: 1,
+                    array_size: 1,
+                    format,
+                    usage: d3d11::D3D11_USAGE_DEFAULT,
+                    bind_flags: d3d11::D3D11_BIND_SHADER_RESOURCE,
+                    ..d3d11::Texture2dDesc::default()
+                },
+                None,
+            )
+        };
+        let Some(texture) = texture else {
+            unsafe { d3d11::release(Object::Texture(buffer)) };
+            return None;
+        };
+        let copied = unsafe {
+            // **The frame's own buffer let go of before it is read.** A swapchain's buffer is the game's
+            // render target and stays bound, and Direct3D 11 will not copy out of a resource that is bound
+            // for writing: it answers nothing and the copy is a texture left at nought — which is a shave
+            // painted with nothing at all, a star that never looks cut and no colour of orb's to show for it
+            // either. Bound back the moment the copy is made.
+            let (targets, depth) = d3d11::render_targets(self.context, TARGETS);
+            d3d11::set_render_targets(self.context, &[], d3d11::DepthView(0));
+            let copied = d3d11::copy_subresource_region(
+                self.context,
+                buffer,
+                d3d11::SubresourceBox::of(left, top, width, height),
+                texture,
+                (0, 0),
+            );
+            d3d11::set_render_targets(self.context, &targets, depth);
+            for target in targets {
+                d3d11::release(Object::Target(target));
+            }
+            if depth.0 != 0 {
+                d3d11::release(Object::DepthView(depth));
+            }
+            copied
+        };
+        unsafe { d3d11::release(Object::Texture(buffer)) };
+        if !copied {
+            unsafe { d3d11::release(Object::Texture(texture)) };
+            return None;
+        }
+        match unsafe { d3d11::resource_view(self.device, texture) } {
+            Some(view) => Some(Sheet {
+                texture,
+                view,
+                width,
+                height,
+            }),
+            None => {
+                unsafe { d3d11::release(Object::Texture(texture)) };
+                None
+            }
+        }
+    }
+
+    /// **The frame as it stands, as a BMP in the game's own output** — what a `screenshot` step asks a game
+    /// that draws through a swapchain for, and where a check reads a panel's pixels from.
+    ///
+    /// The buffer is copied into a staging texture and mapped, which is the only way a texture reaches the
+    /// processor; the copy is the same one [`Canvas::copied_from_the_frame`] makes, with the render targets
+    /// let go of first. What comes back is the output's own 640x480 and not the buffer's size — a picture of
+    /// a `3840x2160` buffer would be twelve times the pixels a check reads and a step's own file twelve times
+    /// the megabytes — sampled nearest at the step between the two.
+    ///
+    /// # Safety
+    /// Must run on the thread the device was made on, between the game's drawing and orb's, with the frame's
+    /// own buffer still holding what is to be read.
+    pub unsafe fn a_picture_of_the_frame(&self) -> Option<Vec<u8>> {
+        let (width, height, pixels) = unsafe { self.the_frames_pixels() }?;
+        // **A BMP's rows are `B, G, R, X`**, which is what these pixels' bytes already are.
+        let mut rows = Vec::with_capacity((width * height * 4) as usize);
+        for pixel in pixels {
+            rows.extend_from_slice(&pixel.to_le_bytes());
+        }
+        Some(crate::shot::bmp(width, height, &rows))
+    }
+
+    /// **The frame's own pixels and not a file of them** — [`Canvas::a_picture_of_the_frame`]'s read,
+    /// stopping at the pixels: the output's 640x480, top-down rows, each `0xAARRGGBB` as a sheet is.
+    ///
+    /// **Because a BMP in between is two passes over every pixel that nothing wants**: the retry screen
+    /// draws the frame under itself and needs a texture of it, and a picture written to bytes and read back
+    /// for that was the frame the question costs — measured on th06c, 139 milliseconds at the menu's frame
+    /// against 14 either side.
+    ///
+    /// # Safety
+    /// Must run on the thread the device was made on, between the game's drawing and orb's, with the frame's
+    /// own buffer still holding what is to be read.
+    pub unsafe fn the_frames_pixels(&self) -> Option<(u32, u32, Vec<u32>)> {
+        // **The game's picture and not the whole buffer**, the black beside it being the buffer's and not the
+        // game's — see [`Canvas::the_picture`].
+        let (left, top, width, height) = self.the_picture();
+        let (left, top) = (left.round().max(0.0) as u32, top.round().max(0.0) as u32);
+        let (width, height) = (
+            width.round().max(1.0) as u32,
+            height.round().max(1.0) as u32,
+        );
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let format = unsafe { crate::dxgi::the_format_of(self.swapchain) }?;
+        let buffer = unsafe { d3d11::back_buffer(self.swapchain) }?;
+        let staging = unsafe {
+            d3d11::texture(
+                self.device,
+                d3d11::Texture2dDesc {
+                    width,
+                    height,
+                    mip_levels: 1,
+                    array_size: 1,
+                    format,
+                    usage: d3d11::D3D11_USAGE_STAGING,
+                    cpu_access_flags: d3d11::D3D11_CPU_ACCESS_READ,
+                    ..d3d11::Texture2dDesc::default()
+                },
+                None,
+            )
+        };
+        let Some(staging) = staging else {
+            unsafe { d3d11::release(Object::Texture(buffer)) };
+            return None;
+        };
+        let copied = unsafe {
+            let (targets, depth) = d3d11::render_targets(self.context, TARGETS);
+            d3d11::set_render_targets(self.context, &[], d3d11::DepthView(0));
+            let copied = d3d11::copy_subresource_region(
+                self.context,
+                buffer,
+                d3d11::SubresourceBox::of(left, top, width, height),
+                staging,
+                (0, 0),
+            );
+            d3d11::set_render_targets(self.context, &targets, depth);
+            for target in targets {
+                d3d11::release(Object::Target(target));
+            }
+            if depth.0 != 0 {
+                d3d11::release(Object::DepthView(depth));
+            }
+            copied
+        };
+        unsafe { d3d11::release(Object::Texture(buffer)) };
+        let pixels = match copied {
+            true => unsafe { d3d11::read(self.context, staging, width, height) },
+            false => None,
+        };
+        unsafe { d3d11::release(Object::Texture(staging)) };
+        let pixels = pixels?;
+        // **A `B8G8R8A8` texture's bytes are `B, G, R, A` already, and a buffer in the other order has its
+        // two ends swapped on the way out.**
+        let swap_the_ends = format == d3d11::DXGI_FORMAT_R8G8B8A8_UNORM;
+        let (out_width, out_height) = (self.output.0 as u32, self.output.1 as u32);
+        let mut out = Vec::with_capacity((out_width * out_height) as usize);
+        for y in 0..out_height {
+            let from_y = (u64::from(y) * u64::from(height) / u64::from(out_height)) as u32;
+            for x in 0..out_width {
+                let from_x = (u64::from(x) * u64::from(width) / u64::from(out_width)) as u32;
+                let at = (from_y.min(height - 1) * width + from_x.min(width - 1)) as usize;
+                let pixel = pixels[at];
+                out.push(match swap_the_ends {
+                    true => {
+                        (pixel & 0xff00_ff00)
+                            | ((pixel & 0x00ff_0000) >> 16)
+                            | ((pixel & 0xff) << 16)
+                    }
+                    false => pixel,
+                });
+            }
+        }
+        Some((out_width, out_height, out))
+    }
+
+    /// **The whole buffer the frame was drawn into**, for a launch whose question is what the game draws
+    /// across the buffer rather than inside its own picture.
+    ///
+    /// **Because the picture is not the buffer.** `a_picture_of_the_frame` copies `the_picture()`'s box — the
+    /// game's 4:3 picture centred in a wider buffer — and a `3840x2160` frame holds more than that: th06c's
+    /// 1:1 copy of the scene, which sits at the origin, is left out of that box entirely (measured
+    /// 2026-11-01, which is why a launch of orb's own never showed the double a person's did).
+    ///
+    /// **Sampled down by a whole factor**, so that a picture of a `3840x2160` buffer is a `1280x720` one
+    /// rather than the twelve times the pixels a trace would carry.
+    ///
+    /// # Safety
+    /// Must run on the thread the device was made on, between the game's drawing and orb's, with the frame's
+    /// own buffer still holding what is to be read.
+    pub unsafe fn a_picture_of_the_buffer(&self) -> Option<Vec<u8>> {
+        let (width, height) = (
+            self.viewport.get().0.round().max(1.0) as u32,
+            self.viewport.get().1.round().max(1.0) as u32,
+        );
+        let format = unsafe { crate::dxgi::the_format_of(self.swapchain) }?;
+        let buffer = unsafe { d3d11::back_buffer(self.swapchain) }?;
+        let staging = unsafe {
+            d3d11::texture(
+                self.device,
+                d3d11::Texture2dDesc {
+                    width,
+                    height,
+                    mip_levels: 1,
+                    array_size: 1,
+                    format,
+                    usage: d3d11::D3D11_USAGE_STAGING,
+                    cpu_access_flags: d3d11::D3D11_CPU_ACCESS_READ,
+                    ..d3d11::Texture2dDesc::default()
+                },
+                None,
+            )
+        };
+        let Some(staging) = staging else {
+            unsafe { d3d11::release(Object::Texture(buffer)) };
+            return None;
+        };
+        let copied = unsafe {
+            let (targets, depth) = d3d11::render_targets(self.context, TARGETS);
+            d3d11::set_render_targets(self.context, &[], d3d11::DepthView(0));
+            let copied = d3d11::copy_subresource_region(
+                self.context,
+                buffer,
+                d3d11::SubresourceBox::of(0, 0, width, height),
+                staging,
+                (0, 0),
+            );
+            d3d11::set_render_targets(self.context, &targets, depth);
+            for target in targets {
+                d3d11::release(Object::Target(target));
+            }
+            if depth.0 != 0 {
+                d3d11::release(Object::DepthView(depth));
+            }
+            copied
+        };
+        unsafe { d3d11::release(Object::Texture(buffer)) };
+        let pixels = match copied {
+            true => unsafe { d3d11::read(self.context, staging, width, height) },
+            false => None,
+        };
+        unsafe { d3d11::release(Object::Texture(staging)) };
+        let pixels = pixels?;
+        // **A BMP's rows are `B, G, R, X`**, which is what a `B8G8R8A8` texture's bytes already are — and a
+        // buffer in the other order has its two ends swapped on the way out.
+        let swap_the_ends = format == d3d11::DXGI_FORMAT_R8G8B8A8_UNORM;
+        let step = width.div_ceil(THE_BUFFERS_PICTURE).max(1);
+        let (out_width, out_height) = (width / step, height / step);
+        let mut rows = Vec::with_capacity((out_width * out_height * 4) as usize);
+        for y in 0..out_height {
+            for x in 0..out_width {
+                let at = ((y * step) * width + x * step) as usize;
+                let pixel = pixels[at].to_le_bytes();
+                let swapped = [pixel[2], pixel[1], pixel[0], pixel[3]];
+                rows.extend_from_slice(match swap_the_ends {
+                    true => &swapped,
+                    false => &pixel,
+                });
+            }
+        }
+        Some(crate::shot::bmp(out_width, out_height, &rows))
+    }
+
+    /// **Where the game's own picture sits in this frame's buffer**, in the buffer's pixels: the largest box
+    /// of the picture's own shape centred in the viewport, and the whole viewport where the game answered no
+    /// shape at all.
+    ///
+    /// **Because a renderer that keeps its aspect does not fill the buffer**: th06c's frame is four by three
+    /// in a buffer that is sixteen by nine, so its picture has black either side — a quarter of the buffer's
+    /// width apiece at a `3840x2160` swapchain. Orb's output belongs on that picture: stretched over the black
+    /// too, a menu that should sit on the field sits a fifth of the screen to its left, and a star the bomb
+    /// mode shaves is drawn beside the stars rather than on one. See `Game::the_pictures_own_size`.
+    fn the_picture(&self) -> (f32, f32, f32, f32) {
+        let (width, height) = self.viewport.get();
+        let Some((across, down)) = self.picture else {
+            return (0.0, 0.0, width, height);
+        };
+        let (across, down) = (across as f32, down as f32);
+        if across <= 0.0 || down <= 0.0 {
+            return (0.0, 0.0, width, height);
+        }
+        let scale = (width / across).min(height / down);
+        let (w, h) = (across * scale, down * scale);
+        ((width - w) / 2.0, (height - h) / 2.0, w, h)
+    }
+
+    /// **A point of the output in the buffer's own pixels**, which is what a piece of the frame is copied at.
+    fn on_the_picture(&self, x: f32, y: f32) -> (f32, f32) {
+        let (left, top, width, height) = self.the_picture();
+        (
+            left + x / self.output.0 * width,
+            top + y / self.output.1 * height,
+        )
+    }
+
+    /// **How wide the black beside the game's picture is, in the output's own pixels** — the bar a line of
+    /// orb's written beside the picture goes in, and `None` where there is none: a picture that fills the
+    /// buffer's width, which is every game whose aspect is the buffer's.
+    ///
+    /// **A line drawn past the output's own width lands in the bar**, the map from output pixels to the
+    /// buffer's being linear and the picture narrower than the buffer — see [`Canvas::the_picture`].
+    pub fn the_bar_beside(&self) -> Option<f32> {
+        let (left, _, width, _) = self.the_picture();
+        let (viewport_width, _) = self.viewport.get();
+        if left <= 0.0 || width <= 0.0 {
+            return None;
+        }
+        let bar = left.min(viewport_width - (left + width));
+        Some(bar / (width / self.output.0))
     }
 
     /// **The view over whichever buffer this frame is being presented from**, taken at the top of a frame.
@@ -360,9 +732,19 @@ impl Canvas {
             (colour & 0xff) as f32 / 255.0,
         );
         // Pixels into clip space: across is twice the fraction less one, and down is the same negated,
-        // clip space having its origin in the middle and its y going up.
-        let across = |pixels: f32| pixels / self.output.0 * 2.0 - 1.0;
-        let down = |pixels: f32| 1.0 - pixels / self.output.1 * 2.0;
+        // clip space having its origin in the middle and its y going up. **The picture and not the whole
+        // buffer** — see [`Canvas::the_picture`].
+        let (left_of_the_picture, top_of_the_picture, picture_width, picture_height) =
+            self.the_picture();
+        let (viewport_width, viewport_height) = self.viewport.get();
+        let across = |pixels: f32| {
+            (left_of_the_picture + pixels / self.output.0 * picture_width) / viewport_width * 2.0
+                - 1.0
+        };
+        let down = |pixels: f32| {
+            1.0 - (top_of_the_picture + pixels / self.output.1 * picture_height) / viewport_height
+                * 2.0
+        };
         let corner = |x: f32, y: f32, u: f32, v: f32| Vertex {
             x: across(x),
             y: down(y),

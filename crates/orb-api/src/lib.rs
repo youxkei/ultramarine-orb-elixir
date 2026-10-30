@@ -611,6 +611,12 @@ pub trait Win: Send + Sync + 'static {
     fn client_rect(&self, window: Hwnd) -> Option<Rect>;
     /// Where a window is on the desktop, frame and all — see [`crate::window::window_rect`].
     fn window_rect(&self, window: Hwnd) -> Option<Rect>;
+    /// **One frame of `window`, as the host composes it** — see [`crate::window::capture`], whose Windows is
+    /// Windows.Graphics.Capture. A laid-out host has no window surface to capture, so what it answers is the
+    /// frame its canvas drew, which is what its own window shows: a texture of one colour, `orb_sim`'s own.
+    fn capture_window(&self, _window: Hwnd) -> Option<crate::window::Picture> {
+        None
+    }
     /// `SetWindowLongPtrW` on the extended style, adding `ex_style`, and the frame redrawn — see
     /// [`crate::window::add_ex_style`]. A laid-out host keeps no styles, so the default answers that the
     /// host took it.
@@ -921,8 +927,23 @@ pub trait Win: Send + Sync + 'static {
         &self,
         device: d3d11::Device,
         desc: d3d11::Texture2dDesc,
-        pixels: &[u32],
+        pixels: Option<&[u32]>,
     ) -> Option<d3d11::Texture>;
+    fn d3d11_copy_subresource_region(
+        &self,
+        context: d3d11::Context,
+        from: d3d11::Texture,
+        region: d3d11::SubresourceBox,
+        to: d3d11::Texture,
+        at: (u32, u32),
+    ) -> bool;
+    fn d3d11_read(
+        &self,
+        context: d3d11::Context,
+        texture: d3d11::Texture,
+        width: u32,
+        height: u32,
+    ) -> Option<Vec<u32>>;
     fn d3d11_resource_view(
         &self,
         device: d3d11::Device,
@@ -964,6 +985,12 @@ pub trait Win: Send + Sync + 'static {
     fn d3d11_sampler_set(&self, context: d3d11::Context) -> d3d11::Sampler;
     fn d3d11_set_resource_view(&self, context: d3d11::Context, view: d3d11::ResourceView);
     fn d3d11_draw(&self, context: d3d11::Context, vertices: u32, first: u32);
+    /// The address of the context's own `Draw` slot — see [`d3d11::the_draw_slot`].
+    fn d3d11_the_draw_slot(&self, context: d3d11::Context) -> usize;
+    /// One draw counted — see [`d3d11::count_a_draw`].
+    fn d3d11_count_a_draw(&self);
+    /// The draws counted since the last call — see [`d3d11::draws_taken`].
+    fn d3d11_draws_taken(&self) -> u32;
     fn d3d11_release(&self, object: d3d11::Object) -> u32;
 
     // --- the buffer the game's music is played out of ----------------------------

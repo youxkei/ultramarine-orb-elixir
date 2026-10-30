@@ -222,6 +222,9 @@ struct Case {
     /// see `orb_real::Case::presses_through_a_pad`. The one presses a keyboard, which is the read a person at
     /// one walks, and it presses it from the host.
     presses_through_a_pad: bool,
+    /// **Whether it is played in the window its settings name** — see `orb_real::Case::the_settings_window`,
+    /// which every case answers yes to but the one about a window of another size.
+    the_settings_window: bool,
 }
 
 /// How many settings `orb-real list` prints for a case, which is `orb_real::Settings`' fields — counted here
@@ -506,6 +509,17 @@ fn launched(
     // and the file is whatever somebody last played in that copy left there. Printed as arguments by
     // `orb-real list` and handed on as they stand — see [`Case::settings`].
     launch.args(&case.settings);
+    // **And played in the window those settings name**, and not in the small one orb puts a launch it plays
+    // in the corner in: a case is a measurement of what the game does, and a window of another size is a game
+    // told something a person is never told — a person watched a launch of their own and a case of the same
+    // frame and saw the picture drawn twice in one and not the other (2026-11-02). See
+    // `orb_config::Config::the_settings_window`.
+    //
+    // **Except the one case that is about that other size**, which keeps the corner's window so that what a
+    // window unlike its buffer does to the frame can be seen — see `orb_real::Case::the_settings_window`.
+    if case.the_settings_window {
+        launch.arg("--the-settings-window");
+    }
     // **Started and not waited on.** orb.exe stays until the game ends — it is the process Steam counts
     // as the game — and what one launch waits for here is the game's own exe, which is `wait_out`'s. An
     // orb.exe that has already gone while no game came up said why above and left a code, which is said
@@ -514,7 +528,7 @@ fn launched(
     let mut orb = launch
         .spawn()
         .map_err(|why| format!("{} {said}: orb.exe could not be run: {why}", game.name))?;
-    let took = match wait_out(&game.exe, case.within) {
+    let took = match wait_out(&game.exe, case.within, &mut orb, &dir.join("orb.log")) {
         Ok(took) => took,
         Err(why) => {
             let ended = orb
@@ -650,6 +664,7 @@ impl Again {
             pace: self.pace,
             settings,
             presses_through_a_pad: true,
+            the_settings_window: true,
         };
         let mut chapters = Chapters::default();
         let mut lost = 0;
@@ -831,11 +846,11 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
         // **Ten fields of the case and then the settings**, which are counted rather than pattern-matched: a
         // slice pattern is an exact length, and what is wanted here is a prefix and a rest. And the one field
         // after them, which is not a setting — see `orb_real::Case::presses_through_a_pad`.
-        if fields.len() != 10 + SETTINGS_ORB_REAL_PRINTS + 1 {
+        if fields.len() != 10 + SETTINGS_ORB_REAL_PRINTS + 2 {
             return Err(format!(
                 "orb-real list printed {} field(s), where {} were expected: {line:?}",
                 fields.len(),
-                10 + SETTINGS_ORB_REAL_PRINTS + 1
+                10 + SETTINGS_ORB_REAL_PRINTS + 2
             ));
         }
         let [
@@ -877,6 +892,16 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
                 other => {
                     return Err(format!(
                         "orb-real list printed {other:?} as whether a case presses through a pad"
+                    ));
+                }
+            },
+            the_settings_window: match fields[11 + SETTINGS_ORB_REAL_PRINTS] {
+                "0" => false,
+                "1" => true,
+                other => {
+                    return Err(format!(
+                        "orb-real list printed {other:?} as whether a case is played in its settings' \
+                         window"
                     ));
                 }
             },
@@ -942,13 +967,32 @@ fn closed(exe: &str) -> Result<(), String> {
 
 /// Waits for the game to come up and then to go, and answers how long that took. `within` is the case's
 /// own ceiling.
-fn wait_out(exe: &str, within: Duration) -> Result<Duration, String> {
+///
+/// **And an `orb.exe` that is gone with no game to wait for ends the wait rather than the clock**, which is
+/// the difference between a launch that failed and a machine that is slow: a th06nc launch of 2026-11-02
+/// logged `steam: SteamAppId 4659620 for this launch` and nothing after it and never answered the task
+/// list, and what the session said was that the game never came up in sixty seconds — the log beside it
+/// being the only thing that could say why. So the wait says `orb.exe`'s exit and the last of that log when
+/// either it or the clock runs out.
+fn wait_out(
+    exe: &str,
+    within: Duration,
+    orb: &mut std::process::Child,
+    log: &Path,
+) -> Result<Duration, String> {
     let started = Instant::now();
     while running(exe) == 0 {
+        if let Ok(Some(status)) = orb.try_wait() {
+            return Err(format!(
+                "{exe} never came up and orb.exe {status}; the last of its log:\n{}",
+                the_last_of(log)
+            ));
+        }
         if started.elapsed() > UP_WITHIN {
             return Err(format!(
-                "{exe} never came up within {}s; what orb.exe said is above",
-                UP_WITHIN.as_secs()
+                "{exe} never came up within {}s, and orb.exe is still up; the last of its log:\n{}",
+                UP_WITHIN.as_secs(),
+                the_last_of(log)
             ));
         }
         std::thread::sleep(Duration::from_secs(1));
@@ -965,6 +1009,27 @@ fn wait_out(exe: &str, within: Duration) -> Result<Duration, String> {
         std::thread::sleep(Duration::from_secs(5));
     }
     Ok(started.elapsed())
+}
+
+/// The last few lines of a launch's log, for a wait that ran out — indented so they read as part of the
+/// line that says why.
+fn the_last_of(log: &Path) -> String {
+    const LINES: usize = 12;
+    let Ok(text) = std::fs::read(log) else {
+        return format!("  (nothing at {})", log.display());
+    };
+    let text = String::from_utf8_lossy(&text);
+    let all: Vec<&str> = text.lines().collect();
+    let from = all.len().saturating_sub(LINES);
+    let mut said = all[from..]
+        .iter()
+        .map(|line| format!("  {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if from > 0 {
+        said = format!("  … {} earlier line(s)\n{said}", from);
+    }
+    said
 }
 
 /// A path as the Windows side spells it, where this is WSL — `orb.exe` is a Windows process and a path under

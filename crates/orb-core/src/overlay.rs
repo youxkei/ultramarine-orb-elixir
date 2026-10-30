@@ -19,7 +19,7 @@ use orb_api::text::Font;
 use orb_api::{Device, Mask, Texture, Viewport};
 
 use crate::canvas::{Canvas, Sheet};
-use crate::game::Face;
+use crate::game::{Face, Rect};
 use crate::log;
 
 pub const SCREEN_WIDTH: f32 = 640.0;
@@ -306,6 +306,7 @@ impl Overlay {
     /// thread that made it.
     pub unsafe fn over_a_swapchain(
         swapchain: usize,
+        picture: Option<(u32, u32)>,
         font_path: &Path,
         own_face: Option<Face>,
         font_height: i32,
@@ -316,8 +317,13 @@ impl Overlay {
         }
         let font = loaded(font_path, own_face, font_height)?;
         let mark_font = loaded(font_path, own_face, mark_height)?;
-        let canvas =
-            unsafe { Canvas::new(swapchain, (SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)) }?;
+        let canvas = unsafe {
+            Canvas::new(
+                swapchain,
+                (SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32),
+                picture,
+            )
+        }?;
         let backend = Backend::TheCanvas(canvas);
         let white = unsafe { backend.upload(&one_white_pixel()) }?;
         Some(Self {
@@ -344,6 +350,100 @@ impl Overlay {
     pub unsafe fn lets_go_of_this_frames_buffer(&self) {
         if let Backend::TheCanvas(canvas) = &self.backend {
             unsafe { canvas.lets_go_of_this_frames_buffer() };
+        }
+    }
+
+    /// **The game's own pixels of `area`, as a picture orb can draw back** — a piece of the frame the game
+    /// has just drawn, before anything of orb's goes over it. Nothing for an overlay drawn with a device,
+    /// where the game's own panel tile is what a shaved star is painted with instead —
+    /// `Game::panel_tile`.
+    ///
+    /// The picture is the caller's to drop when it is done with it, which gives the sheet back.
+    ///
+    /// # Safety
+    /// Must run on the device's thread, inside the frame, with the game's own drawing for this frame
+    /// already done.
+    pub unsafe fn copied_from_the_frame(&self, area: Rect) -> Option<Picture> {
+        let Backend::TheCanvas(canvas) = &self.backend else {
+            return None;
+        };
+        let sheet = unsafe { canvas.copied_from_the_frame(area) }?;
+        let size = (sheet.width, sheet.height);
+        Some(Picture {
+            uploaded: Some(Uploaded::OnTheCanvas(sheet)),
+            size,
+        })
+    }
+
+    /// **The frame as it stands, as a picture that can be drawn back over the game's own screen** — the pixels
+    /// of [`Canvas::the_frames_pixels`] with an alpha of one.
+    ///
+    /// **And the alpha is why it goes through the processor**: a picture copied on the device keeps the
+    /// swapchain's own alpha, which is nought, and every quad orb draws blends with `SRC_ALPHA`, so a copy of
+    /// the frame drawn back paints nothing at all (measured 2026-11-03: the same pixel count with the picture
+    /// and without it). The pixels the frame is read out as are given the alpha a drawing needs.
+    ///
+    /// **A copy on the device was tried four ways and does not hold**: drawn back from the buffer's own size
+    /// the band beside the playfield stops agreeing — 255 of th06c's 358 pixels with a linear filter, 255 with
+    /// a point one, 248 with the copy read half a texel in from its edges, and 241 with the uv that maps each
+    /// output pixel to `floor(i * width / output)`, where the pixels taken out of the frame one for one agree
+    /// in all 358. So the picture is read back, and the 91 milliseconds that costs are the price of the bands.
+    ///
+    /// # Safety
+    /// Must run on the device's thread, inside the frame, with the game's own drawing for this frame already
+    /// done.
+    pub unsafe fn an_opaque_picture_of_the_frame(&self) -> Option<Picture> {
+        let Backend::TheCanvas(canvas) = &self.backend else {
+            return None;
+        };
+        let (width, height, pixels) = unsafe { canvas.the_frames_pixels() }?;
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let pixels: Vec<u32> = pixels
+            .into_iter()
+            .map(|pixel| pixel | 0xff00_0000)
+            .collect();
+        let sheet = unsafe { canvas.sheet(width, height, &pixels) }?;
+        let size = (sheet.width, sheet.height);
+        Some(Picture {
+            uploaded: Some(Uploaded::OnTheCanvas(sheet)),
+            size,
+        })
+    }
+
+    /// **The frame as it stands, as a BMP** — a game drawn over a swapchain, where the drawing is orb's and
+    /// what the frame holds is what the canvas has in the buffer. Nothing for an overlay drawn with a device,
+    /// whose pictures are `crate::shot`'s own.
+    ///
+    /// # Safety
+    /// Must run on the device's thread, with the frame drawn.
+    pub unsafe fn a_picture_of_the_frame(&self) -> Option<Vec<u8>> {
+        let Backend::TheCanvas(canvas) = &self.backend else {
+            return None;
+        };
+        unsafe { canvas.a_picture_of_the_frame() }
+    }
+
+    /// **And the whole buffer the frame was drawn into** — see [`Canvas::a_picture_of_the_buffer`], which a
+    /// launch at a screen bigger than the game's own picture is the reason for.
+    ///
+    /// # Safety
+    /// Must run on the device's thread, with the frame drawn.
+    pub unsafe fn a_picture_of_the_buffer(&self) -> Option<Vec<u8>> {
+        let Backend::TheCanvas(canvas) = &self.backend else {
+            return None;
+        };
+        unsafe { canvas.a_picture_of_the_buffer() }
+    }
+
+    /// **How wide the black beside the game's picture is, in the output's own pixels**, and `None` where the
+    /// picture fills the buffer — see [`Canvas::the_bar_beside`]. Nothing for an overlay drawn with a device,
+    /// whose output is the whole of its back buffer.
+    pub fn the_bar_beside(&self) -> Option<f32> {
+        match &self.backend {
+            Backend::TheCanvas(canvas) => canvas.the_bar_beside(),
+            Backend::TheDevice { .. } => None,
         }
     }
 
@@ -624,6 +724,26 @@ impl Frame<'_> {
             return;
         };
         self.quad(uploaded, x, y, width, height, color, uploaded.uv());
+    }
+
+    /// **A piece of a picture, named by `uv`, drawn at a place and size of its own** — which is a span of a
+    /// star painted with the frame's own pixels behind it: the piece is not the whole of the picture but
+    /// the part of it the span corresponds to.
+    #[allow(clippy::too_many_arguments)]
+    pub fn piece_of(
+        &self,
+        picture: &Picture,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        uv: [f32; 4],
+        color: u32,
+    ) {
+        let Some(uploaded) = &picture.uploaded else {
+            return;
+        };
+        self.quad(uploaded, x, y, width, height, color, uv);
     }
 
     /// Draws `label` with a one-pixel drop shadow, which is what makes text

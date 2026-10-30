@@ -256,6 +256,23 @@ pub unsafe fn reprotect(address: usize, len: usize, previous: u32) {
     unsafe { host::reprotect(address, len, previous) }
 }
 
+/// **Points one entry of a vtable at `replacement`, answering the pointer that was there** — a COM vtable is
+/// read-only data in the exe, so the entry is written with its page unprotected and the page put back after.
+///
+/// Nought where the page would not give way, or where a simulation is what is running: a laid-out host has no
+/// vtable to point anywhere.
+///
+/// # Safety
+/// `slot` must be the address of one entry of a vtable that is mapped, and `replacement` must be a function
+/// taking what that entry takes.
+pub unsafe fn point_a_slot_at(slot: usize, replacement: usize) -> usize {
+    #[cfg(feature = "sim")]
+    if crate::installed().is_some() {
+        return 0;
+    }
+    unsafe { host::point_a_slot_at(slot, replacement) }
+}
+
 /// Whether `address` holds a pointer to a mapped image, which is what a live COM object's
 /// vtable pointer looks like.
 ///
@@ -648,6 +665,10 @@ mod host {
     }
     pub unsafe fn unprotect(_address: usize, _len: usize) -> Option<u32> {
         no_windows("mem::unprotect")
+    }
+    /// Nought, for the reason [`unprotect`] is: there is no vtable to point anywhere without Windows.
+    pub unsafe fn point_a_slot_at(_slot: usize, _replacement: usize) -> usize {
+        0
     }
     pub unsafe fn reprotect(_address: usize, _len: usize, _previous: u32) {
         no_windows("mem::reprotect")

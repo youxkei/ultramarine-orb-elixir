@@ -233,7 +233,10 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
 ///
 /// **A test per case and not one test per game**: one per game once took 194s of the 32-bit run while six of
 /// its eight threads sat idle.
-const CASES: [&str; 21] = [
+const CASES: [&str; 24] = [
+    "every_press_reaches_the_game",
+    "the_playfield_drawn_once",
+    "the_picture_drawn_once_over_a_hit",
     "a_run_left_in_its_second_chapter",
     "the_run_picked_up_where_it_was_left",
     "a_death_answered_by_the_chapter_again",
@@ -376,6 +379,7 @@ fn the_case_of_th06_passes(name: &str) {
 
 a_test_per_case!(
     the_case_of_th06_passes,
+    every_press_of_th06_reaches_the_game => "every_press_reaches_the_game",
     a_run_of_th06_left_in_its_second_chapter => "a_run_left_in_its_second_chapter",
     the_run_of_th06_picked_up_where_it_was_left => "the_run_picked_up_where_it_was_left",
     a_death_of_th06_answered_by_the_chapter_again => "a_death_answered_by_the_chapter_again",
@@ -457,6 +461,7 @@ fn the_case_of_th07_passes(name: &str) {
 
 a_test_per_case!(
     the_case_of_th07_passes,
+    every_press_of_th07_reaches_the_game => "every_press_reaches_the_game",
     a_run_of_th07_left_in_its_second_chapter => "a_run_left_in_its_second_chapter",
     the_run_of_th07_picked_up_where_it_was_left => "the_run_picked_up_where_it_was_left",
     a_death_of_th07_answered_by_the_chapter_again => "a_death_answered_by_the_chapter_again",

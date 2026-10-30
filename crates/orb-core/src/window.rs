@@ -35,6 +35,12 @@
 //! anything: a game that has taken the display exclusively has no window to size, and orb needs one to write
 //! its numbers in the black beside the game.
 //!
+//! **And a launch that plays itself is put where orb decides, not where the game asked**:
+//! [`placed_out_of_the_way`] puts it in [`the_leftmost_of`]'s corner, and — where `--the-settings-window` asks
+//! for the settings' own size — with no frame about it and on the primary monitor where that size fits. A window that runs off every monitor has the desktop
+//! behind it, and Windows.Graphics.Capture answers black across the part that is off (measured 2026-11-02,
+//! a `3840x2160` window over a `2160x3840` left monitor and a `3840x2160` primary).
+//!
 //! **Display scaling is off**, said with `SetProcessDPIAware` at the same moment — before the window exists,
 //! which is the only moment it can be said. So a size in `orb.yaml` is that many pixels of screen, and the
 //! monitor a fullscreen window is measured against is the whole of it. The size the window came out with is
@@ -339,14 +345,21 @@ pub unsafe extern "system" fn create_window_ex_w(
     // is on the screen while that is settled is nothing at all, and [`keeps_its_corner`] shows it once the
     // corner has held.
     let (into_x, into_y, into_width, into_height, style, ex_style) = match (corner, settings) {
-        (Some(monitor), _) => (
-            monitor.left,
-            monitor.top,
-            width,
-            height,
-            style & !WS_VISIBLE,
-            ex_style | OUT_OF_THE_WAY_EX_STYLE,
-        ),
+        (Some(monitor), _) => {
+            // **And where and how big the window orb plays in is [`placed_out_of_the_way`]'s to say**, which
+            // is also the one place a window of the settings' own size is given no frame and put on the
+            // monitor it fits — see there, and `keeps_its_corner`, which puts the same window back in the
+            // same place after something moves it.
+            let wanted = placed_out_of_the_way(monitor);
+            (
+                wanted.area.left,
+                wanted.area.top,
+                wanted.area.width(),
+                wanted.area.height(),
+                wanted.style & !WS_VISIBLE,
+                ex_style | wanted.ex_style,
+            )
+        }
         (None, Some(wanted)) => (
             wanted.area.left,
             wanted.area.top,
@@ -475,8 +488,53 @@ pub unsafe extern "system" fn move_window(
     unsafe { original(window, into_x, into_y, into_width, into_height, repaint) }
 }
 
+/// **The client of the window a launch playing itself is put in**, which keeps the shape of what is played.
+///
+/// **Because a `16:9` game in a `4:3` window is a picture stretched**, and a person watching one said so on
+/// 2026-11-02: "ゲーム画面がさアスペクト比がおかしいんだよね". The width is [`OUT_OF_THE_WAY_CLIENT`]'s and the
+/// height follows the content's own shape — `1280x720` makes `320x180`, `640x480` makes `320x240` — and the
+/// pair [`OUT_OF_THE_WAY_CLIENT`] names is what a launch whose content is not known yet gets.
+fn the_corners_client() -> (i32, i32) {
+    // **And the settings' own size where a case says so**, that being a launch played in the corner the way
+    // a person would have the window: the same place and the same size, rather than a small one whose buffer
+    // the game is never given.
+    if unsafe { *THE_CORNER_IS_THE_SETTINGS.get() }
+        && let Screen::Window { width, height } = unsafe { *SCREEN.get() }
+    {
+        return (
+            i32::try_from(width).unwrap_or(OUT_OF_THE_WAY_CLIENT.0),
+            i32::try_from(height).unwrap_or(OUT_OF_THE_WAY_CLIENT.1),
+        );
+    }
+    // **The window setting's shape and not the game's picture's**, because the buffer the game is given is
+    // the window's: a `1280x720` setting over a game that draws 4:3 is a buffer of sixteen by nine with the
+    // picture inside it, and a corner window of four by three is that buffer stretched — which is what a
+    // person saw on 2026-11-02 and said was wrong twice over.
+    let (width, height) = match unsafe { *SCREEN.get() } {
+        Screen::Window { width, height } => (width, height),
+        Screen::Fullscreen => unsafe { *CONTENT.get() },
+    };
+    let across = OUT_OF_THE_WAY_CLIENT.0;
+    if width == 0 || height == 0 {
+        return OUT_OF_THE_WAY_CLIENT;
+    }
+    let down = (across * height as i32 / width as i32).max(1);
+    (across, down)
+}
+
+/// **Whether the corner's window is the settings' own size** — `Config::the_settings_window`, which a case
+/// measuring what the game draws may ask for, since a window of another size is a game told something a
+/// person is never told. No case of the harness's asks: every launch is the corner's small window. The
+/// corner stays the corner: a case is still watched from across a desk.
+static THE_CORNER_IS_THE_SETTINGS: MainThread<bool> = MainThread::new(false);
+
+/// Says so, before the window is made — see [`THE_CORNER_IS_THE_SETTINGS`].
+pub fn the_corner_window_is_the_settings(its_own: bool) {
+    unsafe { *THE_CORNER_IS_THE_SETTINGS.get() = its_own };
+}
+
 /// **The size a move of the window orb plays in is made at in place of the game's own `width` by
-/// `height`**: the whole window whose client is [`OUT_OF_THE_WAY_CLIENT`] — see [`the_size_it_plays_at`] —
+/// `height`**: the whole window whose client is [`the_corners_client`] — see [`the_size_it_plays_at`] —
 /// and the size asked where the host will not say where the window is.
 fn the_size_asked_of(window: usize, width: i32, height: i32) -> (i32, i32) {
     if !unsafe { crate::runtime::the_game_draws_at_the_size_it_asked_for() } {
@@ -1374,6 +1432,9 @@ pub unsafe fn keeps_its_corner() {
     let Some(corner) = the_leftmost_of(&orb_api::window::monitors()) else {
         return;
     };
+    // **Where the window is put back to is [`placed_out_of_the_way`]'s answer**, the same one it was made
+    // in: the settings' window has no frame and sits where it fits, and the small one in the corner.
+    let wanted = placed_out_of_the_way(corner);
     let Some(is_at) = orb_api::window::window_rect(Hwnd(window)) else {
         return;
     };
@@ -1389,12 +1450,24 @@ pub unsafe fn keeps_its_corner() {
              whatever moves it now is seen",
         );
     }
-    // **The corner and the size both**, the size being [`OUT_OF_THE_WAY_CLIENT`] inside whatever frame the
-    // window has. Where both are already right there is nothing to do, which is every frame but the few
-    // something moved it on — except the first of them, which is where a window made hidden is shown.
+    // **The corner and the size both**, the size being [`the_size_it_plays_at`]'s answer for the window as
+    // it is right now — and not the size the style orb framed it with would make of it. A game writes its
+    // own style over the window: th06c's `SetWindowLongA` with `0x90ca0000` makes it a popup with no frame,
+    // and a corner measured off `WINDOWED_STYLE`'s frame is a rectangle the window then never matches. So
+    // every frame put it back and reset the count, and the window was never shown — measured on th06c in
+    // a launch of 2026-11-02, whose window stayed hidden for its whole run and whose picture
+    // Windows.Graphics.Capture could not take. Where both are right there is nothing to do,
+    // which is every frame but the few something moved it on — except the first of them, which is where a
+    // window made hidden is shown.
     let (width, height) = the_size_it_plays_at(window, is_at);
+    let wanted = Rect {
+        left: wanted.area.left,
+        top: wanted.area.top,
+        right: wanted.area.left + width,
+        bottom: wanted.area.top + height,
+    };
     if (is_at.left, is_at.top, is_at.width(), is_at.height())
-        == (corner.left, corner.top, width, height)
+        == (wanted.left, wanted.top, wanted.width(), wanted.height())
     {
         shown_now_the_corner_is_held(window);
         return;
@@ -1405,8 +1478,8 @@ pub unsafe fn keeps_its_corner() {
         is_at.top,
         is_at.width(),
         is_at.height(),
-        corner.left,
-        corner.top,
+        wanted.left,
+        wanted.top,
         width,
         height,
     );
@@ -1415,8 +1488,8 @@ pub unsafe fn keeps_its_corner() {
     unsafe {
         original(
             window as *mut c_void,
-            corner.left,
-            corner.top,
+            wanted.left,
+            wanted.top,
             width,
             height,
             1,
@@ -1424,23 +1497,27 @@ pub unsafe fn keeps_its_corner() {
     };
 }
 
-/// **The whole window whose client is [`OUT_OF_THE_WAY_CLIENT`]**, measured off the window as it is: the
+/// **The whole window whose client is [`the_corners_client`]**, measured off the window as it is: the
 /// frame it has around the client it has now, around the client wanted. The size it is at where the host
 /// will not say what its client is.
 ///
-/// **And the size it is at for a game that draws at the size of its buffers**, which is th06nc — see
-/// `Game::draws_at_the_size_it_asked_for`. That one is made small by its own window mode, which lays its
+/// **Measured and not taken from a style**, because a game writes its own over the window: th06c's
+/// `SetWindowLongA` leaves `0x90ca0000`, which is a popup with no frame at all, and `placed_out_of_the_way`'s
+/// own adjust is the frame orb asked `CreateWindowExA` for. A window orb worked out one way and put back the
+/// other is a rectangle it re-moves every frame — see `keeps_its_corner`, whose launch never showed its
+/// window at all. And it is the size a game that draws at the size of its buffers needs as well — th06nc,
+/// see `Game::draws_at_the_size_it_asked_for`: that one is made small by its own window mode, which lays its
 /// frame out for the size it chose; held small from here as well, its picture was a quarter of the window
 /// with its buffers left large and a null texture read at `0x140258665` with them made small.
 fn the_size_it_plays_at(window: usize, is_at: Rect) -> (i32, i32) {
-    if !unsafe { crate::runtime::the_game_draws_at_the_size_it_asked_for() } {
-        return (is_at.width(), is_at.height());
-    }
     match orb_api::window::client_rect(Hwnd(window)) {
-        Some(client) if client.width() > 0 && client.height() > 0 => (
-            is_at.width() - client.width() + OUT_OF_THE_WAY_CLIENT.0,
-            is_at.height() - client.height() + OUT_OF_THE_WAY_CLIENT.1,
-        ),
+        Some(client) if client.width() > 0 && client.height() > 0 => {
+            let (across, down) = the_corners_client();
+            (
+                is_at.width() - client.width() + across,
+                is_at.height() - client.height() + down,
+            )
+        }
         _ => (is_at.width(), is_at.height()),
     }
 }
@@ -2192,12 +2269,31 @@ const OUT_OF_THE_WAY_CLIENT: (i32, i32) = (320, 240);
 ///
 /// Which monitor's corner is [`the_leftmost_of`]'s.
 pub fn placed_out_of_the_way(monitor: Rect) -> Placed {
-    let client = Rect::sized(OUT_OF_THE_WAY_CLIENT.0, OUT_OF_THE_WAY_CLIENT.1);
+    let (wanted_width, wanted_height) = the_corners_client();
+    let client = Rect::sized(wanted_width, wanted_height);
+    // **A window of the settings' own size has no frame about it**, which is the window a person plays in at
+    // a borderless setting and the only one whose client fits a monitor the client's own size — the frame's
+    // twenty-two pixels of width and fifty-six of height would stand its client off the monitor.
+    let settings = unsafe { *THE_CORNER_IS_THE_SETTINGS.get() };
+    let style = match settings {
+        true => BORDERLESS_STYLE,
+        false => WINDOWED_STYLE,
+    };
     // A failure leaves the rectangle as the client area, which is a window a frame too small rather than no
     // window at all — `placed`'s own answer to the same call failing.
-    let area = orb_api::window::adjust_window_rect(client, WINDOWED_STYLE, false).unwrap_or(client);
+    let area = orb_api::window::adjust_window_rect(client, style, false).unwrap_or(client);
+    // **And on the monitor it fits in rather than the leftmost's corner**: a window that runs off every
+    // monitor has the desktop behind it, and a Windows.Graphics.Capture picture of it answers black there —
+    // measured on 2026-11-02, a `3840x2160` window at a `2160x3840` monitor's corner held the game's HUD
+    // panel as a black rectangle, which is the picture a person's own launch was being held against.
+    let monitor = match settings {
+        true => orb_api::window::primary_monitor()
+            .filter(|primary| primary.width() >= area.width() && primary.height() >= area.height())
+            .unwrap_or(monitor),
+        false => monitor,
+    };
     Placed {
-        style: WINDOWED_STYLE,
+        style,
         ex_style: OUT_OF_THE_WAY_EX_STYLE,
         area: Rect {
             left: monitor.left,

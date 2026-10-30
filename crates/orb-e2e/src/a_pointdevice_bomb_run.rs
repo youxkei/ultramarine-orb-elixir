@@ -98,7 +98,7 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             log.said("died in chapter 1")
         });
         assert!(
-            log.said(": pressed in time; 0/8 owed, lives 2"),
+            log.said(": pressed in time; 0/12 owed, lives 2"),
             "the press before the hit was not taken as in time: {:?}",
             log.lines(),
         );
@@ -143,7 +143,7 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             &log.lines()[mark..],
         );
         assert!(
-            log.said_since(mark, ": not pressed in time; 4/8 owed, lives 2"),
+            log.said_since(mark, ": not pressed in time; 6/12 owed, lives 2"),
             "a hit without the press was not judged so: {:?}",
             log.lines(),
         );
@@ -171,7 +171,7 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             .join("normal-reimu-a.owed");
         assert_eq!(
             game.sim().files().text(&owed_kept).as_deref(),
-            Some("4"),
+            Some("6"),
             "what the run owes was not kept beside its chapter",
         );
         // And the half shown on the game's own stars: the last of the two, the second from the row's left,
@@ -214,6 +214,37 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             "the first star was painted over",
         );
 
+        // ── And an extend while the part is owed: **the shaved star moves to the one gained**, which is the
+        // last of the row — the run's count follows the game's up, and the part it owes is unchanged. The life
+        // is left standing rather than put back, the steps after this one being read against it.
+        game.image().set_lives(game.state().lives + 1);
+        game.frames(2);
+        game.forget();
+        game.frame();
+        let lives_now = u8::try_from(game.state().lives).expect("a run's lives");
+        let last = Quad {
+            x: row.x + 16.0 * f32::from(lives_now - 1),
+            y: row.y,
+            width: 16.0,
+            height: 16.0,
+            ..row
+        };
+        assert!(
+            game.drawn()
+                .quads
+                .iter()
+                .any(|quad| last.overlaps(quad) && quad.x >= last.x + 4.0),
+            "the star the part is gone from is not the last of the row after an extend",
+        );
+        let before = Quad {
+            x: last.x - 16.0,
+            ..last
+        };
+        assert!(
+            !game.drawn().quads.iter().any(|quad| before.overlaps(quad)),
+            "a star before the last is still shaved after an extend",
+        );
+
         // ── 5. And another: the halves come to a life, which the run loses, and which the chapter put back
         // does not give back.
         let mark = log.written();
@@ -231,7 +262,7 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
         assert!(
             log.said_since(
                 mark,
-                ": not pressed in time, and a life is taken; 0/8 owed, lives 1"
+                ": not pressed in time, and a life is taken; 0/12 owed, lives 2"
             ),
             "the parts coming to a life did not take one: {:?}",
             log.lines(),
@@ -249,8 +280,8 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
         game.press_until(keys::Z, "the retry menu answered a third time", || {
             log.said_since(mark, "retry: the chapter again on the keyboard")
         });
-        assert!(log.said_since(mark, "bomb: the lives put back to 1 over the chapter's own"));
-        assert_eq!(game.state().lives, 1, "the restore gave the life back");
+        assert!(log.said_since(mark, "bomb: the lives put back to 2 over the chapter's own"));
+        assert_eq!(game.state().lives, 2, "the restore gave the life back");
         game.frames(AFTER_A_RETRY);
 
         // ── 6. Two presses inside the deathbomb window: the second is the bomb, the game's own deathbomb takes
@@ -263,8 +294,8 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
         game.frames(A_BOMB_IS_TAKEN_FOR as u32 + 2);
         assert_eq!(
             game.state().bombs,
-            bombs - 1,
-            "the second press did not set the bomb off",
+            bombs,
+            "the game's own bomb was taken for a bomb that answered the hit",
         );
         assert!(
             !log.said_since(mark, "died in chapter"),
@@ -272,13 +303,65 @@ fn a_bomb_mode_run_judges_each_hit_by_the_press_before_it() {
             log.lines(),
         );
         assert!(!log.said_since(mark, "bomb: a hit settled"));
-        assert_eq!(game.state().lives, 1);
+        // **And nothing owed for it**: the bomb answered the hit, which is the press working and not a bomb
+        // with nothing to answer.
+        game.frames_until("the bomb's window over", 600, || {
+            log.said_since(mark, "bomb: the bomb answered a hit; it costs nothing")
+        });
+        assert!(
+            !log.said_since(mark, "bomb: a bomb answered nothing"),
+            "the deathbomb was counted as a bomb with nothing to answer: {:?}",
+            &log.lines()[mark..],
+        );
+        assert_eq!(game.state().lives, 2);
         // And no tone: the game's own deathbomb is one the game took, and what orb has to say with a tone
         // is its own judgement of a press.
         assert_eq!(
             game.sim().tones(),
             1,
             "the game's own deathbomb made a tone of orb's",
+        );
+
+        // ── 7. And a bomb with nothing to answer: a quarter of a bomb, and a tone for it — a bomb that costs
+        // nothing is one to bash, and the judgement an errand.
+        let mark_first = log.written();
+        let bombs_before = game.state().bombs;
+        game.press(keys::X);
+        game.press(keys::X);
+        game.frames_until("the bomb's window over", 600, || {
+            log.said_since(mark_first, "bomb: a bomb answered nothing")
+        });
+        assert!(
+            log.said_since(mark_first, "1/4 of a bomb owed"),
+            "the bomb did not cost a quarter: {:?}",
+            &log.lines()[mark_first..],
+        );
+        // And the game's own bomb put back: the mode charges the quarter and not a whole bomb for one.
+        assert_eq!(
+            game.state().bombs,
+            bombs_before,
+            "the game's own bomb was not put back",
+        );
+        // ── 8. **Three more quarters come to a bomb**, which the run gives: the panel shows one fewer and
+        // the game's own count is what is written.
+        for quarter in 2..=4 {
+            let mark = log.written();
+            game.press(keys::X);
+            game.press(keys::X);
+            let what = format!("quarter {quarter} of a bomb");
+            game.frames_until(&what, 600, || {
+                log.said_since(mark, "bomb: a bomb answered nothing")
+            });
+        }
+        assert!(
+            log.said_since(mark_first, "bomb: the quarters came to a bomb"),
+            "four quarters did not come to a bomb: {:?}",
+            &log.lines()[mark_first..],
+        );
+        assert_eq!(
+            game.state().bombs,
+            bombs_before - 1,
+            "the bomb the quarters came to was not taken",
         );
     });
 }

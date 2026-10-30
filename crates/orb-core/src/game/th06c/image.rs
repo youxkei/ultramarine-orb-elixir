@@ -471,6 +471,16 @@ impl Image {
         );
     }
 
+    /// **The button the configuration binds the focus to**, written where a person's own `th06.cfg` has it —
+    /// XInput's bit index, the left shoulder being `0x0100`'s 8. For a test of what a game's own bindings say
+    /// against a table of orb's own.
+    pub fn binds_the_pad_focus_to(&self, number: i16) {
+        self.space().write::<i16>(
+            super::SUPERVISOR + super::supervisor::CONFIG_PAD_FOCUS,
+            number,
+        );
+    }
+
     /// The `wButtons` bit numbers the configuration binds, in [`PAD_BINDINGS`]' order: the shot, the bomb,
     /// the focus, the skip and the pause — and whether the decide and the cancel are swapped.
     pub fn the_pad_bindings(&self) -> ([i16; 5], bool) {

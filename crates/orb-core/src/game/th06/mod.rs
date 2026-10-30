@@ -2322,6 +2322,12 @@ impl Game for Th06 {
         true
     }
 
+    /// The byte [`State::bombs`] is read from — see [`Game::set_bombs`].
+    unsafe fn set_bombs(&self, bombs: i8) -> bool {
+        unsafe { mem::write::<i8>(G_GAME_MANAGER + game_manager::BOMBS_REMAINING, bombs) };
+        true
+    }
+
     unsafe fn set_run_state(&self, state: &[u8]) {
         let Some(state) = resume::decode_state(state) else {
             return log!("resume: the numbers put back are not a run of this game's");
@@ -2910,6 +2916,13 @@ impl Game for Th06 {
     /// first frames with timers instead.
     unsafe fn swallow_input(&self) {
         unsafe { mem::write::<u16>(G_CUR_FRAME_INPUT, u16::MAX) };
+    }
+
+    /// **The word this game's own supervisor read**, which is what the frame after acts on — orb's answer to
+    /// [`GET_INPUT`] is the read, and this is what came of it, so a press orb made and the game did not keep
+    /// apart here. Read for a case that holds a recipe's press to the game's own word rather than to orb's.
+    unsafe fn the_word_the_run_acts_on(&self) -> Option<u16> {
+        mem::read_committed::<u16>(G_CUR_FRAME_INPUT)
     }
 
     /// Nothing: this game's own read is a word and orb answers it with one — see [`GET_INPUT`] and

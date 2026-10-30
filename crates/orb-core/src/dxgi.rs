@@ -51,6 +51,10 @@ const CREATE_SWAP_CHAIN_FOR_HWND: usize = 15;
 /// screens of its front end, and the stand-in in that slot was never called once — so the game presents
 /// through this one, and `Present` on its own suppressed nothing and presented nothing.
 const PRESENT1: usize = 22;
+/// **`IDXGISwapChain1::GetDesc1`**, the first of that interface's own four — the one call that says what
+/// kind of chain DXGI actually made, which the description a game hands `CreateSwapChainForHwnd` does not:
+/// see [`say_the_swapchains_own_description`].
+const GET_DESC1: usize = 18;
 
 /// What the host's `CreateDXGIFactory2` is, once the game has asked for it — see [`answers_the_factory`].
 static THE_HOSTS_FACTORY: AtomicUsize = AtomicUsize::new(0);
@@ -277,9 +281,11 @@ pub unsafe fn take(swapchain: usize) -> bool {
     match (present, present1) {
         (Some(present), Some(present1)) => {
             SWAPCHAIN.store(swapchain, Ordering::Relaxed);
+            unsafe { counts_the_games_draws(swapchain) };
             ITS_PRESENT.store(present, Ordering::Relaxed);
             ITS_PRESENT1.store(present1, Ordering::Relaxed);
             log!("frame: both of the presents are orb's to call now, the game's own doing nothing");
+            unsafe { say_the_swapchains_own_description(swapchain, vtable) };
             true
         }
         _ => {
@@ -287,6 +293,40 @@ pub unsafe fn take(swapchain: usize) -> bool {
             false
         }
     }
+}
+
+/// **What the swapchain says of itself**, asked through `IDXGISwapChain1::GetDesc1`.
+///
+/// **Because a description handed to `CreateSwapChainForHwnd` is a request**, and what DXGI makes of it is
+/// the chain: a discard-model request answered with a flip-model chain is every bit of the difference
+/// between one back buffer a game may cache and two it may not, which is what a frame drawn into a buffer
+/// nothing presents looks like.
+///
+/// # Safety
+/// `swapchain` must be a live `IDXGISwapChain1` and `vtable` its own.
+unsafe fn say_the_swapchains_own_description(swapchain: usize, vtable: usize) {
+    let Some(desc1) = mem::read_committed::<usize>(vtable + GET_DESC1 * size_of::<usize>())
+        .filter(|desc1| *desc1 != 0)
+    else {
+        return;
+    };
+    let desc1: unsafe extern "system" fn(usize, *mut u8) -> i32 =
+        unsafe { std::mem::transmute(desc1) };
+    let mut desc = [0u8; 48];
+    if unsafe { desc1(swapchain, desc.as_mut_ptr()) } < 0 {
+        log!("frame: the swapchain will not say what kind it is");
+        return;
+    }
+    let dword =
+        |at: usize| u32::from_le_bytes([desc[at], desc[at + 1], desc[at + 2], desc[at + 3]]);
+    log!(
+        "frame: the swapchain says it is {}x{} with {} buffer(s), scaling {} and swap effect {}",
+        dword(0),
+        dword(4),
+        dword(ITS_BUFFER_COUNT),
+        dword(ITS_SCALING),
+        dword(ITS_SWAP_EFFECT),
+    );
 }
 
 /// The swapchain's own `ResizeBuffers`, as it was before orb wrote over that slot.
@@ -506,6 +546,252 @@ pub fn the_swapchain() -> usize {
     SWAPCHAIN.load(Ordering::Relaxed)
 }
 
+/// **What the game's own `Draw` slot held before orb pointed it at [`counted`]** — see
+/// [`counts_the_games_draws`].
+static THE_DRAW_WAS: AtomicUsize = AtomicUsize::new(0);
+
+/// The wrapper the game's `Draw` slot holds: one draw counted, then the game's own call — the seam's own
+/// `draw` would come back through this very slot and count itself for ever, so what is called is the pointer
+/// the slot had.
+unsafe extern "system" fn counted(object: *mut std::ffi::c_void, vertices: u32, first: u32) {
+    orb_api::d3d11::count_a_draw();
+    let was = THE_DRAW_WAS.load(Ordering::Relaxed);
+    if was == 0 {
+        return;
+    }
+    let was: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u32) =
+        unsafe { std::mem::transmute(was) };
+    unsafe { was(object, vertices, first) };
+}
+
+/// **What the game's own `DrawIndexed` slot held** — see [`counts_the_games_draws`], which counts it because
+/// the frame itself is drawn through it: a launch counted two draws on its first frame and nought on every
+/// frame after, so `Draw` is not the call the game's own frame makes.
+static THE_DRAW_INDEXED_WAS: AtomicUsize = AtomicUsize::new(0);
+
+/// **What the game's own instanced draw slots held** — see [`counts_the_games_draws`]: neither `Draw` nor
+/// `DrawIndexed` is called on a frame, so the frame's own drawing is one of these two.
+static THE_DRAW_INDEXED_INSTANCED_WAS: AtomicUsize = AtomicUsize::new(0);
+static THE_DRAW_INSTANCED_WAS: AtomicUsize = AtomicUsize::new(0);
+
+/// **What the game's own copy slots held** — see [`counts_the_games_draws`]: no draw of any kind is counted
+/// on a frame, so what puts the scene in the buffer is a copy of a finished target.
+static THE_COPY_WAS: AtomicUsize = AtomicUsize::new(0);
+static THE_COPY_REGION_WAS: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "system" fn counted_copy(
+    object: *mut std::ffi::c_void,
+    to: *mut std::ffi::c_void,
+    from: *mut std::ffi::c_void,
+) {
+    orb_api::d3d11::count_a_draw();
+    let was = THE_COPY_WAS.load(Ordering::Relaxed);
+    if was == 0 {
+        return;
+    }
+    let was: unsafe extern "system" fn(
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+    ) = unsafe { std::mem::transmute(was) };
+    unsafe { was(object, to, from) };
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe extern "system" fn counted_copy_region(
+    object: *mut std::ffi::c_void,
+    to: *mut std::ffi::c_void,
+    to_slice: u32,
+    x: u32,
+    y: u32,
+    z: u32,
+    from: *mut std::ffi::c_void,
+    from_slice: u32,
+    area: *const std::ffi::c_void,
+) {
+    orb_api::d3d11::count_a_draw();
+    let was = THE_COPY_REGION_WAS.load(Ordering::Relaxed);
+    if was == 0 {
+        return;
+    }
+    let was: unsafe extern "system" fn(
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+        u32,
+        u32,
+        u32,
+        u32,
+        *mut std::ffi::c_void,
+        u32,
+        *const std::ffi::c_void,
+    ) = unsafe { std::mem::transmute(was) };
+    unsafe { was(object, to, to_slice, x, y, z, from, from_slice, area) };
+}
+
+unsafe extern "system" fn counted_indexed_instanced(
+    object: *mut std::ffi::c_void,
+    indices: u32,
+    instances: u32,
+    start: u32,
+    base: i32,
+    first_instance: u32,
+) {
+    orb_api::d3d11::count_a_draw();
+    let was = THE_DRAW_INDEXED_INSTANCED_WAS.load(Ordering::Relaxed);
+    if was == 0 {
+        return;
+    }
+    let was: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u32, u32, i32, u32) =
+        unsafe { std::mem::transmute(was) };
+    unsafe { was(object, indices, instances, start, base, first_instance) };
+}
+
+unsafe extern "system" fn counted_instanced(
+    object: *mut std::ffi::c_void,
+    vertices: u32,
+    instances: u32,
+    start: u32,
+    first_instance: u32,
+) {
+    orb_api::d3d11::count_a_draw();
+    let was = THE_DRAW_INSTANCED_WAS.load(Ordering::Relaxed);
+    if was == 0 {
+        return;
+    }
+    let was: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u32, u32, u32) =
+        unsafe { std::mem::transmute(was) };
+    unsafe { was(object, vertices, instances, start, first_instance) };
+}
+
+/// The wrapper the game's `DrawIndexed` slot holds: one draw counted, then the game's own call.
+unsafe extern "system" fn counted_indexed(
+    object: *mut std::ffi::c_void,
+    indices: u32,
+    start: u32,
+    base: i32,
+) {
+    orb_api::d3d11::count_a_draw();
+    let was = THE_DRAW_INDEXED_WAS.load(Ordering::Relaxed);
+    if was == 0 {
+        return;
+    }
+    let was: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u32, i32) =
+        unsafe { std::mem::transmute(was) };
+    unsafe { was(object, indices, start, base) };
+}
+
+/// **Counts every draw the game's own context is asked for**, from the take of its swapchain on — which is
+/// what says whether a frame reaches the buffer once or twice. The count is taken with
+/// [`orb_api::d3d11::draws_taken`], which the game's own frame does in its `prepare_frame`.
+///
+/// **And the slot before `Draw` with it**: `ID3D11DeviceContext::DrawIndexed` is the twelfth entry and `Draw`
+/// the thirteenth, and the frame's own drawing goes through the first of them.
+unsafe fn counts_the_games_draws(swapchain: usize) {
+    let (Some(device), Some(context)) = (
+        unsafe { orb_api::d3d11::device_of(swapchain) },
+        unsafe { orb_api::d3d11::device_of(swapchain) }
+            .and_then(|device| unsafe { orb_api::d3d11::immediate_context(device) }),
+    ) else {
+        return;
+    };
+    let _ = device;
+    let slot = unsafe { orb_api::d3d11::the_draw_slot(context) };
+    if slot == 0 {
+        return;
+    }
+    let was: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u32) = counted;
+    let had = unsafe { orb_api::mem::point_a_slot_at(slot, was as usize) };
+    if had != 0 {
+        THE_DRAW_WAS.store(had, Ordering::Relaxed);
+    }
+    let indexed = slot.wrapping_sub(std::mem::size_of::<usize>());
+    let was: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u32, i32) = counted_indexed;
+    let had_indexed = unsafe { orb_api::mem::point_a_slot_at(indexed, was as usize) };
+    if had_indexed != 0 {
+        THE_DRAW_INDEXED_WAS.store(had_indexed, Ordering::Relaxed);
+    }
+    // **And the two instanced ones**, seven and eight entries after `Draw`: the frame's own drawing is not
+    // through `Draw` nor `DrawIndexed`, so one of these is what it is through.
+    let entry = std::mem::size_of::<usize>();
+    let was: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u32, u32, i32, u32) =
+        counted_indexed_instanced;
+    let had_indexed_instanced =
+        unsafe { orb_api::mem::point_a_slot_at(slot.wrapping_add(7 * entry), was as usize) };
+    if had_indexed_instanced != 0 {
+        THE_DRAW_INDEXED_INSTANCED_WAS.store(had_indexed_instanced, Ordering::Relaxed);
+    }
+    let was: unsafe extern "system" fn(*mut std::ffi::c_void, u32, u32, u32, u32) =
+        counted_instanced;
+    let had_instanced =
+        unsafe { orb_api::mem::point_a_slot_at(slot.wrapping_add(8 * entry), was as usize) };
+    if had_instanced != 0 {
+        THE_DRAW_INSTANCED_WAS.store(had_instanced, Ordering::Relaxed);
+    }
+    if had != 0 || had_indexed != 0 || had_indexed_instanced != 0 || had_instanced != 0 {
+        log!("frame: the game's own draws are counted from here on");
+    }
+    // **And the two copies**, `CopySubresourceRegion` thirty-three entries after `Draw` and `CopyResource`
+    // thirty-four: a frame drawn through no draw at all is one a copy puts into the buffer.
+    let was: unsafe extern "system" fn(
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+        u32,
+        u32,
+        u32,
+        u32,
+        *mut std::ffi::c_void,
+        u32,
+        *const std::ffi::c_void,
+    ) = counted_copy_region;
+    let had_copy_region =
+        unsafe { orb_api::mem::point_a_slot_at(slot.wrapping_add(33 * entry), was as usize) };
+    if had_copy_region != 0 {
+        THE_COPY_REGION_WAS.store(had_copy_region, Ordering::Relaxed);
+    }
+    let was: unsafe extern "system" fn(
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+    ) = counted_copy;
+    let had_copy =
+        unsafe { orb_api::mem::point_a_slot_at(slot.wrapping_add(34 * entry), was as usize) };
+    if had_copy != 0 {
+        THE_COPY_WAS.store(had_copy, Ordering::Relaxed);
+    }
+    if had_copy_region != 0 || had_copy != 0 {
+        log!("frame: the game's copies are counted from here on");
+    }
+}
+/// **The frame's own buffer emptied to black, at the frame's beginning** — for a game that draws only inside
+/// its own picture and leaves the rest alone, whose margins keep whichever frame last covered them.
+///
+/// **Called before the game draws and not after it**, which is what the first attempt got wrong: the same
+/// clear at the present wiped the finished picture and left the window black.
+///
+/// Nothing at all before the swapchain is taken, which is every frame before the game's first present.
+///
+/// # Safety
+/// Must run on the game's main thread, before the frame's drawing.
+pub unsafe fn empty_the_frames_buffer() {
+    let swapchain = SWAPCHAIN.load(Ordering::Relaxed);
+    if swapchain == 0 {
+        return;
+    }
+    let (Some(device), Some(context), Some(buffer)) = (
+        unsafe { orb_api::d3d11::device_of(swapchain) },
+        unsafe { orb_api::d3d11::device_of(swapchain) }
+            .and_then(|device| unsafe { orb_api::d3d11::immediate_context(device) }),
+        unsafe { orb_api::d3d11::back_buffer(swapchain) },
+    ) else {
+        return;
+    };
+    if let Some(target) = unsafe { orb_api::d3d11::render_target(device, buffer) } {
+        unsafe { orb_api::d3d11::clear(context, target, [0.0, 0.0, 0.0, 1.0]) };
+        unsafe { orb_api::d3d11::release(orb_api::d3d11::Object::Target(target)) };
+    }
+    unsafe { orb_api::d3d11::release(orb_api::d3d11::Object::Texture(buffer)) };
+}
+
 /// `IDXGISwapChain::GetDesc`, after [`PRESENT`] and `IDXGISwapChain`'s own `GetBuffer`,
 /// `SetFullscreenState` and `GetFullscreenState`.
 const GET_DESC: usize = 12;
@@ -573,6 +859,25 @@ pub unsafe fn the_size_of(swapchain: usize) -> Option<(u32, u32)> {
         (0, _) | (_, 0) => None,
         size => Some(size),
     }
+}
+
+/// **Where `DXGI_SWAP_CHAIN_DESC` keeps the format its buffers are in**: `DXGI_MODE_DESC`'s width and
+/// height come to 8, its refresh rate's two make 16 — where the format is — and its scanline order and
+/// scaling follow.
+const ITS_FORMAT: usize = 16;
+
+/// **The format a swapchain's own buffers are in**, which a texture copied out of one has to be made in:
+/// `CopySubresourceRegion` moves pixels between two resources only where the formats agree.
+///
+/// `None` where no swapchain was taken, where the slot is empty, or where the ask fails.
+///
+/// # Safety
+/// Must run on the game's own thread, with the swapchain live.
+pub unsafe fn the_format_of(swapchain: usize) -> Option<u32> {
+    let description = unsafe { its_own_description(swapchain) }?;
+    let mut bytes = [0u8; size_of::<u32>()];
+    bytes.copy_from_slice(&description[ITS_FORMAT..ITS_FORMAT + size_of::<u32>()]);
+    Some(u32::from_le_bytes(bytes))
 }
 
 /// **What the swapchain says of itself**, through its own `GetDesc`. `None` where no swapchain was taken,

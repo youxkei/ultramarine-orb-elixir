@@ -75,8 +75,8 @@ fn the_buttons_of_the_pad_the_game_holds_reach_the_word() {
         }
 
         // And a button the mapping names nothing for reaches it as nothing: this game maps six of the
-        // nine, and leaves the directions and skip unmapped the way the game's own defaults do.
-        game.push(Pushed::button(9));
+        // nine — 0, 1, 2, 4, 8 and 9 — and leaves the rest unmapped the way the game's own defaults do.
+        game.push(Pushed::button(10));
         game.frame();
         assert_eq!(
             game.image().input_now(),

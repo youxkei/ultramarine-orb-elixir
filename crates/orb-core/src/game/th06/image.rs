@@ -1086,6 +1086,15 @@ impl Image {
         );
     }
 
+    /// **The lives the run has left**, which an extend gives one of — the field [`super::State::lives`] is
+    /// read from, apart from [`playing`](Image::playing) for the reason [`set_bombs`](Image::set_bombs) is.
+    pub fn set_lives(&self, lives: i8) {
+        self.space().write::<i8>(
+            super::G_GAME_MANAGER + super::game_manager::LIVES_REMAINING,
+            lives,
+        );
+    }
+
     /// And the power it has collected, for the same reason.
     pub fn set_power(&self, power: u16) {
         self.space().write::<u16>(

@@ -3713,6 +3713,14 @@ impl Game for Th06nc {
         })
     }
 
+    /// **Nothing: every slot a run has not filled is an empty heart, not bare panel** — the eight are laid
+    /// out whether the run has that many lives or not, and the ones it has not got are drawn as outlines. So
+    /// there is no star's box of the panel's own background to take, and a part of a life gone is painted
+    /// with [`Th06nc::panel_colour`] instead — measured off a picture of that band.
+    fn a_starless_slot(&self, _lives: u32) -> Option<Rect> {
+        None
+    }
+
     fn content_size(&self) -> (u32, u32) {
         (0, 0)
     }
@@ -3743,6 +3751,10 @@ impl Game for Th06nc {
     /// [`size_the_window_to_the_settings`].
     unsafe fn prepare_frame(&self, _device: orb_api::Device) {
         WALKS_THIS_FRAME.store(0, Ordering::Relaxed);
+        // **And the frame's own buffer emptied before anything of it is drawn**, as th06c's is: a game that
+        // draws inside its own picture leaves the rest of the buffer holding whichever frame last covered
+        // it, and a window that has been another size shows both — see `dxgi::empty_the_frames_buffer`.
+        unsafe { crate::dxgi::empty_the_frames_buffer() };
         unsafe { size_the_window_to_the_settings() };
         unsafe { crate::dxgi::starts_a_frame() };
         unsafe { moves_the_camera_as_the_frame_does() };
@@ -4244,11 +4256,23 @@ impl Game for Th06nc {
     }
 
     unsafe fn pad_word(&self, pad: Option<Reading>, _hats: bool) -> u16 {
-        pad.map_or(0, super::th06c::the_word_of_a_sampled_pad)
+        // **This build's own bindings and not th06c's**: the two keep the same five fields at different
+        // addresses, and reading them through th06c's left a th06nc pad pressing buttons nobody had bound.
+        let (bound, swapped) = super::th06c::the_pad_bindings(
+            at(SUPERVISOR + supervisor::CONFIG_PAD),
+            at(SUPERVISOR + supervisor::CONFIG_PAD + supervisor::DECIDE_SWAPPED),
+        );
+        pad.map_or(0, |reading| {
+            super::th06c::the_word_of_a_sampled_pad(reading, bound, swapped)
+        })
     }
 
     unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
-        Some(super::th06c::pushed_as(word))
+        let (bound, swapped) = super::th06c::the_pad_bindings(
+            at(SUPERVISOR + supervisor::CONFIG_PAD),
+            at(SUPERVISOR + supervisor::CONFIG_PAD + supervisor::DECIDE_SWAPPED),
+        );
+        Some(super::th06c::pushed_as(word, bound, swapped))
     }
 
     unsafe fn add_pad_buttons(&self, _into: *mut c_void, _pad: Option<Reading>) {}
@@ -4299,6 +4323,13 @@ impl Game for Th06nc {
     /// frame is the game's own.
     unsafe fn swallow_input(&self) {
         unsafe { mem::write::<u32>(at(INPUT_THE_RUN_ACTS_ON), !THE_FAST_FORWARD) };
+    }
+
+    /// **The word this game's own supervisor built**, which is the keyboard's and the pad's together — th06c's
+    /// field at this build's own address, and the one `swallow_input` fills. Read for a case that holds a
+    /// recipe's press to the game's own word rather than to orb's.
+    unsafe fn the_word_the_run_acts_on(&self) -> Option<u16> {
+        mem::read_committed::<u32>(at(INPUT_THE_RUN_ACTS_ON)).map(|word| word as u16)
     }
 
     /// **[`result_screen::EXIT`] written over [`result_screen::SAVE_REPLAY_QUESTION`]**, which is
@@ -4541,6 +4572,12 @@ impl Game for Th06nc {
     /// The byte [`State::lives`] is read from, which the playback's own init writes too (`put_the_numbers_back`).
     unsafe fn set_lives(&self, lives: i8) -> bool {
         unsafe { mem::write::<i8>(at(GAME_MANAGER) + game_manager::LIVES, lives) };
+        true
+    }
+
+    /// The byte [`State::bombs`] is read from — see [`Game::set_bombs`].
+    unsafe fn set_bombs(&self, bombs: i8) -> bool {
+        unsafe { mem::write::<i8>(at(GAME_MANAGER) + game_manager::BOMBS, bombs) };
         true
     }
 

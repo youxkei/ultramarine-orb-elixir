@@ -1394,6 +1394,19 @@ impl Fake {
         self.takes_the_stages_first_chapter();
     }
 
+    /// **And a run of 完全無欠ボムモード**, the same walk with the mode question's third answer and the
+    /// difficulty its page after it — the mode that keeps the run's own counts and writes them back over the
+    /// game's, see `orb_core::game::th07`'s own note on the game's guarded write.
+    ///
+    /// # Panics
+    /// Naming whichever step the run did not get past.
+    pub fn in_a_pointdevice_bomb_run(&self) {
+        self.the_mode_is_answered_at_the_title_menu_as(Mode::PointdeviceBomb);
+        self.the_run_is_chosen();
+        self.builds_a_stage();
+        self.takes_the_stages_first_chapter();
+    }
+
     /// The one frame a run has been chosen and not built: the front end has asked for the run scene and the
     /// supervisor has not acted on it — see `Th07::run_chosen`.
     ///
@@ -1478,9 +1491,33 @@ impl Fake {
             self.frames(READS_KEYS_AFTER);
             self.press(keys::DOWN);
         }
+        // **The bomb mode is the third of the three, and a difficulty is asked on the page after it** — see
+        // `orb_core::bomb`, whose difficulty is chosen per run at that question. Answering the mode alone
+        // leaves the question up, so the Z that answers it is the one after the two downs.
+        if mode == Mode::PointdeviceBomb {
+            self.frames(READS_KEYS_AFTER);
+            self.press(keys::DOWN);
+            self.frames(READS_KEYS_AFTER);
+            self.press(keys::DOWN);
+        }
         self.press_until(keys::Z, "the mode question answered", || {
             log.said_since(from, "mode: answered on the keyboard")
         });
+        if mode == Mode::PointdeviceBomb {
+            self.frames(READS_KEYS_AFTER);
+            self.press(keys::DOWN);
+            self.frames(READS_KEYS_AFTER);
+            self.press(keys::DOWN);
+        }
+        self.press_until(keys::Z, "the mode question answered", || {
+            log.said_since(from, "mode: answered on the keyboard")
+        });
+        if mode == Mode::PointdeviceBomb {
+            self.frames(READS_KEYS_AFTER);
+            self.press_until(keys::Z, "the difficulty answered", || {
+                log.said_since(from, "bomb: the difficulty is ")
+            });
+        }
     }
 
     /// The run given up at orb's own retry menu, which is the way out that leaves the chapter behind for the

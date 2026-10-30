@@ -4,6 +4,8 @@
 //! always. Nothing here is behind a runtime check in a build without the `sim` feature: the
 //! facades in the parent modules compile down to these calls and nothing else.
 
+#[cfg(not(feature = "sim"))]
+pub mod capture;
 pub mod clock;
 pub mod codepage;
 pub mod d3d11;

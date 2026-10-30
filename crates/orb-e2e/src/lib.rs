@@ -76,6 +76,10 @@ mod a_death_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_death_of_th06nc;
 #[cfg(all(test, target_arch = "x86_64"))]
+mod a_pad_focus_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_persons_pad_of_th06c;
+#[cfg(all(test, target_arch = "x86_64"))]
 mod a_pointdevice_run_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_pointdevice_run_of_th06nc;
@@ -91,6 +95,8 @@ mod a_run_of_th06c_pressed_through_a_pad;
 mod a_run_of_th06nc_played_twice;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_run_of_th06nc_pressed_through_a_pad;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod a_shaved_star_of_th06c;
 #[cfg(all(test, target_arch = "x86_64"))]
 mod a_span_of_th06nc_held_back_by_its_source;
 #[cfg(all(test, target_arch = "x86_64"))]

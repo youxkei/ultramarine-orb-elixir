@@ -294,6 +294,59 @@ pub fn the_word_of_a_bound_pad(buttons: u16, bound: [i16; 5], swapped: bool) -> 
     word
 }
 
+/// **What th06c's and th06nc's winmm arm makes of joystick 0**, the other half of the record the pad is read
+/// through: `0x14008db48` polls `joyGetPosEx` and `0x14000f710` reads what it answered — the buttons through
+/// the same `th06.cfg` bindings, and its hat and its two axes into the four directions.
+///
+/// **Which arm is the one the game reads is decided once, in its startup**, and it is what decides whether a
+/// pad reaches the game at all: an XInput record is the read orb answers, a winmm one is the game's own.
+/// See `fake::th06c`'s `Pad`, which is that decision.
+#[cfg(target_arch = "x86_64")]
+pub fn the_word_of_a_winmm_pad(
+    info: &orb_api::JoyInfo,
+    caps: Option<orb_api::JoyCaps>,
+    bound: [i16; 5],
+    swapped: bool,
+) -> u16 {
+    /// The four directions, which a winmm pad reports in its hat and its axes rather than in `wButtons`.
+    const DIRECTIONS: u16 = 0x0010 | 0x0020 | 0x0040 | 0x0080;
+    let mut word = the_word_of_a_bound_pad(
+        u16::try_from(info.buttons & 0xffff).unwrap_or(0),
+        bound,
+        swapped,
+    ) & !DIRECTIONS;
+    let (up, down, left, right) = orb_core::joystick::hat(info.pov);
+    let Some(caps) = caps.filter(|caps| caps.x_max > caps.x_min && caps.y_max > caps.y_min) else {
+        return [
+            (up, 0x0010),
+            (down, 0x0020),
+            (left, 0x0040),
+            (right, 0x0080),
+        ]
+        .into_iter()
+        .filter(|(held, _)| *held)
+        .fold(word, |word, (_, bits)| word | bits);
+    };
+    let axis = |at: u32, low: u32, high: u32| orb_core::game::Axis {
+        at,
+        min: low,
+        max: high,
+    };
+    let (stick_up, stick_down) = orb_core::joystick::axis(axis(info.y, caps.y_min, caps.y_max));
+    let (stick_left, stick_right) = orb_core::joystick::axis(axis(info.x, caps.x_min, caps.x_max));
+    for (held, bits) in [
+        (up || stick_up, 0x0010),
+        (down || stick_down, 0x0020),
+        (left || stick_left, 0x0040),
+        (right || stick_right, 0x0080),
+    ] {
+        if held {
+            word |= bits;
+        }
+    }
+    word
+}
+
 /// **The frame of the stage chapter `chapter` of `stage` began on**, the stage counted from one, as the
 /// newest of its own lines in `lines` said it — what a retry of it has to put the run back on.
 ///

@@ -131,6 +131,58 @@ fn a_run_of_th07_is_put_back_with_the_seal_over_its_numbers_holding() {
     });
 }
 
+/// **A bomb the mode gives back is written through the game's own guarded write**, which is what keeps the seal
+/// over the run's numbers holding. The mode charges a quarter of a bomb for one that answered nothing, so the
+/// whole one the game took for it goes back — and a count written over its float is a number the seal no longer
+/// covers: the game ends on its next guarded write, which is where measured, on 2026-11-02, a bomb-mode run of
+/// the real game was given its bomb back at its frame 14 and left at the stage's frame 100.
+#[test]
+fn a_bomb_of_th07_given_back_is_written_the_games_own_way() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-bomb-given-back",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.in_a_pointdevice_bomb_run();
+        let had = game.image().the_bombs_a_run_has();
+        assert!(had > 0.0, "the run began with no bomb to spend");
+        assert!(
+            game.image().the_seal_holds(),
+            "the run's own build left the seal apart, so this test is about nothing:\n  {}",
+            log.lines().join("\n  "),
+        );
+        let written = game.image().the_times_the_bombs_were_written();
+
+        // The game's own bomb, which is the count going down by a whole one — the way its own guarded write
+        // leaves it, and the count the mode's quarters are kept against.
+        game.a_bomb_goes_off();
+        assert_eq!(
+            game.image().the_bombs_a_run_has(),
+            had - 1.0,
+            "the game's own bomb did not take one off its count",
+        );
+        // **And given back**, which the mode does for it: the run keeps its own count, and the game is brought
+        // to it through the guarded write, which is what puts the seal right after the change.
+        game.frames_until("the game's bomb given back", 30, || {
+            game.image().the_bombs_a_run_has() == had
+        });
+        assert_eq!(
+            game.image().the_times_the_bombs_were_written(),
+            written + 1,
+            "the bomb went back through no write of the game's own",
+        );
+        assert!(
+            game.image().the_seal_holds(),
+            "the bomb given back left the seal over the run's numbers apart:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
 /// **And a number of the run's written with no reseal after it is a seal that no longer holds**, which is
 /// what makes the test above about anything: the word and its copy the reseal draws are untouched by a write
 /// of the lives, and what catches one is the sum 0x42d7be takes — the manager's update sums the run again

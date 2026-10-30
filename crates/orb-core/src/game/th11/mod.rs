@@ -2094,6 +2094,13 @@ impl Game for Th11 {
         }
     }
 
+    /// **The word the frame's own read left**, which is what the run's player moves on — this game keeps it a
+    /// `u32`, so the low half is what a case is about. Read for a case that holds a recipe's press to the game's
+    /// own word rather than to orb's.
+    unsafe fn the_word_the_run_acts_on(&self) -> Option<u16> {
+        mem::read_committed::<u32>(G_INPUT).map(|word| word as u16)
+    }
+
     unsafe fn press_into(&self, _state: *mut u8, _word: u16) {}
 
     fn menu_decide(&self) -> u16 {
@@ -2370,6 +2377,23 @@ impl Game for Th11 {
     unsafe fn set_lives(&self, lives: i8) -> bool {
         unsafe { mem::write(G_LIVES, i32::from(lives)) };
         true
+    }
+
+    /// **What one bomb costs this game's power**, out of its `.sht`'s own `+0x24` — see
+    /// [`Game::a_bomb_costs_power`], and `G_BOMB_COSTS`, which the player's update takes off the power.
+    unsafe fn a_bomb_costs_power(&self) -> Option<i32> {
+        let cost = unsafe { mem::read::<i32>(G_BOMB_COSTS) };
+        (cost > 0).then_some(cost)
+    }
+
+    unsafe fn move_the_power(&self, by: i32) -> bool {
+        let power = unsafe { mem::read::<i32>(G_POWER) };
+        unsafe { mem::write(G_POWER, power.saturating_add(by)) };
+        true
+    }
+
+    unsafe fn the_power(&self) -> Option<i32> {
+        Some(unsafe { mem::read::<i32>(G_POWER) })
     }
 
     /// **Put back the way the game's own playback puts a stage back** — the numbers as 0x4356e0's playback and

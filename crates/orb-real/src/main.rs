@@ -37,6 +37,11 @@ use std::process::ExitCode;
 
 use orb_real::{Game, TRACE_FILE, Trace, cases_of};
 
+/// **How many of a trace's pictures a check is given**, the rest let go of as the records are read. A launch
+/// with a `screenshot` step asks for a few; a launch with `--shot-every` asks for hundreds, and what a check
+/// reads is the first of them that comes after the frame it is about.
+const PICTURES_A_CHECK_MAY_READ: usize = 8;
+
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let Some(session) = args.next() else {
@@ -156,7 +161,7 @@ fn main() -> ExitCode {
     if session == "list" {
         for case in orb_real::cases() {
             println!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 case.game.name(),
                 case.game.exe(),
                 case.game.records().join(","),
@@ -177,6 +182,9 @@ fn main() -> ExitCode {
                 // **And whether its launches press a pad or a keyboard** — see
                 // `orb_real::Case::presses_through_a_pad`.
                 u8::from(case.presses_through_a_pad()),
+                // **And whether it is played in the window its settings name** — see
+                // `orb_real::Case::the_settings_window`.
+                u8::from(case.the_settings_window()),
             );
         }
         return ExitCode::SUCCESS;
@@ -215,11 +223,19 @@ fn main() -> ExitCode {
                 }
             };
             ran += 1;
-            // **Its pictures let go of as each record is read**, no check looking at one: a trace kept with
-            // them goes past what an i686 process can hold — see `orb_core::trace::each`.
+            // **Its pictures let go of as each record is read, but for the first few**: a check reads one now —
+            // the star a part of a life is gone from, whose pixels say whether it was cut — and a launch that
+            // took one of those asks for a handful. What the letting go is for still holds: a trace kept with
+            // every picture of `--shot-every=1` goes past what an i686 process can hold — see
+            // `orb_core::trace::each`.
+            let mut pictures_kept = 0usize;
             let mut records = Vec::new();
             let read = orb_core::trace::each(file, |mut record| {
-                record.picture = None;
+                if record.picture.is_some() && pictures_kept < PICTURES_A_CHECK_MAY_READ {
+                    pictures_kept += 1;
+                } else {
+                    record.picture = None;
+                }
                 records.push(record);
             });
             let trace = match read.map(|_| Trace { records }) {
@@ -234,7 +250,11 @@ fn main() -> ExitCode {
                     continue;
                 }
             };
-            match (case.check)(&trace) {
+            // **And every question it put up was on the screen**, which no case's own check says: a case
+            // walks past orb's questions with presses that reach them whether or not anything was drawn.
+            let asked = orb_real::checks::every_question_was_drawn(&trace);
+            let judged = asked.and_then(|()| (case.check)(&trace));
+            match judged {
                 Ok(()) => println!(
                     "{} {}: ok over {} frames",
                     game.name(),
@@ -679,11 +699,30 @@ fn shown(path: &str, needle: Option<&str>) -> Result<(), String> {
         // `orb_core::trace::WhatWasDrawn`, which is how a menu of orb's is checked to be on the screen where
         // the launch keeps its window hidden and there is nothing to photograph.
         let drawn: Vec<String> = record.drawn.iter().flat_map(drawn).collect();
+        // **And the star a part of a life was shaved off, with what the part was painted with** — see
+        // `orb_core::trace::AShavedStar`: a picture from outside cannot tell the game's own panel from a
+        // colour of orb's, and this can.
+        let shaved: Vec<String> = record
+            .a_shaved_star
+            .iter()
+            .map(|shaved| {
+                format!(
+                    "star shaved at {:.1},{:.1} {:.1}x{:.1}: {:.3} of it gone, painted with the {}",
+                    shaved.star.0,
+                    shaved.star.1,
+                    shaved.star.2,
+                    shaved.star.3,
+                    shaved.gone,
+                    shaved.from
+                )
+            })
+            .collect();
         let lines: Vec<&String> = record
             .lines
             .iter()
             .chain(over.iter())
             .chain(drawn.iter())
+            .chain(shaved.iter())
             .filter(|line| needle.is_none_or(|needle| line.contains(needle)))
             .collect();
         if lines.is_empty() {
@@ -726,9 +765,12 @@ mod tests {
             retries: 0,
             question: None,
             word: 0,
+            games_word: 0,
             lines: vec![line.to_owned()],
             picture: None,
+            picture_what: None,
             over_a_hit: None,
+            a_shaved_star: None,
             the_field: None,
             at: None,
             the_world: None,

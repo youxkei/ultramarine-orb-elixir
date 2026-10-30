@@ -1,0 +1,73 @@
+# **Every input orb holds, held in turn** — what `every_press_reaches_the_game` is a case about: a run started,
+# and each of the pad's buttons pressed by the number a pad reports it under, with the game's own word read out
+# of the trace on every frame. The walk into the run is `a_run_left_in_its_second_chapter.yaml`'s, stopped where
+# the run begins.
+- press: [decide]
+  frames: 10
+  until: { screen: 2 }
+  give_up_after: 3600
+- press: [up]
+  frames: 10
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { question: mode }
+  give_up_after: 900
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 6 }
+  give_up_after: 1800
+- press: [up]
+  frames: 10
+  until: { screen: 6, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 10
+  until: { screen: 6, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 7 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { screen: 8 }
+  give_up_after: 900
+- press: [up]
+  frames: 10
+  until: { screen: 8, cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 10
+  until: { stage: 1, chapter: 0 }
+  give_up_after: 900
+- play_until: { frames: 60 }
+# **Each of the pad's buttons, by the number the pad reports it on** — the shot on 0, the bomb on 1, the focus on
+# 2 and the menu on 3, which is what this copy's own `th10.cfg` names at its `+0x4` (`0, 1, 2, 3, -1, -1, -1, -1,
+# -1`). A name of orb's would say what orb meant to press; the number says what a person pressed, and the game —
+# not orb — says what that button is. **This game's configuration is the copy's own and not the session's**,
+# which is why the numbers are the file's rather than a default: without it the game stops on its startup dialog.
+- press_pad: [0]
+  frames: 8
+- press_pad: [1]
+  frames: 8
+- press_pad: [2]
+  frames: 8
+- press_pad: [3]
+  frames: 8
+# **And the four directions off the keyboard**, which orb holds the same way, for the game's d-pad bits.
+- press: [up]
+  frames: 8
+- press: [down]
+  frames: 8
+- press: [left]
+  frames: 8
+- press: [right]
+  frames: 8
+- wait_until: { frames: 30 }
+- quit: true

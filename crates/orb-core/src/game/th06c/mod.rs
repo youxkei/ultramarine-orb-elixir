@@ -379,27 +379,71 @@ pub(crate) fn the_buttons_pressed_through(config: usize, swap: usize, word: u16)
     .fold(0, |buttons, (_, button)| buttons | button)
 }
 
-/// **The same buttons in the numbering orb's sampling gives an XInput pad's** — `A` 0, `B` 1, the right shoulder
-/// 5 and `Start` 7, DirectInput's order (see `joystick`'s own table) — each with the bits of the word it presses.
-/// `A` both the shot and the decide, as [`Game::press_into_pad`] presses both on it; **the focus on the right
-/// shoulder**, which is where `th06.cfg` binds it by default in both builds (`0x1403e0290`'s 9, th06nc's
-/// `0x140429210`'s), `X` being the conversation skip there and a button orb has no bit for.
-const SAMPLED_BUTTONS: [(i16, u16); 4] = [
-    (0, button::SHOT | button::DECIDE),
-    (1, button::BOMB),
-    (5, button::FOCUS),
-    (7, button::MENU),
-];
-
-/// **The word a pad orb sampled presses**, its buttons by [`SAMPLED_BUTTONS`] and the four directions off the
-/// d-pad and the left stick both, which [`Game::press_into_pad`] fills together.
+/// **Which of a sampled pad's buttons press what, out of the game's own `th06.cfg`** — the inverse of
+/// [`the_buttons_pressed_through`], which is what [`Game::press_into_pad`] fills the pad back from: the five
+/// buttons that table names by their DirectInput number, which is the numbering a sampled pad's mask is in,
+/// and the decide on the button the menus name, swapped or not.
 ///
-/// `pub(crate)` for th06nc, whose word and pad are this game's bit for bit.
-pub(crate) fn the_word_of_a_sampled_pad(reading: Reading) -> u16 {
-    let buttons = SAMPLED_BUTTONS
-        .iter()
-        .filter(|(button, _)| reading.buttons & 1 << button != 0)
-        .fold(0, |word, (_, bits)| word | bits);
+/// **The game's bindings and not a table of orb's**, which is what this was: a pad whose focus is bound to
+/// its left shoulder pressed it and the word had no focus bit at all, because the table orb read had the focus
+/// on the right one. A person playing on 2026-11-01 said so plainly — "低速移動はゲームパッドの話だよ", the
+/// button being L1.
+fn the_buttons_a_sampled_pad_holds(buttons: u32, bound: [i16; 5], swapped: bool) -> u16 {
+    // **The configuration's number is XInput's bit index and a sampled pad's mask is DirectInput's**, so every
+    // one of them is read through `joystick`'s own table — see `the_direct_input_number_of`, which is the other
+    // way of the translation `the_buttons_pressed_through` writes back with.
+    let number = |named: i16| crate::joystick::the_direct_input_number_of(named.unsigned_abs());
+    let held = |named: i16| number(named).is_some_and(|number| buttons & 1 << number != 0);
+    let [shot, bomb, focus, _, pause] = bound;
+    [
+        (button::SHOT, shot),
+        (button::BOMB, bomb),
+        (button::FOCUS, focus),
+        (button::MENU, pause),
+    ]
+    .into_iter()
+    .filter(|(_, named)| held(*named))
+    .fold(0, |word, (bits, _)| word | bits)
+        | match crate::joystick::the_direct_input_number_of(pad::DECIDE + u16::from(swapped)) {
+            Some(number) if buttons & 1 << number != 0 => button::DECIDE,
+            _ => 0,
+        }
+}
+
+/// **The five buttons a build's own configuration binds**, in `th06.cfg`'s order — the shot, the bomb, the
+/// focus, the skip and the pause — and whether its decide and cancel are swapped.
+///
+/// **`config` and `swapped` are the game's own addresses**, which is what makes this one function for both
+/// builds: th06c and th06nc keep the same five fields at different places, and reading them through th06c's
+/// addresses was a th06nc launch answering a press with a button nobody had bound.
+///
+/// A field the configuration does not answer falls back to the build's own defaults, `12, 13, 9, 14, 4`.
+pub(crate) fn the_pad_bindings(config: usize, swapped: usize) -> ([i16; 5], bool) {
+    /// The build's own `th06.cfg` where the file does not answer: `0x1403e0290`'s five.
+    const DEFAULTS: [i16; 5] = [12, 13, 9, 14, 4];
+    let bound = std::array::from_fn(|field| {
+        let at = config + field * size_of::<i16>();
+        mem::read_committed::<i16>(at).unwrap_or(DEFAULTS[field])
+    });
+    let swapped = mem::read_committed::<u8>(swapped).is_some_and(|swapped| swapped != 0);
+    (bound, swapped)
+}
+
+/// And where [`the_pad_bindings`] reads th06c's: the configuration onward from its shot's field.
+pub(crate) fn the_pad_bindings_of_this_build() -> ([i16; 5], bool) {
+    the_pad_bindings(
+        at(SUPERVISOR + supervisor::CONFIG_PAD_SHOT),
+        at(SUPERVISOR + supervisor::CONFIG_DECIDE_SWAPPED),
+    )
+}
+
+/// **The word a pad orb sampled presses**, its buttons by [`the_buttons_a_sampled_pad_holds`] and the four
+/// directions off the d-pad and the left stick both, which [`Game::press_into_pad`] fills together.
+///
+/// `pub(crate)` for th06nc, whose word and pad are this game's bit for bit and whose bindings it hands in
+/// itself — see [`the_pad_bindings`].
+pub(crate) fn the_word_of_a_sampled_pad(reading: Reading, bound: [i16; 5], swapped: bool) -> u16 {
+    let buttons = the_buttons_a_sampled_pad_holds(reading.buttons, bound, swapped);
     let (up, down, left, right) = crate::joystick::hat(reading.pov);
     let (stick_up, stick_down) = crate::joystick::axis(reading.y);
     let (stick_left, stick_right) = crate::joystick::axis(reading.x);
@@ -415,10 +459,29 @@ pub(crate) fn the_word_of_a_sampled_pad(reading: Reading) -> u16 {
 }
 
 /// And the virtual pad pushed the way `word` is pressed, which that reads back.
-pub(crate) fn pushed_as(word: u16) -> crate::joystick::Pushed {
+pub(crate) fn pushed_as(word: u16, bound: [i16; 5], swapped: bool) -> crate::joystick::Pushed {
+    // The configuration's number is XInput's bit index and `pushed_by` names a button by DirectInput's, so each
+    // is read through the same translation the other way.
+    let number = |named: i16| {
+        crate::joystick::the_direct_input_number_of(named.unsigned_abs())
+            .and_then(|number| i16::try_from(number).ok())
+            .unwrap_or(-1)
+    };
+    let [shot, bomb, focus, _, pause] = bound;
+    let decide = crate::joystick::the_direct_input_number_of(pad::DECIDE + u16::from(swapped))
+        .and_then(|number| i16::try_from(number).ok())
+        .unwrap_or(-1);
+    let buttons = [
+        (button::SHOT, number(shot)),
+        (button::BOMB, number(bomb)),
+        (button::FOCUS, number(focus)),
+        (button::MENU, number(pause)),
+        (button::DECIDE, decide),
+    ]
+    .into_iter();
     crate::joystick::pushed_by(
         word,
-        SAMPLED_BUTTONS.map(|(button, bits)| (bits, button)),
+        buttons,
         (button::UP, button::DOWN, button::LEFT, button::RIGHT),
     )
 }
@@ -609,6 +672,18 @@ const THE_VIEWPORTS_WIDTH: usize = 0x1_40bc_2904;
 const THE_VIEWPORTS_HEIGHT: usize = 0x1_40bc_2908;
 /// The output's own size, which the frame writes as a pair of integers.
 const THE_OUTPUT: (u32, u32) = (0x280, 0x1e0);
+
+/// **The size the game's own fit works in**: the two dwords `0x1400592d0` compares with `640` and `480` to
+/// decide whether the picture is drawn `1:1` at the buffer's origin or fitted and centred into it. They are
+/// written by `0x140072180` from the size the renderer was asked for, and left at `640x480` (or `320x240`)
+/// where the renderer answered `-1` — see `asm.md`, and the doubled frame that a `1:1` copy under a fitted one
+/// would be. A picture of the buffer cannot say which branch a frame took; these two can.
+const THE_FITS_WIDTH: usize = 0x1_403e_f698;
+const THE_FITS_HEIGHT: usize = 0x1_403e_f69c;
+/// **How many targets the renderer holds**, which the present walks one by one on every frame — `target 0`
+/// through `0x140076220` and each above it through `0x14021C640`/`0x14021C960` — see the present's own body at
+/// `0x1400729CA`–`0x140072A2F`. Two of them is a frame drawn twice, which is the double a person sees.
+const THE_TARGETS: usize = 0x1_403e_f594;
 
 /// **What draws the sprites the renderer's batch holds** — see [`renderer`]: `0x140062330` with the batch,
 /// its count, four, the word beside the count and one, which is the call the draw chain's walk makes after
@@ -1174,6 +1249,11 @@ const STAGE: usize = 0x1_403e_d030;
 /// Nought for Easy up to four for the Extra, which is the order the five `… Rank * …` lines at
 /// `0x14030c680` onwards are picked in at `0x140027393`.
 const DIFFICULTY: usize = 0x1_403e_d7d8;
+
+/// **The panel's own word of which rows to draw again**, a pair of bits a row, in a static the panel's
+/// draw is handed as its argument — see [`Th06c::repaint_lives_row`]. Its low pair is the lives' and its
+/// next the bombs', and `0x2aa` asks for every row at once, which the stage's first frame writes.
+const THE_GUIS_FLAGS: usize = 0x1_4095_5368;
 
 /// **Whether the stage on the screen is a replay being played back**, which is the byte both of this
 /// game's playbacks set and a run of somebody's own clears: `0x14003079b` sets it as the replay list's
@@ -2905,16 +2985,31 @@ impl Game for Th06c {
         None
     }
 
-    unsafe fn repaint_lives_row(&self) {}
+    /// **The panel's own word of rows to draw again, its low two bits the lives'** — the same mechanism
+    /// th06 1.02h has, at [`THE_GUIS_FLAGS`]: the panel's draw `0x140029030` erases that row and draws its
+    /// stars again only while the low pair is not nought, and takes one off it at the end of the same draw
+    /// (`0x140029962`). Whatever changes the count sets it to two: a death at `0x140023950`'s own update,
+    /// an extend of the score at `0x14002aa70` and the Extra's two lives at `0x14002cc30`.
+    ///
+    /// Two is what orb writes, every frame it wants that row painted: the game then draws the row for orb,
+    /// background and stars, and the two bits cost nothing else. **Without it the display never follows the
+    /// count**, which is the whole of what a bomb-mode launch of th06c showed: the run's own lives written
+    /// under the game's and the stars on the screen left as they were, because the game paints that row only
+    /// when this word says so and orb was writing the count alone.
+    unsafe fn repaint_lives_row(&self) {
+        let flags = unsafe { mem::read::<u32>(at(THE_GUIS_FLAGS)) };
+        unsafe { mem::write::<u32>(at(THE_GUIS_FLAGS), flags & !0b11 | 0b10) };
+    }
 
     unsafe fn draws_lives_row(&self) -> bool {
         false
     }
 
-    /// **The panel's star for each life, where th06 1.02h puts its own**: the panel's draw `0x140029030` draws
-    /// vm `+0x16b0` of the panel once per life (`[0x1403ee804]`) from x `[0x14030e18c]` = 496.0 at
-    /// `0x1400296e1`, stepping `[0x14030e0d4]` = 16.0 at `0x140029746`, with y 122.0 written at `0x14002971f` —
-    /// in the 640x480 that draw sets up at `0x1400591d0`, which is the space orb's overlay of this game is in.
+    /// **The panel's star for each life, where the panel's draw puts it**: `0x140029030` draws vm `+0x16b0`
+    /// once per life (`[0x1403ee804]`) from x 496.0 at `0x1400296e1`, stepping 16.0 at `0x140029746`, with y
+    /// 122.0 at `0x14002971f` — in the 640x480 the picture this game draws is made in, which is the space
+    /// orb's own output is placed on for this game: see [`Th06c::the_pictures_own_size`], without which orb's
+    /// overlay is stretched over the whole 16:9 buffer and a star at 496 lands at 452 on the screen.
     ///
     /// The star's 16x16 and its corner being the position are th06's and not read off this exe — they are
     /// `data/front.anm`'s, packed in this game's own archive. A picture of the panel is what holds them to the
@@ -2926,6 +3021,15 @@ impl Game for Th06c {
             width: 16.0,
             height: 16.0,
         })
+    }
+
+    /// **640x480: the picture this game draws, inside whatever target it is given.** Its renderer keeps its
+    /// own aspect — a swapchain of `3840x2160` has the game's frame from 480 to 3360 and black either side,
+    /// which is what a picture of the frame holds: the panel's stars at 452 where the draw puts them at 496,
+    /// and a shave drawn where the draw says in a rectangle of the panel's colour beside them. See
+    /// [`crate::canvas`], which places orb's output on this.
+    fn the_pictures_own_size(&self) -> Option<(u32, u32)> {
+        Some((640, 480))
     }
 
     fn lives_row(&self) -> Rect {
@@ -2974,7 +3078,55 @@ impl Game for Th06c {
     /// has no device of it — see [`Game::draws_through_its_d3d_device`].
     unsafe fn prepare_frame(&self, _device: orb_api::Device) {
         WALKS_THIS_FRAME.store(0, Ordering::Relaxed);
+        // **And the frame's own buffer emptied before anything of it is drawn**, which is the one moment this
+        // game's margins can be taken back: it draws inside its own picture only, so anything outside it is
+        // whatever last covered it — see `dxgi::empty_the_frames_buffer`, and what the same clear at the
+        // present cost.
+        unsafe { crate::dxgi::empty_the_frames_buffer() };
+        // **And the size the frame's own fit works in, said whenever it changes.** The fit draws the picture
+        // `1:1` at the buffer's origin where these two are `640` and `480`, and fitted and centred otherwise —
+        // so a frame whose fields are the picture's own and whose buffer is bigger leaves the whole frame twice
+        // in it, once small at the origin and once fitted over that, which is the double a person sees and no
+        // picture of the buffer can be told apart from the frame's own drawing.
+        {
+            static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+            let (width, height) = unsafe {
+                (
+                    mem::read::<u32>(at(THE_FITS_WIDTH)),
+                    mem::read::<u32>(at(THE_FITS_HEIGHT)),
+                )
+            };
+            // **And the buffer the fit is drawing into, which is the other half of the same question**: a fit
+            // working in a size its buffer does not have draws the picture at a scale the buffer's is not, and
+            // that is two copies of one frame at two scales. Said together and only where they part.
+            let buffer = unsafe { crate::dxgi::the_size_of(crate::dxgi::the_swapchain()) };
+            let pair = (u64::from(width) << 32) | u64::from(height);
+            let apart = match buffer {
+                Some((across, down)) => (across, down) != (width, height),
+                None => false,
+            };
+            if LAST.swap(pair, Ordering::Relaxed) != pair || apart {
+                crate::detail!(
+                    "frame: the fit is for {width}x{height} over {}, and the renderer holds {} target(s)",
+                    match buffer {
+                        Some((across, down)) => format!("a {across}x{down} buffer"),
+                        None => "a buffer of a size the swapchain will not say".to_owned(),
+                    },
+                    unsafe { mem::read::<i32>(at(THE_TARGETS)) },
+                );
+            }
+        }
         unsafe { crate::dxgi::starts_a_frame() };
+        // **And how many times the game's own context was asked to draw since the last frame**, which is what
+        // says whether a frame reaches the buffer once: one draw is the frame drawn as the game draws it, and
+        // two is a frame drawn twice — the double, in the place a picture of it cannot tell from the frame.
+        {
+            static LAST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+            let drawn = orb_api::d3d11::draws_taken();
+            if LAST.swap(drawn, Ordering::Relaxed) != drawn {
+                crate::detail!("frame: the game drew {drawn} time(s)");
+            }
+        }
         unsafe {
             mem::write::<u64>(at(WHAT_THE_VIEWPORT_WAS_ASKED_FOR), 0);
             mem::write::<u32>(at(THE_VIEWPORTS_WIDTH), THE_OUTPUT.0);
@@ -3393,13 +3545,17 @@ impl Game for Th06c {
     /// **The pads orb samples, as the word [`Game::press_into_pad`] would have pressed** — read for a launch
     /// pressing through a pad, whose word comes off the pads rather than the bot: see `runtime::the_frames_word`.
     unsafe fn pad_word(&self, pad: Option<Reading>, _hats: bool) -> u16 {
-        pad.map_or(0, the_word_of_a_sampled_pad)
+        let (bound, swapped) = the_pad_bindings_of_this_build();
+        pad.map_or(0, |reading| {
+            the_word_of_a_sampled_pad(reading, bound, swapped)
+        })
     }
 
     /// **The word pressed on a pad, as [`Game::press_into_pad`] presses it** — the same buttons, numbered the way
     /// orb's sampling numbers an XInput pad's.
     unsafe fn pushed_for(&self, word: u16) -> Option<crate::joystick::Pushed> {
-        Some(pushed_as(word))
+        let (bound, swapped) = the_pad_bindings_of_this_build();
+        Some(pushed_as(word, bound, swapped))
     }
 
     unsafe fn add_pad_buttons(&self, _into: *mut c_void, _pad: Option<Reading>) {}
@@ -3428,6 +3584,12 @@ impl Game for Th06c {
     /// so what is genuinely held still reads as held and only the edge is gone.
     unsafe fn swallow_input(&self) {
         unsafe { mem::write::<u32>(at(INPUT_THE_RUN_ACTS_ON), u32::MAX) };
+    }
+
+    /// **The word this game's own supervisor built**, which is the keyboard's and the pad's together — the
+    /// field `swallow_input` fills, and the one the fake's `reads_the_keys_and_the_pad` writes.
+    unsafe fn the_word_the_run_acts_on(&self) -> Option<u16> {
+        mem::read_committed::<u32>(at(INPUT_THE_RUN_ACTS_ON)).map(|word| word as u16)
     }
 
     /// The screen's state written to its own way out, where the state is the question about saving a
@@ -3572,6 +3734,12 @@ impl Game for Th06c {
     /// The byte [`State::lives`] is read from, which the playback's own init writes too (`put_the_numbers_back`).
     unsafe fn set_lives(&self, lives: i8) -> bool {
         unsafe { mem::write::<i8>(at(LIVES), lives) };
+        true
+    }
+
+    /// The byte [`State::bombs`] is read from — see [`Game::set_bombs`].
+    unsafe fn set_bombs(&self, bombs: i8) -> bool {
+        unsafe { mem::write::<i8>(at(BOMBS), bombs) };
         true
     }
 

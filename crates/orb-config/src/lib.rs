@@ -115,6 +115,13 @@ pub struct Config {
     /// read through answers the virtual one as well, so the game's own pad read, orb's mapping of each game's
     /// buttons and orb's menus on a pad are all what the run goes through.
     pub through_a_pad: bool,
+    /// **Whether a launch playing itself keeps the window the settings name instead of being put in a small
+    /// one in a corner** — `--the-settings-window`, and nothing unless `--autoplay` names a recipe. No case
+    /// asks for it: a launch of the harness is the corner's small window.
+    ///
+    /// **That window is the settings' own in shape as well as size**: `orb_core::window::placed_out_of_the_way`
+    /// gives it no frame and puts it on the monitor it fits.
+    pub the_settings_window: bool,
     /// **Whether a launch playing itself presses the keyboard from the host** — `--press-through-the-host`,
     /// and nothing unless `--autoplay` names a recipe.
     ///
@@ -603,6 +610,7 @@ impl Config {
             autoplay: None,
             through_a_pad: false,
             press_through_the_host: false,
+            the_settings_window: false,
             trace: None,
             shot_every: 0,
             trace_the_field_in: None,

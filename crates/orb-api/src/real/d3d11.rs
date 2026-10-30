@@ -12,11 +12,11 @@
 use std::ffi::c_void;
 
 use crate::d3d11::{
-    Blend, BlendDesc, BlobVtable, Buffer, BufferDesc, Context, ContextVtable,
+    Blend, BlendDesc, BlobVtable, Buffer, BufferDesc, Context, ContextVtable, D3D11_MAP_READ,
     D3D11_MAP_WRITE_DISCARD, DepthStencil, DepthView, Device, DeviceVtable, IID_ID3D11DEVICE,
     IID_ID3D11TEXTURE2D, InputElementDesc, Layout, MappedSubresource, Object, PixelShader,
-    Rasterizer, ResourceView, Sampler, SamplerDesc, SubresourceData, SwapChainVtable, Target,
-    Texture, Texture2dDesc, UnknownVtable, VertexShader, Viewport,
+    Rasterizer, ResourceView, Sampler, SamplerDesc, SubresourceBox, SubresourceData,
+    SwapChainVtable, Target, Texture, Texture2dDesc, UnknownVtable, VertexShader, Viewport,
 };
 
 /// The vtable of an object at an address: its first field is the pointer to it, which is what a COM object
@@ -152,23 +152,92 @@ pub unsafe fn buffer(device: Device, desc: BufferDesc, bytes: Option<&[u8]>) -> 
     made(answered, at, Buffer)
 }
 
-pub unsafe fn texture(device: Device, desc: Texture2dDesc, pixels: &[u32]) -> Option<Texture> {
-    let initial = SubresourceData {
+pub unsafe fn texture(
+    device: Device,
+    desc: Texture2dDesc,
+    pixels: Option<&[u32]>,
+) -> Option<Texture> {
+    let initial = pixels.map(|pixels| SubresourceData {
         sys_mem: pixels.as_ptr().cast(),
         // The stride of one row in bytes, which is what a texture's upload is described by.
         sys_mem_pitch: desc.width * size_of::<u32>() as u32,
         sys_mem_slice_pitch: 0,
-    };
+    });
     let mut at: *mut c_void = std::ptr::null_mut();
     let answered = unsafe {
         (vtable::<DeviceVtable>(device.0).create_texture_2d)(
             object(device.0),
             &desc,
-            &initial,
+            initial.as_ref().map_or(std::ptr::null(), |it| it),
             &mut at,
         )
     };
     made(answered, at, Texture)
+}
+
+pub unsafe fn copy_subresource_region(
+    context: Context,
+    from: Texture,
+    region: SubresourceBox,
+    to: Texture,
+    at: (u32, u32),
+) -> bool {
+    let copy = unsafe { vtable::<ContextVtable>(context.0).copy_subresource_region };
+    unsafe {
+        copy(
+            object(context.0),
+            object(to.0),
+            0,
+            at.0,
+            at.1,
+            0,
+            object(from.0),
+            0,
+            &region,
+        );
+    }
+    true
+}
+
+pub unsafe fn read(
+    context: Context,
+    texture: Texture,
+    width: u32,
+    height: u32,
+) -> Option<Vec<u32>> {
+    let mut mapped = MappedSubresource {
+        data: std::ptr::null_mut(),
+        row_pitch: 0,
+        depth_pitch: 0,
+    };
+    let answered = unsafe {
+        (vtable::<ContextVtable>(context.0).map)(
+            object(context.0),
+            object(texture.0),
+            0,
+            D3D11_MAP_READ,
+            0,
+            &mut mapped,
+        )
+    };
+    if answered < 0 || mapped.data.is_null() {
+        return None;
+    }
+    // **A row of a texture and not a row of the picture**: a device may keep a row wider than its pixels,
+    // which is what the pitch is, and reading it as `width` words walks off the end of the last one.
+    let mut pixels = Vec::with_capacity((width * height) as usize);
+    for row in 0..height {
+        let start = unsafe {
+            mapped
+                .data
+                .cast::<u8>()
+                .add(row as usize * mapped.row_pitch as usize)
+        };
+        let words = unsafe { std::slice::from_raw_parts(start.cast::<u32>(), width as usize) };
+        pixels.extend_from_slice(words);
+    }
+    unsafe { (vtable::<ContextVtable>(context.0).unmap)(object(context.0), object(texture.0), 0) };
+    Some(pixels)
 }
 
 pub unsafe fn resource_view(device: Device, texture: Texture) -> Option<ResourceView> {
@@ -244,6 +313,30 @@ pub unsafe fn set_viewports(context: Context, viewports: &[Viewport]) {
             object(context.0),
             viewports.len() as u32,
             viewports.as_ptr(),
+        );
+    }
+}
+
+/// `ID3D11DeviceContext::ClearRenderTargetView`, slot 50, which `ContextVtable` does not reach — kept for
+/// the next reading of the window's leftover: emptying the frame's buffer at the top of it left the window
+/// black, so the surface the game draws into is not the one this clears.
+///
+/// # Safety
+/// Both must be live objects of the same device, and `target` a view of the buffer being cleared.
+#[repr(C)]
+struct ContextClearVtable {
+    _before: [usize; 50],
+    clear: unsafe extern "system" fn(*mut c_void, *mut c_void, *const f32),
+}
+const _: () = assert!(std::mem::offset_of!(ContextClearVtable, clear) == 50 * size_of::<usize>());
+
+#[allow(dead_code)]
+pub unsafe fn clear(context: Context, target: Target, colour: [f32; 4]) {
+    unsafe {
+        (vtable::<ContextClearVtable>(context.0).clear)(
+            object(context.0),
+            object(target.0),
+            colour.as_ptr(),
         );
     }
 }
@@ -517,6 +610,25 @@ pub unsafe fn draw(context: Context, vertices: u32, first: u32) {
     unsafe {
         (vtable::<ContextVtable>(context.0).draw)(object(context.0), vertices, first);
     }
+}
+
+/// **How many draws were counted since the count was last taken** — see [`draws_taken`].
+static DRAWS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// **The address of the context's own `Draw` slot**, which is the thirteenth entry of its vtable — see
+/// [`ContextVtable`]'s `draw` and the `offset_of!` assert beside it.
+pub unsafe fn the_draw_slot(context: Context) -> usize {
+    let vtable =
+        unsafe { vtable::<ContextVtable>(context.0) } as *const ContextVtable as *const usize;
+    unsafe { vtable.add(13) as usize }
+}
+
+pub fn count_a_draw() {
+    DRAWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn draws_taken() -> u32 {
+    DRAWS.swap(0, std::sync::atomic::Ordering::Relaxed)
 }
 
 pub unsafe fn release(object_of: Object) -> u32 {

@@ -300,10 +300,30 @@ pub const DIFFICULTY: i32 = 1;
 pub const CHARACTER: u8 = 0;
 pub const SHOT_TYPE: u8 = 0;
 
+/// **Which read this game takes its pad through**, settled once in its startup the way `0x14008d290` settles
+/// it: the record it reads the pad through for the rest of the launch is an XInput slot where the read orb
+/// answers this game with answered a pad, and winmm's joystick where none did.
+///
+/// **A bind that is not made again**, which is what makes the first answer matter: a game bound to winmm
+/// reads its pad itself and orb's hold never reaches it. Measured on the real game — a launch whose first
+/// answer was `NOT_CONNECTED`, for the instant before orb's sampling thread had read anything, left the
+/// record's slot field at `0xffffffff` and read the pad through winmm all launch; with the answer that
+/// instant gives now, two records and the first of them on XInput's slot 0.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pad {
+    /// Nothing has asked yet, which is every frame before this game's first.
+    NotYet,
+    XInput,
+    Winmm,
+}
+
 /// A th06c laid out, with orb attached to it.
 pub struct Fake {
     image: Image,
     launch: Launch,
+    /// **Which read this game takes its pad through**, which its startup settles once and the rest of the
+    /// launch keeps — see [`Pad`].
+    pad_read: Cell<Pad>,
     /// Whether this game's chain walk says the game is leaving — see [`Fake::leaves`].
     leaving: Cell<bool>,
     /// How many frames this launch has run, for the logo that comes up on its own.
@@ -538,6 +558,7 @@ impl Fake {
         let fake = Box::new(Self {
             image,
             launch,
+            pad_read: Cell::new(Pad::NotYet),
             leaving: Cell::new(false),
             frames_since_launch: Cell::new(0),
             on_its_own_for: Cell::new(0),
@@ -604,6 +625,17 @@ impl Fake {
                 },
             )
         };
+        // **And its startup's own decision about the pad**, made once and before its first frame, as
+        // `0x14008d290` makes it: whether there is an XInput pad at all — asked of the read orb answers this
+        // game with — and the record it reads the pad through for the rest of the launch bound on that
+        // answer. See [`Pad`].
+        let mut pad = [0u8; 16];
+        fake.pad_read.set(
+            match unsafe { orb_core::runtime::xinput_get_state(0, pad.as_mut_ptr()) } {
+                0 => Pad::XInput,
+                _ => Pad::Winmm,
+            },
+        );
         if let Some(recipe) = &recipe {
             unsafe { orb_bot::install(recipe, the_game_this_is()) };
         } else {
@@ -844,15 +876,31 @@ impl Fake {
             .filter(|(index, _)| keys[*index] & 0x80 != 0)
             .fold(0u16, |word, (_, bits)| word | bits);
         let mut pad = [0u8; 16];
-        // **`0x14000f710`, the pad's half**, through `th06.cfg`'s own bindings: see
-        // `super::the_word_of_a_bound_pad`.
-        if unsafe { orb_core::runtime::xinput_get_state(0, pad.as_mut_ptr()) } == 0 {
-            let (bound, swapped) = self.image.the_pad_bindings();
-            word |= super::the_word_of_a_bound_pad(
-                u16::from_le_bytes([pad[4], pad[5]]),
-                bound,
-                swapped,
-            );
+        // **`0x14000f710`, the pad's half**, through `th06.cfg`'s own bindings — and through whichever read
+        // this game's startup bound its record to: see [`Pad`], `super::the_word_of_a_bound_pad` for the
+        // XInput arm and `super::the_word_of_a_winmm_pad` for the other.
+        let (bound, swapped) = self.image.the_pad_bindings();
+        match self.pad_read.get() {
+            Pad::XInput => {
+                if unsafe { orb_core::runtime::xinput_get_state(0, pad.as_mut_ptr()) } == 0 {
+                    word |= super::the_word_of_a_bound_pad(
+                        u16::from_le_bytes([pad[4], pad[5]]),
+                        bound,
+                        swapped,
+                    );
+                }
+            }
+            Pad::Winmm | Pad::NotYet => {
+                let (result, info) = orb_api::joystick::position(0, orb_core::joystick::RETURN_ALL);
+                if result == orb_api::joyerr::NOERROR {
+                    word |= super::the_word_of_a_winmm_pad(
+                        &info,
+                        orb_api::joystick::caps(0),
+                        bound,
+                        swapped,
+                    );
+                }
+            }
         }
         // **The repeat**, 0x140058330 beside the read: a word that stood for more than 0x1d reads is pressed again
         // on every one whose count is a multiple of eight, the count going back to 0x1e past 0x25 — so the
@@ -2123,6 +2171,11 @@ unsafe extern "system" fn swapchain_presents1(
 /// The draw chain's one job, which is what drawing anything here is: a quad's worth of sprite queued into the
 /// renderer's batch, as every draw of the real one queues its own.
 unsafe extern "win64" fn draw_job(_on: usize) -> i32 {
+    // **Nothing of the game's own frame is painted here, and modelling it would not help**: the picture an
+    // e2e test reads is the back buffer texture's own pixels, not the quads drawn over it, and the sim paints
+    // no quad into a texture — so a backdrop painted for this game's retry screen would still lie under orb's
+    // menu in every picture the trace keeps. The band comparison of the retry screen is the real game's to
+    // hold, and this fake's part in that case is that the recipe runs.
     let fake = running();
     fake.launch.asked_for(DRAW);
     fake.image.queues_sprites(4);

@@ -19,8 +19,8 @@
 //! **And the write is not driven on the real game**: `runtime` asks the method in Pointdevice mode alone,
 //! a pointdevice run reaches that screen by a clear only — every death of one is answered by the retry and
 //! a run given up at it walks the front end's own way back — and `--clear` over this game stands still in
-//! stage 1's boss fight. So the laid-out game is what holds the claim; see the change's description and
-//! `th06nc/asm.md`'s *The entry a name is typed into*.
+//! stage 1's boss fight. So the laid-out game is what holds the claim; `th06nc/asm.md`'s *The entry a name
+//! is typed into* is the reading it stands on.
 
 use orb_config::LogLevel;
 

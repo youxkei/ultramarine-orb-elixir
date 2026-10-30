@@ -2169,6 +2169,13 @@ impl Game for Th10 {
         }
     }
 
+    /// **The word the frame's own read left**, which is what the run's player moves on — the copy the replay's
+    /// job makes at priority `0xb` is taken off it, before the player's move at `0x10`. Read for a case that
+    /// holds a recipe's press to the game's own word rather than to orb's.
+    unsafe fn the_word_the_run_acts_on(&self) -> Option<u16> {
+        mem::read_committed::<u16>(G_INPUT)
+    }
+
     unsafe fn press_into(&self, _state: *mut u8, _word: u16) {}
 
     fn menu_decide(&self) -> u16 {
@@ -2476,6 +2483,22 @@ impl Game for Th10 {
     unsafe fn set_lives(&self, lives: i8) -> bool {
         unsafe { mem::write(G_LIVES, i32::from(lives)) };
         true
+    }
+
+    /// **A bomb is 20 of this game's power**, which is the fixed cost its own player takes — see
+    /// [`Game::a_bomb_costs_power`].
+    unsafe fn a_bomb_costs_power(&self) -> Option<i32> {
+        Some(20)
+    }
+
+    unsafe fn move_the_power(&self, by: i32) -> bool {
+        let power = unsafe { mem::read::<i32>(G_POWER) };
+        unsafe { mem::write(G_POWER, power.saturating_add(by)) };
+        true
+    }
+
+    unsafe fn the_power(&self) -> Option<i32> {
+        Some(unsafe { mem::read::<i32>(G_POWER) })
     }
 
     /// **Put back the way the game's own playback puts a stage back** — the numbers as 0x4292de through

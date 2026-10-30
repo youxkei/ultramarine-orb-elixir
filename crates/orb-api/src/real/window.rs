@@ -20,6 +20,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::real::gdi;
 use crate::{Bar, Hwnd, Rect};
 
+// The capture is its own module — it is WinRT and Direct3D 11 rather than this file's window arithmetic —
+// but it is reached through the same facade, which names the host's window module for every window call.
+#[cfg(not(feature = "sim"))]
+pub use crate::real::capture::capture;
+
 // The two alignments, written out above the seam and held against Windows' own numbers here. Which way
 // a stack of lines is aligned is half of deciding which bar it goes in, so it is decided where the rest
 // of that layout is — and a number that drifted from `windows-sys` is a build that stops rather than

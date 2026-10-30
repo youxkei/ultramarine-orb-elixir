@@ -1211,6 +1211,59 @@ pub trait Game {
         false
     }
 
+    /// **Writes the bombs the run has left**, which the bomb mode keeps the way it keeps the lives: the game
+    /// takes a whole one for every bomb that goes off, and what the mode charges is a quarter of one, so the
+    /// count it keeps is written back over the game's — see [`crate::bomb`].
+    ///
+    /// Into the field [`State::bombs`] is read from. `false` where a game has no count of its own to write —
+    /// th10 and th11, whose bombs are the power a bomb costs out of it and not a stock.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a run in progress.
+    unsafe fn set_bombs(&self, bombs: i8) -> bool {
+        let _ = bombs;
+        false
+    }
+
+    /// **What a bomb costs a game that has no stock of them**, in the power one takes — th10's 20 and th11's
+    /// `.sht +0x24` — and `None` for a game whose bombs are counted.
+    ///
+    /// The bomb mode charges a quarter of it for a bomb that answers nothing and gives the rest back, which a
+    /// stock cannot do: there a quarter is a counter of orb's and a whole bomb comes of four of them.
+    ///
+    /// **And why no real case holds a check to the quarter**: the run a bomb-mode case plays starts its stage
+    /// at nought power, so a quarter of a bomb there takes nought of it — th10's five and th11's cost/4 both
+    /// saturate — and a check reading the trace's `state= power=` cannot tell a quarter taken from a whole
+    /// charge refunded. One would be a recipe played until the stage has given the run power, and a check
+    /// that knows the game's bomb cost to hold the drop to a quarter of it; the laid-out games' own runs are
+    /// where that belongs first, and `Game::move_the_power` is what it would drive.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a run in progress.
+    unsafe fn a_bomb_costs_power(&self) -> Option<i32> {
+        None
+    }
+
+    /// And that power moved by `by` — the bomb's own charge put back where it fired, and the quarter taken out
+    /// of it where the bomb answered nothing.
+    ///
+    /// # Safety
+    /// As [`Game::a_bomb_costs_power`].
+    unsafe fn move_the_power(&self, by: i32) -> bool {
+        let _ = by;
+        false
+    }
+
+    /// And the power the run has, which a refund is capped by: a game charges what it can of a bomb's cost, so
+    /// giving back the whole cost to a run that could not pay it would be power it never had — measured on a
+    /// laid-out th10 at 0 power, 20 given back and 5 taken out of that.
+    ///
+    /// # Safety
+    /// As [`Game::a_bomb_costs_power`].
+    unsafe fn the_power(&self) -> Option<i32> {
+        None
+    }
+
     /// Counts one more retry where the game's own records have somewhere to keep it, so that その他の記録 says
     /// what a mode whose runs are rewound cost.
     ///
@@ -1691,6 +1744,31 @@ pub trait Game {
     /// `None` where orb has not read where a game's stars go, which is a game whose part of a life is not shown.
     fn life_star(&self, index: u32) -> Option<Rect> {
         let _ = index;
+        None
+    }
+
+    /// **Where the game's panel is bare, one star's size**: the slot the star of the `lives`-th life would go
+    /// in, in the same output [`Game::life_star`] is in.
+    ///
+    /// What 完全無欠ボムモード paints the part of a star it shaves off with, for a game whose panel tile orb
+    /// has no handle of — see [`crate::lives_ui::shave`]: the game's own background pixels are copied out of
+    /// the frame there and drawn where the part of the star was. The slot after the run's last life is bare
+    /// because the game draws a star only for each life it has.
+    ///
+    /// `None` where that slot is not bare, which is th06nc, whose empty lives are empty hearts drawn in every
+    /// slot a run has not filled — painting one of those behind a shaved filled heart would show a piece of
+    /// the wrong picture.
+    fn a_starless_slot(&self, lives: u32) -> Option<Rect> {
+        self.life_star(lives)
+    }
+
+    /// **How big the picture the game draws is**, where that is not the shape of the target it draws into: a
+    /// game whose renderer keeps its own aspect leaves the rest of the target black, and what orb draws over
+    /// such a frame has to be placed on that picture rather than stretched over the whole buffer — see
+    /// `crate::canvas`.
+    ///
+    /// `None` where the picture fills the target, which is every game orb draws with a device of its own.
+    fn the_pictures_own_size(&self) -> Option<(u32, u32)> {
         None
     }
 
@@ -2244,6 +2322,22 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread, between frames.
     unsafe fn swallow_input(&self);
+
+    /// **The word the game's own read has left the run acting on**, in the game's own bits — what
+    /// `trace::the_games_word` writes per frame and what a check holds a recipe's press to.
+    ///
+    /// **Because a word can be right and still not arrive.** orb's own word is what orb pressed; the game builds
+    /// its own out of the reads it makes, and the two came apart on 2026-11-01 with no case saying so: a pad's
+    /// focus and a pad's decide were read in the wrong numbering and the game's word never had them.
+    ///
+    /// `None` for a game whose word orb does not read back: th06 and th07 answer their own read with a word and
+    /// take one back, so orb's word *is* the game's there.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn the_word_the_run_acts_on(&self) -> Option<u16> {
+        None
+    }
 
     /// **A word's own buttons put into the keyboard snapshot the game is about to read**, for a game
     /// whose read is a snapshot rather than a word — see [`Read::Pointer`] and

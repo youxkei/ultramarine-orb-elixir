@@ -66,6 +66,10 @@ pub struct Record {
     pub question: Option<String>,
     /// The word the input read last handed the run, the game's own buttons in its own bits.
     pub word: u16,
+    /// **What the game's own read left the run acting on**, in its own bits — see [`the_games_word`], and
+    /// `Game::the_word_the_run_acts_on`, which is the word a check holds [a recipe's press](crate::recipe) to.
+    #[serde(default)]
+    pub games_word: u16,
     /// Every line the log said since the last record, without its stamp: the message as `log!` was given
     /// it.
     pub lines: Vec<String>,
@@ -80,6 +84,13 @@ pub struct Record {
     /// is read it, and a reader that refuses last week's file is no reader.
     #[serde(default)]
     pub picture: Option<Vec<u8>>,
+    /// **Which picture the field above is**, [`crate::shot::ThePicture`]'s three answers — the game's own 4:3
+    /// picture, the whole buffer, or the window as the desktop has it. A check that holds a window against its
+    /// buffer needs the two told apart, and at a window the size of its buffer both are the same size of BMP.
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub picture_what: Option<crate::shot::ThePicture>,
     /// **What stood over the player on the frame a hit was seen, where one was** — see [`OverAHit`].
     ///
     /// Defaulted for the reason [`Record::picture`] is.
@@ -90,6 +101,12 @@ pub struct Record {
     /// Defaulted for the reason [`Record::picture`] is.
     #[serde(default)]
     pub the_field: Option<TheField>,
+    /// **The star a part of a life was shaved off, and what the part was painted with** — see
+    /// [`AShavedStar`], which is what says whether the panel the cut shows is the game's own.
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub a_shaved_star: Option<AShavedStar>,
     /// **Where the player was on the frame the rules last read**, and `None` where they read none.
     ///
     /// Which is what two runs of one stretch are held against each other by: the whole Extra and a pick-up of
@@ -313,11 +330,29 @@ pub struct ABeamOnTheField {
     pub fading: bool,
 }
 
+/// **The star a part of a life is gone from, and what the part was painted with** — see
+/// `orb_core::lives_ui::shave`.
+///
+/// **Which of the panel's three sources a launch actually used is not something a picture from outside can
+/// say and a check cannot see**: a shave painted with the game's own tile, with the game's own pixels copied
+/// out of the frame, and with a colour measured off a photograph of the panel all look at most like a star with
+/// a piece gone, and one that fell back to orb's own flat colour — which is the bug a launch of th06c showed,
+/// a rectangle of blue-grey beside the star — looks like that too from the log.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AShavedStar {
+    /// The star's box, in the game's own output.
+    pub star: (f32, f32, f32, f32),
+    /// How much of it is gone, as a turn of one.
+    pub gone: f32,
+    /// What the part was painted with: `panel` for the game's own tile, `frame` for its own pixels copied
+    /// out of the frame, `colour` for a colour measured off a picture of its panel, and `orb` for orb's own
+    /// flat colour — the last being the one that is wrong wherever the game's panel is not that colour.
+    pub from: String,
+}
+
 /// **Every enemy and every bullet within reach of the player on the frame a hit is seen**, with the words the
 /// game's own tests of the player are gated on — which a hit dump cannot say, holding only what the model
-/// held: a hit that came with nothing in the model is answered by what was there.
-///
-/// **The words are the game's own**, as its own walks read them, and each field says which of the game's
+/// held: a hit that came with nothing in the model is answered by what was there./// **The words are the game's own**, as its own walks read them, and each field says which of the game's
 /// words it is where the game has one. Filled by a game that reads them; nothing here for one that does not.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct OverAHit {
@@ -374,10 +409,21 @@ struct Tracing {
     encoded: Vec<u8>,
     lines: Vec<String>,
     word: u16,
+    /// What the game's own read last left the run acting on — see [`the_games_word`].
+    games_word: u16,
     /// The picture taken since the last record, where one was — see [`picture`].
     picture: Option<Vec<u8>>,
+    /// Which of [`crate::shot::ThePicture`]'s three that picture is, where one was — see [`picture`].
+    picture_what: Option<crate::shot::ThePicture>,
+    /// **The pictures taken since the last record and not yet in one, oldest first** — see [`picture`], and
+    /// why a record holds one picture and no more: a case that photographs the frame twice in a row took two
+    /// pictures for one record, and the second overwrote the first, so a real case of th06c's found one where
+    /// it had taken two (2026-11-02). What is not in a record waits for the next one.
+    pictures: std::collections::VecDeque<(Vec<u8>, crate::shot::ThePicture)>,
     /// What stood over a hit seen since the last record, where one was — see [`over_a_hit`].
     over_a_hit: Option<OverAHit>,
+    /// The star shaved since the last record, where one was — see [`a_shaved_star`].
+    a_shaved_star: Option<AShavedStar>,
     /// The field read since the last record, where the card a launch named was up — see [`the_field`].
     the_field: Option<TheField>,
     /// Where the player was when the rules last read, since the last record — see [`the_player_at`].
@@ -473,8 +519,12 @@ pub fn open(path: &Path) {
         encoded: Vec::new(),
         lines: Vec::new(),
         word: 0,
+        games_word: 0,
         picture: None,
+        picture_what: None,
+        pictures: std::collections::VecDeque::new(),
         over_a_hit: None,
+        a_shaved_star: None,
         the_field: None,
         at: None,
         the_world: None,
@@ -509,13 +559,12 @@ pub fn said(message: &str) {
 /// The record it lands in is the one *after* the frame the picture is of, which is the same offset
 /// [`Record`]'s own doc gives for the state: a record is taken at the top of an update and holds the frame
 /// before it as the game left it. So the picture and the numbers beside it are of one frame.
-pub fn picture(bytes: &[u8]) {
+pub fn picture(bytes: &[u8], what: crate::shot::ThePicture) {
     if !on() {
         return;
     }
-    let mut held = tracing();
-    if let Some(tracing) = held.as_mut() {
-        tracing.picture = Some(bytes.to_vec());
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.pictures.push_back((bytes.to_vec(), what));
     }
 }
 
@@ -527,6 +576,17 @@ pub fn over_a_hit(what: OverAHit) {
     }
     if let Some(tracing) = tracing().as_mut() {
         tracing.over_a_hit = Some(what);
+    }
+}
+
+/// **Keeps the star shaved this frame for the next record** — see [`AShavedStar`] — and drops it where no
+/// trace is being written, the way [`picture`] does.
+pub fn a_shaved_star(what: AShavedStar) {
+    if !on() {
+        return;
+    }
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.a_shaved_star = Some(what);
     }
 }
 
@@ -645,6 +705,23 @@ pub fn the_word(word: u16) {
     }
 }
 
+/// **What the game's own read left the run acting on**, in the game's own bits — what
+/// `Game::the_word_the_run_acts_on` answers, written where a frame's state is written.
+///
+/// **Because a word can be right and still not arrive.** orb's own word is what orb pressed; the game's is
+/// what the game made of it, and the two came apart on 2026-11-01 without a single case saying so: a pad's
+/// focus and a pad's decide were read in the wrong numbering, orb handed the game a word it had not built, and
+/// every check there was read the word orb *meant*. A check that holds a recipe's press to the game's own word
+/// is what would have said.
+pub fn the_games_word(bits: u16) {
+    if !on() {
+        return;
+    }
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.games_word = bits;
+    }
+}
+
 /// One record, taken at the top of orb's update with what the frame before left.
 pub fn frame(
     frame: u32,
@@ -661,6 +738,12 @@ pub fn frame(
         let Some(tracing) = held.as_mut() else {
             return;
         };
+        // **One picture of the queue into this record**, so that a case which photographs the frame twice in a
+        // row has both pictures kept — each in a record of its own, the second on the next record taken.
+        if let Some((bytes, what)) = tracing.pictures.pop_front() {
+            tracing.picture = Some(bytes);
+            tracing.picture_what = Some(what);
+        }
         let record = Record {
             frame,
             ms: clock::ticks(),
@@ -669,9 +752,12 @@ pub fn frame(
             retries,
             question: question.map(|question| question.name().to_owned()),
             word: tracing.word,
+            games_word: tracing.games_word,
             lines: std::mem::take(&mut tracing.lines),
             picture: tracing.picture.take(),
+            picture_what: tracing.picture_what.take(),
             over_a_hit: tracing.over_a_hit.take(),
+            a_shaved_star: tracing.a_shaved_star.take(),
             the_field: tracing.the_field.take(),
             at: tracing.at.take(),
             the_world: tracing.the_world.take(),
@@ -828,9 +914,12 @@ mod tests {
             retries: 1,
             question: Some("retry".to_owned()),
             word: 0x0011,
+            games_word: 0x0011,
             lines: vec![format!("frame {frame} said this")],
             picture: None,
+            picture_what: None,
             over_a_hit: None,
+            a_shaved_star: None,
             the_field: None,
             at: Some((192.0, 384.0)),
             the_world: Some(TheWorld {

@@ -341,6 +341,13 @@ check first: `0x42d5d8` for the lives, `0x42d61d` for the bombs, `0x4325eb` for 
 the deaths, and six sites besides — `0x406879`, `0x41c9e8`, `0x42207c`, `0x43b7ab`, `0x44074e` and
 `0x440b36`.
 
+**And it is why the two counts orb writes back go through the game's own adds.** `0x42d612` (the bombs at
+`[run+0x68]`) and `0x42d5cd` (the lives at `[run+0x5c]`) each ask `0x404fe0`, add the number they are given
+to the float, and reseal through `0x4012b0` — so a count written that way is a number the next check still
+covers. A float written over instead is one the check catches at the run's next guarded write, and the run
+ends there: measured on 2026-11-02, a bomb-mode run given its bomb back at the stage's frame 14 was gone at
+the stage's frame 100, the walk answering 0 with the supervisor's scene noughted.
+
 **`[gm+0x9614]` is `0x62f884`, and it is the seal's own value rather than anything about the cherry.**
 There are three kinds of `fstp` into it besides `0x4012b0`'s:
 

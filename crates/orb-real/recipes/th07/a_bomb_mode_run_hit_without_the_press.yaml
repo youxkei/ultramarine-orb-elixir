@@ -1,9 +1,9 @@
-# **A run of th07 in 完全無欠ボムモード on Lunatic, hit in its first chapter with the bomb button never pressed**,
-# which is what the mode adds over this game: the hit judged at the death it settles as, a whole life taken
-# for it, and the chapter put back with the life still taken.
+# **A run of th07 in 完全無欠ボムモード on Easy, hit in its first chapter with the bomb button never pressed**,
+# which is what the mode adds over this game: the hit judged at the death it settles as, a part of a life taken
+# for it — a quarter, Easy's — and the chapter put back with the lives the run has.
 #
 # **The walk is `a_death_answered_by_the_chapter_again.yaml`'s**, with the mode question answered twice: the
-# bomb mode, its third item, and then the difficulty its second page asks, Lunatic being that page's fourth.
+# bomb mode, its third item, and then the difficulty its second page asks, Easy being that page's first.
 # And the rules kept off the bomb, which would take the hit back and leave nothing to judge.
 - press: [decide]
   frames: 30
@@ -11,7 +11,7 @@
   give_up_after: 1800
 - answer: { question: mode, item: 2 }
   give_up_after: 300
-- answer: { question: difficulty, item: 3 }
+- answer: { question: difficulty, item: 0 }
   give_up_after: 300
 - bombs: false
 - wait_until: { frames: 60 }
@@ -23,9 +23,26 @@
   frames: 6
   until: { stage: 1, chapter: 1 }
   give_up_after: 1800
+# **A bomb with nothing to answer**, fired the frame the run starts and before any hit: it costs a quarter of
+# a bomb and says so — see `orb_core::bomb::A_BOMB_IN_PARTS`.
+- press: [bomb]
+  frames: 4
+- wait_until: { frames: 240 }
 - take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+# **A stretch of the stage with the rules looking for a hit**, and not the walk to the next chapter alone: a
+# launch of this on 2026-11-01 reached chapter 2 with nothing having come near the player, and a case whose hit
+# is the whole of what it is about answered `no hit was judged as one without the press`. th06's own step, and
+# for the same reason.
+- play_until: { frames: 1800 }
+  give_up_after: 7200
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
 - play_until: { stage: 1, chapter: 2 }
   give_up_after: 36000
+# **A picture of the panel with the star cut**, which is what
+# `orb_real::checks::the_shaved_star_is_cut_in_the_picture` reads the pixels of: no field can say whether a
+# star that the trace says was shaved actually looks cut.
+- screenshot: the shaved star
+  frames: 30
 - leave: true
 - wait_until: { frames: 300 }
 - quit: true

@@ -2805,16 +2805,44 @@ impl Image {
         )
     }
 
+    /// **The seal and the two guarded writes through it**, which are the calls orb makes when it puts a run's
+    /// own counts in place: the reseal itself, and the game's own writes of the lives and of the bombs — see
+    /// [`super::ADD_TO_THE_BOMBS`], which has why the counts are written through those and not as floats.
     pub fn hands_over_the_seal(&self) -> impl Fn() -> u32 {
         SEALED.store(0, Ordering::Relaxed);
         SEED_WHEN_SEALED.store(0, Ordering::Relaxed);
+        ADDED_TO_THE_BOMBS.store(0, Ordering::Relaxed);
+        ADDED_TO_THE_LIVES.store(0, Ordering::Relaxed);
         super::set_reseal(seals_the_numbers as *const () as usize);
+        super::set_add_to_the_bombs(adds_to_the_bombs as *const () as usize);
+        super::set_add_to_the_lives(adds_to_the_lives as *const () as usize);
         || SEALED.load(Ordering::Relaxed)
     }
 
     /// The seed the generator held when that seal ran — see [`SEED_WHEN_SEALED`].
     pub fn the_seed_it_sealed_over(&self) -> u16 {
         SEED_WHEN_SEALED.load(Ordering::Relaxed) as u16
+    }
+
+    /// **How many times the game's own write of the bombs has been asked for**, which is where a write of orb's
+    /// had to go — see [`super::ADD_TO_THE_BOMBS`].
+    pub fn the_times_the_bombs_were_written(&self) -> u32 {
+        ADDED_TO_THE_BOMBS.load(Ordering::Relaxed)
+    }
+
+    /// And the lives' — see [`super::ADD_TO_THE_LIVES`].
+    pub fn the_times_the_lives_were_written(&self) -> u32 {
+        ADDED_TO_THE_LIVES.load(Ordering::Relaxed)
+    }
+
+    /// The lives the run has left, `[run+0x5c]`, as the game's own count of them is read.
+    pub fn the_lives_a_run_has(&self) -> f32 {
+        self.space().read::<f32>(RUN_NUMBERS.start + super::LIVES)
+    }
+
+    /// The bombs the run has in hand, `[run+0x68]`, as the game's own count of them is read.
+    pub fn the_bombs_a_run_has(&self) -> f32 {
+        self.space().read::<f32>(RUN_NUMBERS.start + super::BOMBS)
     }
 
     /// And the border going up, counted the same way: what the real one does is put the player behind it for
@@ -2857,10 +2885,48 @@ extern "thiscall" fn seals_the_numbers(_game_manager: usize) {
     // whole of why the game saves the generator around its own call to this where a replay is playing
     // (0x42f07e, 0x42f094) and why orb does the same. A laid-out seal that left the generator alone is one no
     // test could ask that of.
+    draw_twice();
+    seals_the_pair();
+}
+
+/// **The game's own writes of the run's bombs and of its lives**, `__thiscall`s on the manager taking the number
+/// to add: the float moved by it and the numbers resealed over — see [`super::ADD_TO_THE_BOMBS`].
+///
+/// The seal's own check first, which the real ones make: a laid-out run whose seal has come apart is one the
+/// game tears down, and nothing in this file lays that down — [`Image::the_seal_holds`] is what a test asks
+/// instead.
+extern "thiscall" fn adds_to_the_bombs(_game_manager: usize, by: i32) {
+    ADDED_TO_THE_BOMBS.fetch_add(1, Ordering::Relaxed);
+    adds_to_the_run(super::BOMBS, by);
+}
+
+extern "thiscall" fn adds_to_the_lives(_game_manager: usize, by: i32) {
+    ADDED_TO_THE_LIVES.fetch_add(1, Ordering::Relaxed);
+    adds_to_the_run(super::LIVES, by);
+}
+
+/// How many times the game's own write of the bombs was asked for, which is the one count a test can read off
+/// orb's write of the run's bombs and not off the float it lands in.
+static ADDED_TO_THE_BOMBS: AtomicU32 = AtomicU32::new(0);
+
+/// And the lives', for the same reason.
+static ADDED_TO_THE_LIVES: AtomicU32 = AtomicU32::new(0);
+
+/// One of those writes: the float at `field` of the run moved by `by`, then the reseal the real one ends with.
+fn adds_to_the_run(field: usize, by: i32) {
+    let at = RUN_NUMBERS.start + field;
+    let has = unsafe { mem::read::<f32>(at) };
+    unsafe { mem::write::<f32>(at, has + by as f32) };
+    draw_twice();
+    seals_the_pair();
+}
+
+/// The generator moved as a reseal's two draws move it — see [`seals_the_numbers`].
+fn draw_twice() {
+    let drawing_from = unsafe { mem::read::<u16>(super::G_RANDOM) };
     unsafe {
         mem::write::<u16>(super::G_RANDOM, drawing_from.rotate_left(7) ^ 0x51ed | 1);
     }
-    seals_the_pair();
 }
 
 /// **The three fields of [`super::RESEAL`] the check reads**: `[run+0x3c]` drawn afresh, `[run+0xac]` that word

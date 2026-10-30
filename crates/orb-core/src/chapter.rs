@@ -510,12 +510,12 @@ enum Due {
 /// Whether this frame is one to keep away from: no place to start a chapter, and nothing to
 /// read a chapter's cause from either.
 ///
-/// Dying and bombing are not among them, though a chapter beginning under either is a poor
-/// retry point — one kills whoever restores it and the other hands them a cleared screen and
-/// two seconds of invulnerability. A boundary the fight really has is worth more than a
-/// boundary that is always comfortable, and the way out of a bad start is the chapter before
-/// it. What that leans on is being able to go back further than one chapter, which the retry
-/// menu offers every chapter the stage has kept for.
+/// Dying and bombing are not among them here — [`held_back`] is what keeps a death's boundary off the frame
+/// the hit lands on, and only a boundary, a stage's own start still being taken. A chapter beginning under a
+/// bomb is a poor retry point — it hands whoever restores it a cleared screen and two seconds of invulnerability
+/// — but a boundary the fight really has is worth more than a boundary that is always comfortable, and the way
+/// out of a bad start is the chapter before it. What that leans on is being able to go back further than one
+/// chapter, which the retry menu offers every chapter the stage has kept for.
 ///
 /// A bomb was guarded against on the strength of a boundary seen where a bomb had cleared a
 /// boss's bullets, taken at the time for one the detector had proposed. It cannot have been:
@@ -526,6 +526,21 @@ enum Due {
 /// than the whole frame.
 fn guarded(state: &State) -> bool {
     state.in_dialogue || state.paused
+}
+
+/// **Whether a chapter beginning on this frame is kept for another one**: the frames [`guarded`] holds, and the
+/// frames a hit is being taken on.
+///
+/// **A boundary landing on the frame of a hit begins a chapter whose retry puts the run back at that boundary
+/// with the power the game took for the hit still gone** — the chapter after the one it died in, and in a mode
+/// that rewinds a hit the power is a thing the rewind gives back. Held back, the boundary begins once the
+/// player is settled again, and the retry from the hit goes to the chapter before it, whose snapshot has the
+/// power.
+///
+/// A stage's own start is not held: [`Chapters::step`] takes it before this is asked, a stage's first frames
+/// being frames the player is still spawning in.
+fn held_back(state: &State) -> bool {
+    guarded(state) || state.unsettled
 }
 
 /// The signals a boundary is derived from, as of the previous frame.
@@ -1005,7 +1020,7 @@ impl Chapters {
         // and 11088, 1534 frames apart with one bomb spent, and nothing in between — and
         // the player dying as stage 6's midboss went down swallowed the boundary the waves
         // after a midboss get.
-        if !guarded(state) {
+        if !held_back(state) {
             self.seen = current;
         }
         self.resync = false;
@@ -1084,6 +1099,11 @@ impl Chapters {
             return;
         }
         if self.resync {
+            return;
+        }
+        // **A boundary that would begin on the frame of a hit is kept for the first settled frame** — see
+        // [`held_back`], and the stage's own start above, which is taken before this is asked.
+        if state.unsettled {
             return;
         }
         let Due::Yes(cause) = self.due(game, state, current) else {
@@ -2798,11 +2818,12 @@ mod tests {
         assert_eq!(stage.chapters.next_dropped(&from), None);
     }
 
-    /// A fight ending on the frame the player is hit still ends, on that frame: stage 6's
-    /// midboss went down as the player died, and dying is not a reason to pass a boundary
-    /// over — the way out of a start that kills whoever restores it is the chapter before it.
+    /// **A fight ending on the frame the player is hit ends once they are back**: stage 6's midboss went down
+    /// as the player died, and the boundary is held back while the player is dying — see [`guarded`], which
+    /// holds it so that a retry from the hit goes to the chapter before it rather than to one beginning on the
+    /// very frame the power was taken on.
     #[test]
-    fn a_fight_that_ends_as_the_player_dies_still_ends() {
+    fn a_fight_that_ends_as_the_player_dies_ends_once_the_player_is_back() {
         let mut stage = Stage::tuned("orb-chapter-fight-ends-on-death");
 
         // A midboss, up long enough for a chapter to be allowed after it. Its attack's clock stands
@@ -2814,7 +2835,12 @@ mod tests {
             player: Player::Dying,
             ..at(200)
         };
-        assert!(stage.frame(hit));
+        assert!(!stage.frame(hit), "a chapter began on the frame of the hit");
+        // The first settled frame takes what the fight did while the player was dying.
+        assert!(
+            stage.frame(at(201)),
+            "the boundary was not taken afterwards"
+        );
         assert!(matches!(stage.chapters.cause(), Cause::StageAfterMidboss));
     }
 

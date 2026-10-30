@@ -33,11 +33,13 @@ const FRAMES: u32 = 100_000;
 const A_STAGE: u32 = 4_500;
 
 /// **Every case of th11's, each the test of its own below** — see [`every_case_of_th11_has_a_test_of_its_own`].
-const CASES: [&str; 27] = [
+const CASES: [&str; 29] = [
+    "every_press_reaches_the_game",
     "a_run_started_and_given_up",
     "a_normal_mode_run_played_without_a_bomb",
     "a_stage_practised_on_its_own",
     "a_death_answered_by_the_chapter_again",
+    "the_picture_drawn_once_over_a_hit",
     "a_bomb_mode_run_hit_without_the_press",
     "a_bomb_mode_run_hit_with_the_press",
     "a_part_of_a_life_gone",
@@ -225,6 +227,7 @@ macro_rules! a_test_per_case {
 }
 
 a_test_per_case!(
+    every_press_of_th11_reaches_the_game => "every_press_reaches_the_game",
     a_run_of_th11_started_and_given_up => "a_run_started_and_given_up",
     a_normal_mode_run_of_th11_played_without_a_bomb => "a_normal_mode_run_played_without_a_bomb",
     a_stage_of_th11_practised_on_its_own => "a_stage_practised_on_its_own",

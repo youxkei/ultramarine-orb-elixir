@@ -1,0 +1,69 @@
+# **Every input orb holds, held in turn** — what `every_press_reaches_the_game` is a case about: a run started,
+# and each of this game's buttons pressed for a few frames, with the game's own word read out of the trace on
+# every frame. A person asked for it after two of them broke without a case saying so — a pad's focus, then a
+# pad's decide.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- answer: { question: difficulty, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# **Each of the pad's buttons, by the number the pad reports it on** — the shot on 0, the bomb on 1, the focus on
+# 5 (the right shoulder) and the pause on 7 (Start). **The numbers are the pad's own and the file's are XInput's**:
+# this game's `th06.cfg` keeps a button as XInput's bit index (shot 12, bomb 13, focus 9, skip 14, pause 4) and
+# orb's sampling numbers a pad the way winmm and DirectInput do, which is where a hand's press arrives — so
+# `joystick::the_direct_input_number_of` is what turns one into the other, and the game's own bindings say what
+# each number is.
+- press_pad: [0]
+  frames: 8
+- press_pad: [1]
+  frames: 8
+- press_pad: [5]
+  frames: 8
+- press_pad: [7]
+  frames: 8
+# **And the four directions off the keyboard**, which orb holds the same way, for the game's d-pad bits.
+- press: [up]
+  frames: 8
+- press: [down]
+  frames: 8
+- press: [left]
+  frames: 8
+- press: [right]
+  frames: 8
+- wait_until: { frames: 30 }
+- quit: true

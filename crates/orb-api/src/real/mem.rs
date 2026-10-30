@@ -119,6 +119,21 @@ pub unsafe fn replace_word(address: usize, value: usize) -> Option<usize> {
     Some(original)
 }
 
+/// **Points one entry of a vtable at `replacement`, answering the pointer that was there** — a COM vtable is
+/// read-only data in the exe, so the entry is written with its page unprotected and the page put back after.
+///
+/// Nought where the page would not give way, which is a caller left with the entry it had.
+pub unsafe fn point_a_slot_at(slot: usize, replacement: usize) -> usize {
+    let size = std::mem::size_of::<usize>();
+    let Some(previous) = (unsafe { unprotect(slot, size) }) else {
+        return 0;
+    };
+    let had = unsafe { std::ptr::read(slot as *const usize) };
+    unsafe { std::ptr::write(slot as *mut usize, replacement) };
+    unsafe { reprotect(slot, size, previous) };
+    had
+}
+
 pub unsafe fn unprotect(address: usize, len: usize) -> Option<u32> {
     let mut previous: PAGE_PROTECTION_FLAGS = 0;
     let changed =

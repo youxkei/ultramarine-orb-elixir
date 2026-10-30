@@ -1,0 +1,26 @@
+# **The playfield's outside, photographed twice in one run** — what `the_playfield_is_drawn_once` asks: the
+# walk is `every_press_reaches_the_game.yaml`'s into the stage, and then the frame twice, a second apart, with
+# nothing of orb's over it. Nothing draws outside the playfield but the game's own still backdrop, so a pixel
+# that moved there between the two is a second copy of the scene — the double a person sees.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- play_until: { frames: 60 }
+- screenshot: the field a second in
+  frames: 1
+- play_until: { frames: 60 }
+- screenshot: the field a second later
+  frames: 1
+- quit: true

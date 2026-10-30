@@ -35,8 +35,10 @@ pub const DOUBLE_PRESS_FRAMES: u32 = 15;
 ///
 /// Chosen rather than measured, at the order of the windows themselves — th10's is the 8 frames its player
 /// waits in after a hit (`game::th10::PLAYER_STATE`): a press this close before a hit is somebody who saw it
-/// coming, and one further back is a press for some other danger.
-pub const BEFORE_THE_HIT_FRAMES: u32 = 8;
+/// coming, and one further back is a press for some other danger. **A fifth of a second**, which is a press
+/// made on seeing the bullet that is going to land rather than one made as it lands — the 8 it was left a
+/// pair of taps tight for anyone reacting rather than guessing.
+pub const BEFORE_THE_HIT_FRAMES: u32 = 12;
 
 /// What a hit taken without the press costs: the part of a life, chosen per run right after the mode.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -56,16 +58,23 @@ pub const DIFFICULTIES: [Difficulty; 4] = [
 ];
 
 /// A life, in the parts the smallest difficulty takes: every part is a whole number of these.
-pub const A_LIFE: u8 = 8;
+///
+/// **Twelfths and not eighths**, since a third is a part a hit costs on Normal: the smallest number both a
+/// quarter and a third divide is twelve.
+pub const A_LIFE: u8 = 12;
 
 impl Difficulty {
-    /// The part of a life a hit without the press costs, in eighths of one: Easy 1/8, Normal 1/4, Hard 1/2,
-    /// Lunatic a whole life.
+    /// The part of a life a hit without the press costs, in twelfths of one — see [`A_LIFE`] — Easy 3/12,
+    /// Normal 4/12, Hard a half and Lunatic a whole life.
+    ///
+    /// **Chosen for what a hit feels like**, and moved up from what they were: at an eighth on Easy a run
+    /// could take eight hits without a life going, which on the panel is a sliver of a star nobody sees and
+    /// a risk nobody feels.
     pub fn part(self) -> u8 {
         match self {
-            Self::Easy => 1,
-            Self::Normal => 2,
-            Self::Hard => 4,
+            Self::Easy => 3,
+            Self::Normal => 4,
+            Self::Hard => 6,
             Self::Lunatic => A_LIFE,
         }
     }
@@ -84,12 +93,12 @@ impl Difficulty {
     /// What choosing it means, a line, in whichever language orb's screens are in.
     pub fn aside(self, language: Language) -> &'static str {
         match (self, language) {
-            (Self::Easy, Language::Japanese) => "押せなかった被弾1回で残機が1/8減ります",
-            (Self::Normal, Language::Japanese) => "押せなかった被弾1回で残機が1/4減ります",
+            (Self::Easy, Language::Japanese) => "押せなかった被弾1回で残機が1/4減ります",
+            (Self::Normal, Language::Japanese) => "押せなかった被弾1回で残機が1/3減ります",
             (Self::Hard, Language::Japanese) => "押せなかった被弾1回で残機が1/2減ります",
             (Self::Lunatic, Language::Japanese) => "押せなかった被弾1回で残機が1つ減ります",
-            (Self::Easy, Language::English) => "A hit without the press costs 1/8 of a life",
-            (Self::Normal, Language::English) => "A hit without the press costs 1/4 of a life",
+            (Self::Easy, Language::English) => "A hit without the press costs 1/4 of a life",
+            (Self::Normal, Language::English) => "A hit without the press costs 1/3 of a life",
             (Self::Hard, Language::English) => "A hit without the press costs 1/2 of a life",
             (Self::Lunatic, Language::English) => "A hit without the press costs a whole life",
         }
@@ -124,6 +133,9 @@ pub struct Button {
     waiting: Option<u32>,
     /// The frame of the last press that counts for a hit — the first of a pair.
     judged: Option<u32>,
+    /// Whether the read being made is the one a bomb is set off on, which is the second press of a pair
+    /// going down.
+    a_bomb: bool,
 }
 
 impl Button {
@@ -133,6 +145,7 @@ impl Button {
         passing: false,
         waiting: None,
         judged: None,
+        a_bomb: false,
     };
 
     /// One read of the button on a stage's frame `frame`, and whether the game is to see it down.
@@ -142,10 +155,12 @@ impl Button {
         if self.waiting.is_some_and(|at| frame < at) || self.judged.is_some_and(|at| frame < at) {
             self.forget();
         }
+        self.a_bomb = false;
         if down && !self.down {
             match self.waiting {
                 Some(at) if frame - at <= DOUBLE_PRESS_FRAMES => {
                     self.passing = true;
+                    self.a_bomb = true;
                     self.waiting = None;
                 }
                 _ => {
@@ -159,6 +174,12 @@ impl Button {
         }
         self.down = down;
         self.passing && down
+    }
+
+    /// Whether the read just made is the one a bomb goes off on — see [`Button::read`], which is the only
+    /// thing that sets it.
+    pub fn a_bomb(&self) -> bool {
+        self.a_bomb
     }
 
     /// The frame of the last press that counts for a hit, if there has been one in this attempt.
@@ -227,10 +248,19 @@ pub fn in_time(pressed: Option<u32>, hit: u32, settled: u32) -> bool {
     pressed.is_some_and(|at| at + BEFORE_THE_HIT_FRAMES >= hit && at <= settled)
 }
 
+/// **How much of a bomb a bomb with nothing to answer costs**, in quarters of one: the game takes a whole bomb
+/// for every one that goes off, and what the mode judges is the bomb that answered nothing — so the game's bomb
+/// is put back and the quarter is what the run owes, four of them making a bomb.
+///
+/// **Because a bomb with nothing to answer is free otherwise**, and the button is then one to bash: the mode's
+/// press is worth something only for the hit it answers, and a bomb for nothing is a bomb the mode has no
+/// reason to judge.
+pub const A_BOMB_IN_PARTS: u8 = 4;
+
 /// **The parts of a life the run owes**, which a whole life is taken out of each time they add up to one.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Owed {
-    /// In eighths of a life — see [`A_LIFE`] — and always fewer than one.
+    /// In twelfths of a life — see [`A_LIFE`] — and always fewer than one.
     parts: u8,
 }
 
@@ -251,7 +281,7 @@ impl Owed {
         whole
     }
 
-    /// The parts owed, in eighths.
+    /// The parts owed, in twelfths.
     pub fn parts(self) -> u8 {
         self.parts
     }
@@ -281,6 +311,23 @@ pub struct Run {
     pub hit_at: Option<u32>,
     /// The chapter the lives were last read at the start of, as the stage and the frame it began on.
     pub chapter: Option<(i32, u32)>,
+    /// **The bombs the run has**, kept the way the lives are and for the same reason: the game takes a whole
+    /// one for every bomb that goes off, and the mode charges a quarter of one only for a bomb that answered
+    /// nothing — see [`A_BOMB_IN_PARTS`] and [`Run::the_bomb_is_over`].
+    pub bombs: Option<i8>,
+    /// The quarters of a bomb the run has spent on bombs that answered nothing.
+    pub bomb_parts: u8,
+    /// The frame a bomb went off on, and whether a hit landed under it.
+    pub bomb_at: Option<(u32, bool)>,
+}
+
+/// What came of a bomb's window ending, in the bomb mode.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BombOver {
+    /// Whether a hit landed under the bomb, which is the bomb answering it and costing nothing.
+    pub answered: bool,
+    /// Whether the quarters this one came to made a whole bomb, which the run has to give.
+    pub a_whole_bomb: bool,
 }
 
 /// What came of a hit the game settled as a death, in the bomb mode.
@@ -300,6 +347,43 @@ impl Run {
     /// A hit landing, on the stage's frame `frame`.
     pub fn hit(&mut self, frame: u32) {
         self.hit_at = Some(frame);
+        // **A hit under a bomb is that bomb answering it**, whatever order the two are seen in.
+        if let Some((_, answered)) = self.bomb_at.as_mut() {
+            *answered = true;
+        }
+    }
+
+    /// **A bomb the button has just set off**, on frame `frame`, which is judged when its window ends — see
+    /// [`Run::the_bomb_is_over`]. Nothing is owed for it yet: a bomb that answers a hit costs nothing, and a hit
+    /// that has landed and not been judged is one this bomb is answering — the game's own deathbomb takes it
+    /// back within the bomb's window.
+    pub fn a_bomb(&mut self, frame: u32) {
+        let answered = self.hit_at.is_some();
+        self.bomb_at = Some((frame, answered));
+    }
+
+    /// **The window of the bomb that went off is over**: whether a hit landed under it, and whether the quarter
+    /// it cost where none did came to a whole bomb, which is then the bomb the run has to give.
+    pub fn the_bomb_is_over(&mut self) -> Option<BombOver> {
+        let (_, answered) = self.bomb_at.take()?;
+        if answered {
+            return Some(BombOver {
+                answered,
+                a_whole_bomb: false,
+            });
+        }
+        self.bomb_parts += 1;
+        let a_whole_bomb = self.bomb_parts >= A_BOMB_IN_PARTS;
+        if a_whole_bomb {
+            self.bomb_parts = 0;
+            if let Some(bombs) = self.bombs.as_mut() {
+                *bombs = bombs.saturating_sub(1);
+            }
+        }
+        Some(BombOver {
+            answered,
+            a_whole_bomb,
+        })
     }
 
     /// The hit the game has just settled as a death on frame `settled`, judged against the button's last
@@ -335,9 +419,23 @@ impl Run {
 
     /// A settled frame of the run, in chapter `chapter` — its stage and the frame it began on — with the game
     /// saying `lives`: read where a chapter has begun since the last read, or where nothing has been.
-    pub fn settled(&mut self, chapter: (i32, u32), lives: i8) {
-        if self.lives.is_none() || self.chapter != Some(chapter) {
+    ///
+    /// **And where the game's count has gone up**, which is an extend: the parts owed are unchanged, so the
+    /// star a part is gone from moves to the one gained. Left as it was, the shaved star stayed where the old
+    /// count put it — the last of what the run had — and the new one came after it, a whole star to the right
+    /// of a shaved one with a shaved one in the middle of the row.
+    pub fn settled(&mut self, chapter: (i32, u32), lives: i8, bombs: i8) {
+        // **A hit that has landed and left no death behind is one the game's own bomb took back**, and it is
+        // not a hit waiting to be judged any more: left pending, every bomb fired afterwards was free — a
+        // deathbomb taken back by the game inside its own window, then a press of the button a second later
+        // that cost nothing for the rest of the attempt.
+        self.hit_at = None;
+        let extended = self.lives.is_some_and(|held| lives > held);
+        if self.lives.is_none() || self.chapter != Some(chapter) || extended {
             self.lives = Some(lives);
+            // **The bombs with them**, at the same moments and for the same reason: the run's count is what
+            // the game is written back to, a bomb it took for one that answered nothing being put back.
+            self.bombs = Some(bombs);
             self.chapter = Some(chapter);
         }
     }
@@ -346,8 +444,8 @@ impl Run {
 #[cfg(test)]
 mod tests {
     use super::{
-        A_LIFE, BEFORE_THE_HIT_FRAMES, Button, DIFFICULTIES, DOUBLE_PRESS_FRAMES, Difficulty,
-        Judged, Owed, Run, Twice, in_time,
+        A_LIFE, BEFORE_THE_HIT_FRAMES, BombOver, Button, DIFFICULTIES, DOUBLE_PRESS_FRAMES,
+        Difficulty, Judged, Owed, Run, Twice, in_time,
     };
     use orb_config::Language;
 
@@ -459,30 +557,63 @@ mod tests {
         assert!(!twice.down(51, true));
     }
 
-    /// A press counts from a few frames before the hit until the window after it is settled.
+    /// **And a fifth of a second before the hit is the window**, 12 frames: twelve counts, thirteen does not —
+    /// see [`BEFORE_THE_HIT_FRAMES`], which goes from 8 to 12 so that a press made on seeing the bullet that is
+    /// going to land counts.
     #[test]
     fn a_press_counts_from_just_before_the_hit_to_the_window_closing() {
+        assert_eq!(BEFORE_THE_HIT_FRAMES, 12);
         let hit = 1000;
         let settled = 1008;
-        assert!(in_time(Some(hit - BEFORE_THE_HIT_FRAMES), hit, settled));
+        assert!(
+            in_time(Some(hit - 12), hit, settled),
+            "twelve frames before"
+        );
+        assert!(
+            !in_time(Some(hit - 13), hit, settled),
+            "thirteen frames before"
+        );
         assert!(in_time(Some(hit), hit, settled));
         assert!(in_time(Some(settled), hit, settled));
-        assert!(!in_time(
-            Some(hit - BEFORE_THE_HIT_FRAMES - 1),
-            hit,
-            settled
-        ));
         assert!(!in_time(Some(settled + 1), hit, settled));
         assert!(!in_time(None, hit, settled));
     }
 
+    /// **The quarters of a bomb a bomb with nothing to answer costs come to a whole one**, which the run gives:
+    /// four bombs with no hit under them, and the fifth costs nothing, the count having gone down.
+    #[test]
+    fn four_bombs_with_nothing_to_answer_cost_one() {
+        let mut run = Run::default();
+        run.settled((0, 100), 2, 3);
+        let mut over: Vec<BombOver> = Vec::new();
+        for frame in 0..4 {
+            run.a_bomb(1000 + frame * 100);
+            over.push(run.the_bomb_is_over().expect("a bomb to judge"));
+        }
+        assert!(over.iter().all(|it| !it.answered));
+        assert_eq!(
+            over.iter().filter(|it| it.a_whole_bomb).count(),
+            1,
+            "the quarters did not come to one bomb"
+        );
+        assert!(over.last().unwrap().a_whole_bomb, "the fourth is the one");
+        assert_eq!(run.bombs, Some(2), "the bomb the quarters came to");
+        // And a bomb a hit landed under costs nothing, whatever the quarters were.
+        run.a_bomb(2000);
+        run.hit(2002);
+        let answered = run.the_bomb_is_over().expect("a bomb to judge");
+        assert!(answered.answered);
+        assert!(!answered.a_whole_bomb);
+        assert_eq!(run.bomb_parts, 0, "an answered bomb spent a quarter");
+    }
+
     /// Each difficulty takes its own part of a life per hit, and a whole life is taken when the parts add up
-    /// to one: eight hits on Easy, four on Normal, two on Hard, one on Lunatic.
+    /// to one: four hits on Easy, three on Normal, two on Hard, one on Lunatic.
     #[test]
     fn a_life_goes_when_the_parts_add_up_to_one() {
         for (difficulty, hits) in [
-            (Difficulty::Easy, 8),
-            (Difficulty::Normal, 4),
+            (Difficulty::Easy, 4),
+            (Difficulty::Normal, 3),
             (Difficulty::Hard, 2),
             (Difficulty::Lunatic, 1),
         ] {
@@ -499,7 +630,23 @@ mod tests {
     fn what_is_owed_is_kept_below_a_life() {
         assert_eq!(Owed::of(3).parts(), 3);
         assert_eq!(Owed::of(A_LIFE + 1).parts(), 1);
-        assert_eq!(Owed::of(6).to_string(), "6/8");
+        assert_eq!(Owed::of(6).to_string(), "6/12");
+    }
+
+    /// **An extend moves the star a part is gone from to the one gained**, which is what keeps the shaved star
+    /// the last of the row: the run's count follows the game's up, and the parts it owes are unchanged.
+    #[test]
+    fn an_extend_moves_the_shaved_star_to_the_one_gained() {
+        let mut run = Run::default();
+        run.settled((0, 100), 2, 3);
+        run.owed.a_hit(Difficulty::Normal);
+        assert_eq!(run.lives, Some(2));
+        run.settled((0, 100), 3, 3);
+        assert_eq!(run.lives, Some(3), "the life gained was not taken up");
+        assert_eq!(run.owed.parts(), 4, "the parts the run owes were swept");
+        // And a count that went down is not the game's to say: what a hit took stays taken.
+        run.settled((0, 100), 1, 3);
+        assert_eq!(run.lives, Some(3), "the game's own count took a life back");
     }
 
     /// A hit with the press in time costs nothing; one without costs the part, and a life where the parts come
@@ -507,7 +654,7 @@ mod tests {
     #[test]
     fn a_hit_is_judged_by_the_press_before_it() {
         let mut run = Run::default();
-        run.settled((0, 100), 2);
+        run.settled((0, 100), 2, 3);
 
         run.hit(1000);
         assert_eq!(
@@ -526,7 +673,7 @@ mod tests {
     #[test]
     fn a_life_the_run_has_not_got_is_the_game_over() {
         let mut run = Run::default();
-        run.settled((0, 100), 0);
+        run.settled((0, 100), 0, 3);
         run.hit(1000);
         assert_eq!(run.judge(None, 1008, Difficulty::Lunatic), Judged::GameOver);
         assert_eq!(
@@ -541,7 +688,7 @@ mod tests {
     fn at_nought_lives_one_hit_without_the_press_is_the_game_over() {
         for difficulty in DIFFICULTIES {
             let mut run = Run::default();
-            run.settled((0, 100), 0);
+            run.settled((0, 100), 0, 3);
             run.hit(1000);
             assert_eq!(
                 run.judge(None, 1008, difficulty),
@@ -551,7 +698,7 @@ mod tests {
         }
         // And a press in time is still a hit that costs nothing.
         let mut run = Run::default();
-        run.settled((0, 100), 0);
+        run.settled((0, 100), 0, 3);
         run.hit(1000);
         assert_eq!(
             run.judge(Some(1000), 1008, Difficulty::Easy),
@@ -564,10 +711,10 @@ mod tests {
     #[test]
     fn the_lives_are_read_at_a_chapters_start() {
         let mut run = Run::default();
-        run.settled((0, 100), 3);
-        run.settled((0, 100), 2);
+        run.settled((0, 100), 3, 3);
+        run.settled((0, 100), 2, 3);
         assert_eq!(run.lives, Some(3), "the same chapter");
-        run.settled((0, 900), 4);
+        run.settled((0, 900), 4, 3);
         assert_eq!(run.lives, Some(4), "a chapter begun since");
     }
 
@@ -581,7 +728,14 @@ mod tests {
                 DIFFICULTIES.iter().map(|it| it.aside(language)).collect();
             assert_eq!(said.len(), DIFFICULTIES.len());
         }
-        assert!(Difficulty::Easy.aside(Language::Japanese).contains("1/8"));
+        assert!(Difficulty::Easy.aside(Language::Japanese).contains("1/4"));
+        assert!(Difficulty::Normal.aside(Language::Japanese).contains("1/3"));
+        assert!(Difficulty::Hard.aside(Language::Japanese).contains("1/2"));
+        assert!(
+            Difficulty::Lunatic
+                .aside(Language::Japanese)
+                .contains("1つ減ります")
+        );
         assert!(
             Difficulty::Lunatic
                 .aside(Language::English)

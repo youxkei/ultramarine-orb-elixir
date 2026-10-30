@@ -102,7 +102,7 @@ fn the_pad_answers_th07s_mode_question_and_is_named_as_the_hand_that_did() {
         let game = asking("th07-pad-answers");
         let log = game.log();
         game.sim().joystick().pushes(1 << SHOOT_BUTTON, centred());
-        game.frames_until("the pad's answer", 60, || outcomes(&game) == 1);
+        game.frames_until_a_thread("the pad's answer", || outcomes(&game) == 1);
         assert!(
             log.said("mode: answered on the pad"),
             "the answer was not named as the pad's:\n  {}",
@@ -132,7 +132,7 @@ fn the_stick_and_the_hat_both_move_th07s_mode_question() {
         game.sim().joystick().pushes(0, centred());
         game.frames(READS_KEYS_AFTER);
         game.sim().joystick().pushes(1 << SHOOT_BUTTON, centred());
-        game.frames_until("the pad's answer", 60, || outcomes(&game) == 1);
+        game.frames_until_a_thread("the pad's answer", || outcomes(&game) == 1);
         assert!(
             log.said("mode: normal, was pointdevice"),
             "the stick did not move the cursor to the other mode:\n  {}",
@@ -161,7 +161,7 @@ fn the_stick_and_the_hat_both_move_th07s_mode_question() {
         game.sim().joystick().pushes(0, centred());
         game.frames(READS_KEYS_AFTER);
         game.sim().joystick().pushes(1 << SHOOT_BUTTON, centred());
-        game.frames_until("the pad's second answer", 60, || outcomes(&game) == 2);
+        game.frames_until_a_thread("the pad's second answer", || outcomes(&game) == 2);
         assert!(
             log.said("mode: pointdevice, was normal"),
             "the hat did not move the cursor back:\n  {}",
@@ -177,7 +177,7 @@ fn the_pads_back_button_cancels_th07s_mode_question() {
         let game = asking("th07-pad-cancels");
         let log = game.log();
         game.sim().joystick().pushes(1 << BOMB_BUTTON, centred());
-        game.frames_until("the pad's cancel", 60, || outcomes(&game) == 1);
+        game.frames_until_a_thread("the pad's cancel", || outcomes(&game) == 1);
         assert!(
             log.said("mode: not chosen on the pad"),
             "the pad's back button did not cancel:\n  {}",
@@ -213,7 +213,7 @@ fn the_pad_answers_th07s_retry_menu() {
         game.frames_until("the death seen", 8, || log.said("died in chapter 1"));
         game.frames(READS_KEYS_AFTER);
         game.sim().joystick().pushes(1 << SHOOT_BUTTON, centred());
-        game.frames_until("the retry menu answered on the pad", 60, || {
+        game.frames_until_a_thread("the retry menu answered on the pad", || {
             log.said("retry: the chapter again on the pad")
         });
         assert_eq!(
@@ -278,7 +278,7 @@ fn a_button_held_from_before_th07s_question_does_not_answer_it() {
         game.sim().joystick().pushes(0, centred());
         game.frames_until_a_thread("the button let go of", || sampled(0));
         game.sim().joystick().pushes(1 << SHOOT_BUTTON, centred());
-        game.frames_until("the pad's answer", 60, || outcomes(&game) == 1);
+        game.frames_until_a_thread("the pad's answer", || outcomes(&game) == 1);
         assert!(
             log.said("mode: answered on the pad"),
             "the press made after the hold was not the pad's answer:\n  {}",

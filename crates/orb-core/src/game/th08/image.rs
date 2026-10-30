@@ -433,10 +433,13 @@ impl Image {
         // **The frame's own step, which is one where nothing is slowing the world down** — 0x425369
         // writes the 1.0, and a laid-out game with nothing there would say every laser grows by nothing.
         space.write::<f32>(super::G_FRAME_STEP, 1.0);
-        // **And the pad's mapping `th08.cfg` holds**, `2, 5, 4, 0, -1, -1, -1, -1, 1` — the copy of the install
-        // measured, `asm.md`'s *The window's own settings*: a laid-out game with nought there would have every
-        // bit of the word on pad button 0.
-        space.write::<[i16; 9]>(super::G_PAD_MAPPING, [2, 5, 4, 0, -1, -1, -1, -1, 1]);
+        // **And the pad's mapping, as the game's own defaults have it** — `0, 1, 2, 4, -1, -1, -1, -1, 3`,
+        // the eighteen bytes `asm.md`'s *The window's own settings* lays out: shoot 0, bomb 1, focus 2, menu 4,
+        // skip 3. **The defaults and not the measured copy's file** (`2, 5, 4, 0, …, 1`), because a case plays
+        // with `th08.cfg` taken aside and finds exactly these — a laid-out game holding the file's would answer
+        // a press of button 2 with a different bit than the real game does. A laid-out game with nought there
+        // would have every bit of the word on pad button 0.
+        space.write::<[i16; 9]>(super::G_PAD_MAPPING, [0, 1, 2, 4, -1, -1, -1, -1, 3]);
         let image = Self { sim };
         image.the_teams_spec_says_what_the_sht_says();
         image.the_play_area_is_the_games_own();

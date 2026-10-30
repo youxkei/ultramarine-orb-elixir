@@ -3653,6 +3653,13 @@ impl Game for Th08 {
         }
     }
 
+    /// **The word the run acts on** — the copy of the read the replay's own job makes at chain priority `0x11`,
+    /// so it is what the frame after is played with rather than what the read produced. Read for a case that
+    /// holds a recipe's press to the game's own word rather than to orb's.
+    unsafe fn the_word_the_run_acts_on(&self) -> Option<u16> {
+        mem::read_committed::<u16>(G_INPUT_THE_RUN_ACTS_ON)
+    }
+
     /// Nothing: this game's own read is a word and orb answers it with one — see [`INPUT_READ`].
     unsafe fn press_into(&self, _state: *mut u8, _word: u16) {}
 
@@ -3931,6 +3938,19 @@ impl Game for Th08 {
         };
         unsafe {
             mem::write::<f32>(run + LIVES, f32::from(lives));
+            self.seal_the_run(run);
+        }
+        true
+    }
+
+    /// The run's float [`State::bombs`] is read from, sealed again after it the way the lives are — see
+    /// [`Game::set_bombs`].
+    unsafe fn set_bombs(&self, bombs: i8) -> bool {
+        let Some(run) = (unsafe { self.run_numbers() }) else {
+            return false;
+        };
+        unsafe {
+            mem::write::<f32>(run + BOMBS, f32::from(bombs));
             self.seal_the_run(run);
         }
         true

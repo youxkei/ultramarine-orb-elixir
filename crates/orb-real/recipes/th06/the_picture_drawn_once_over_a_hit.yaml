@@ -1,0 +1,39 @@
+# **DO NOT CHANGE WHAT THIS CASE COMPARES.** The two pictures are the run's frame three seconds into the stage
+# and the frame with orb's offer over it, and both are inside the game's play, whose frame outside the playfield
+# is the same at every moment. A red here is the double a person sees, and it is the code that changes, not this.
+#
+# The walk is `a_bomb_mode_run_hit_without_the_press.yaml`'s: 完全無欠ボムモード, Easy, and the rules kept off the
+# bomb, which would take the hit back and leave nothing to judge.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 2 }
+  give_up_after: 300
+- answer: { question: difficulty, item: 0 }
+  give_up_after: 300
+- bombs: false
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- stand_at: { away_from_the_boss: 0 }
+- hold_questions: true
+- wait_until: { frames: 180 }
+- screenshot: three seconds into the stage
+  frames: 1
+  whole: true
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+- wait_until: { question: retry }
+  give_up_after: 3600
+- screenshot: the offer over the frozen field
+  frames: 1
+  holding: true
+  whole: true
+- wait_until: { frames: 30 }
+- quit: true

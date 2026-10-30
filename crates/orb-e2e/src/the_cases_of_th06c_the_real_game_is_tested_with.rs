@@ -158,7 +158,10 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
 /// [`every_case_of_th06c_has_a_test_of_its_own`], so a case added there fails this file rather than going
 /// unrun. **A test per case**, so that they are played at once rather than one after another: one test for
 /// all sixteen once took 181s of a 181s run, eleven tests on eight threads.
-const CASES: [&str; 23] = [
+const CASES: [&str; 26] = [
+    "every_press_reaches_the_game",
+    "the_playfield_drawn_once",
+    "the_picture_drawn_once_over_a_hit",
     "a_run_left_in_its_second_chapter",
     "the_run_picked_up_where_it_was_left",
     "a_death_answered_by_the_chapter_again",
@@ -263,6 +266,7 @@ macro_rules! a_test_per_case {
 }
 
 a_test_per_case!(
+    every_press_of_th06c_reaches_the_game => "every_press_reaches_the_game",
     a_run_of_th06c_left_in_its_second_chapter => "a_run_left_in_its_second_chapter",
     the_run_of_th06c_picked_up_where_it_was_left => "the_run_picked_up_where_it_was_left",
     a_death_of_th06c_answered_by_the_chapter_again => "a_death_answered_by_the_chapter_again",
@@ -284,6 +288,8 @@ a_test_per_case!(
     a_run_of_th06c_played_to_its_clear => "a_run_played_to_its_clear",
     a_normal_mode_run_of_th06c_played_to_its_clear => "a_normal_mode_run_played_to_its_clear",
     the_extra_of_th06c_a_cleared_run_unlocked => "the_extra_a_cleared_run_unlocked",
+    the_playfield_of_th06c_drawn_once => "the_playfield_drawn_once",
+    the_picture_of_th06c_drawn_once_over_a_hit => "the_picture_drawn_once_over_a_hit",
     the_extra_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb => "the_extra_played_to_its_clear_with_no_hit_and_no_bomb",
     a_normal_run_of_th06c_played_to_its_clear_with_no_hit_and_no_bomb => "a_normal_run_played_to_its_clear_with_no_hit_and_no_bomb",
 );

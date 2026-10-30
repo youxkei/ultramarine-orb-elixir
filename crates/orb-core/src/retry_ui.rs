@@ -582,7 +582,14 @@ impl RetryMenu {
     ///
     /// # Safety
     /// Must run between the game's `BeginScene` and `EndScene`.
-    pub unsafe fn draw(&mut self, overlay: &Overlay, area: Rect, chapter: &str, retries: u32) {
+    pub unsafe fn draw(
+        &mut self,
+        overlay: &Overlay,
+        area: Rect,
+        chapter: &str,
+        retries: u32,
+        backdrop: Option<&crate::overlay::Picture>,
+    ) {
         // Which list the items on the screen belong to, a confirmation being read against the one it
         // was asked from: that is where the cancel goes back to, so the line above it stays put.
         let listing = match self.showing {
@@ -636,6 +643,17 @@ impl RetryMenu {
 
         let frame = unsafe { overlay.frame() };
         let Some(frame) = frame else { return };
+        // **The frame the player saw a moment before the hit, put back under this screen**: the game's own
+        // retry screen draws its backdrop outside the playfield, and this covers it so that what lies outside
+        // the field is the frame the run had — which `the_picture_drawn_once_over_a_hit` holds to: the band
+        // left of the playfield and the band above it are the same pixels in a frame of the stage and in the
+        // frame under this menu.
+        if let Some(backdrop) = backdrop {
+            // **At its own size and place, the frame's own picture**, and never moved to suit a measurement:
+            // where this menu's backdrop lies is the game's frame's business, and a measurement that needs it
+            // moved is a measurement that is wrong.
+            frame.picture(backdrop, 0.0, 0.0, 0xffff_ffff);
+        }
         // **The rectangle every line of this screen goes into**, said before any of them is drawn so that a
         // trace read afterwards holds the words and the area together — see `crate::trace::drew_in`.
         crate::trace::drew_in((area.left, area.top, area.width, area.height));
@@ -1047,7 +1065,7 @@ mod tests {
 
     /// One frame of the menu, on a screen of its own.
     fn frame(drawing: &Drawing, menu: &mut RetryMenu) -> Vec<Quad> {
-        drawing.frame(|overlay| unsafe { menu.draw(overlay, FIELD, LOST, 3) })
+        drawing.frame(|overlay| unsafe { menu.draw(overlay, FIELD, LOST, 3, None) })
     }
 
     /// Every line something was written on, top to bottom. Lines rather than quads, because there are

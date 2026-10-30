@@ -37,8 +37,10 @@ const A_STAGE: u32 = 6_000;
 
 /// **Every case of th06nc's, each the test of its own below** — see
 /// [`every_case_of_th06nc_has_a_test_of_its_own`].
-const CASES: [&str; 24] = [
+const CASES: [&str; 26] = [
+    "every_press_reaches_the_game",
     "a_death_answered_by_the_chapter_again",
+    "the_picture_drawn_once_over_a_hit",
     "a_bomb_mode_run_hit_without_the_press",
     "a_bomb_mode_run_hit_with_the_press",
     "a_part_of_a_life_gone",
@@ -303,6 +305,7 @@ macro_rules! a_test_per_case {
 }
 
 a_test_per_case!(
+    every_press_of_th06nc_reaches_the_game => "every_press_reaches_the_game",
     a_death_of_th06nc_answered_by_the_chapter_again => "a_death_answered_by_the_chapter_again",
     a_bomb_mode_run_of_th06nc_hit_without_the_press => "a_bomb_mode_run_hit_without_the_press",
     a_bomb_mode_run_of_th06nc_hit_with_the_press => "a_bomb_mode_run_hit_with_the_press",

@@ -105,6 +105,11 @@
 //! quarter of the travel the game's own read needs before it calls an axis a direction, so nothing that would
 //! move the player fails to count.
 //!
+//! **And a pad that starts answering counts as pushed**, which is the one case the rule above would get
+//! wrong: a controller swapped mid-run is a new pad held still the moment it arrives, and a pad whose first
+//! read is where it was left is one nobody has touched — so the socket that has just begun answering is taken
+//! before the one it replaces, whatever the old one still reports.
+//!
 //! **Which is not a nicety**: with the pad in XInput's second slot, winmm has no pad at all. `joyGetNumDevs`
 //! says 16, index 0 answers `joyGetPosEx` with `JOYERR_NOERROR` and every field zero — `mid=413d pid=2104`,
 //! no buttons and no axes, which is what Windows leaves there while the slot the pad is in is not the first
@@ -201,7 +206,7 @@
 //! it where the game kept it, in that field, so a chapter restored rewinds it with the rest of `.data`.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use orb_api::{JoyCaps, JoyInfo, XinputPad, joyerr};
 
@@ -244,6 +249,23 @@ static SAMPLE: Mutex<Option<Sample>> = Mutex::new(None);
 /// And the pad the run is being played with, which is the one last pushed of the pads orb sampled: what
 /// is added to the word the game reads, and what a menu of orb's is driven by.
 static PAD: Mutex<Option<Reading>> = Mutex::new(None);
+
+/// **Whether the sampling thread has been round every socket at least once**, which is what tells a pad that
+/// is not there from one nothing has looked at yet.
+///
+/// The two are not the same answer to give a game: th06c decides *once*, in its startup, whether it has an
+/// XInput pad at all, and binds the record it reads the pad through for the rest of the launch on that
+/// answer — an XInput slot where one answered, winmm where none did. Measured: answered `NOT_CONNECTED` for
+/// the instant before this thread had read anything, a launch of th06c's with the pad in XInput's slot 0 left
+/// its record's slot field at `0xffffffff` and read the pad through winmm all launch. See
+/// `runtime::xinput_get_state`.
+static LOOKED: AtomicBool = AtomicBool::new(false);
+
+/// Whether every socket has been looked at, so that a `None` from [`reading`] is a pad that is not there
+/// rather than one nobody has looked for yet.
+pub fn has_looked() -> bool {
+    LOOKED.load(Ordering::Relaxed)
+}
 
 /// winmm's own `joyGetPosEx`, which the game's import table pointed at — or the function a game laid out
 /// by hand handed over in place of it.
@@ -482,13 +504,30 @@ fn poll() -> ! {
         // this socket's own finishing and the last one's: the counter is the game's, and a thread of
         // orb's reading it twenty times a cycle is a thread charging the frame for its own sampling.
         let mut at = started;
+        // **Whether the sampling had been round every socket before this cycle**, which is what tells a pad
+        // somebody has just plugged in from one that was there when the launch started — see the arrival
+        // below, which must not pick between two pads both present from the first look.
+        let already_looked = LOOKED.load(Ordering::Relaxed);
         for socket in &mut sockets {
             if on_xinput && socket.is_winmm() {
                 socket.reading = None;
                 continue;
             }
             if sweeping || socket.has_a_pad() {
+                let was = socket.reading;
                 let answered = socket.read();
+                // **A pad that starts answering is one somebody has just plugged in**, and is the pad the
+                // run is played with until another is pushed: the socket it replaces may go on answering
+                // with the pad resting where it was left, and a pad held still the moment it arrives never
+                // counts as pushed — which is a controller swapped mid-run that moves nothing (reported
+                // 2026-11-01, "新しいコントローラーを使ってるからこれ全部のコントローラーを見てるはずだよね").
+                // Counted only after the first look, so that two pads already plugged in are still decided
+                // by whose stick moves rather than by which socket was read last.
+                if already_looked && was.is_none() && socket.has_a_pad() {
+                    pushes += 1;
+                    socket.pushed_at = pushes;
+                    socket.pushed = socket.reading;
+                }
                 // Which of them somebody is holding, as far as anything here can tell: the one they
                 // last did something to. Counted rather than timed, one number for the whole thread —
                 // what is asked of it is only which socket's is the highest.
@@ -516,6 +555,9 @@ fn poll() -> ! {
             );
         }
         let cost = at - started;
+        // **Every socket has now been read once**, which is what tells a pad that is not there from one
+        // nothing has looked at yet — see [`has_looked`].
+        LOOKED.store(true, Ordering::Relaxed);
         let pad = last_pushed(&sockets);
         sampled_pad(pad.and_then(|socket| socket.reading));
         // And a line where that is a different pad from the one before, which is somebody putting one
@@ -880,6 +922,28 @@ const BUTTONS: [(u16, u32); 10] = [
     (0x0040, 8), // left thumb
     (0x0080, 9), // right thumb
 ];
+
+/// **The number orb's sampling gives the button a game's own configuration names**, and back — a game's
+/// `th06.cfg` keeps a pad button as *XInput's* bit index (A 12, B 13, the left shoulder 8) and a sampled pad's
+/// mask is numbered DirectInput's way (A 0, B 1, the left shoulder 4), so one is read through the other here.
+///
+/// Both ways from one table, so a direction read through one and a press written back through the other cannot
+/// disagree — which they did, on 2026-11-01: read as if the configuration's numbers were DirectInput's, a pad's
+/// A was no button at all and the game's own menu stopped taking a decide.
+pub fn the_direct_input_number_of(xinput_bit: u16) -> Option<u16> {
+    BUTTONS
+        .iter()
+        .find(|(bit, _)| *bit == 1 << xinput_bit)
+        .map(|(_, number)| *number as u16)
+}
+
+/// And the other way: the XInput bit index a DirectInput number names.
+pub fn the_xinput_bit_of(direct_input_number: u16) -> Option<u16> {
+    BUTTONS
+        .iter()
+        .find(|(_, number)| *number == u32::from(direct_input_number))
+        .and_then(|(bit, _)| u16::try_from(bit.trailing_zeros()).ok())
+}
 /// And its d-pad, which is not a button in that numbering: a winmm pad reports one in its hat and the
 /// game's mapping names no button for a direction.
 const DPAD_UP: u16 = 0x0001;
@@ -1009,9 +1073,44 @@ fn name(field: [u8; 32]) -> String {
 pub fn reading() -> Option<Reading> {
     sampling();
     if let Some(pushed) = the_virtual_pad() {
-        return Some(read_of(pushed));
+        return Some(read_of(with_the_hand(pushed)));
     }
     PAD.lock().ok().and_then(|held| *held)
+}
+
+/// **The pad's own buttons a hand is holding**, a bit per button in [`Pushed`]'s numbering — what a recipe's
+/// `press_pad` step presses, and what a person's thumb is on where a word names an action.
+///
+/// **Held across frames and laid over the pad rather than handed over as a word**, because a game reads a pad
+/// two ways and which way is its own business: th06c reads XInput, which orb answers from the frame's word, and
+/// th10 reads winmm and DirectInput, which orb answers from this pad. A press that went only one of the two
+/// ways is a press such a game never sees, and `press_pad` has to reach whatever game it is written for.
+static THE_HANDS_BUTTONS: AtomicU32 = AtomicU32::new(0);
+
+/// Holds the buttons a hand is on, and lets go of the last with nought.
+pub fn the_hand_holds(buttons: u32) {
+    THE_HANDS_BUTTONS.store(buttons, Ordering::Relaxed);
+}
+
+/// And what the hand is holding laid over a pad pushed with a word, which is how both ends of the road see it.
+pub fn with_the_hand(pushed: Pushed) -> Pushed {
+    Pushed {
+        buttons: pushed.buttons | THE_HANDS_BUTTONS.load(Ordering::Relaxed),
+        ..pushed
+    }
+}
+
+/// **What a pad with these buttons on it and nothing else reads as** — [`Pushed`]'s numbering, a bit per button,
+/// the first the lowest.
+///
+/// **For a recipe pressing the pad's own buttons** — see `recipe::Step::PressPad`: a step names the number a pad
+/// reports a button under, and what the game makes of it is its own configuration's to say, so the press goes in
+/// where a hand's does, as a reading of a pad, rather than as one of orb's own words.
+pub fn a_reading_with(buttons: u32) -> Reading {
+    read_of(Pushed {
+        buttons,
+        ..Pushed::AT_REST
+    })
 }
 
 /// **What the virtual pad is doing**: a bit per button, the first button the lowest — winmm's own numbering and

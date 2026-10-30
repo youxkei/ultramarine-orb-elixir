@@ -216,10 +216,9 @@ fn the_focus_button_of_such_a_pad_holds_the_player_still() {
     in_its_own_process(|| {
         let game = playing_with_a_second_pad("a-second-pads-focus-button");
 
-        // The right shoulder, which is DirectInput's button 5 — this game's focus button.
-        game.sim()
-            .xinput()
-            .pushes(SECOND_SLOT, xinput::RIGHT_SHOULDER);
+        // The button the game's own defaults bind the focus to, which is `X` — DirectInput's button 2, and
+        // [`MAPPING`]'s focus.
+        game.sim().xinput().pushes(SECOND_SLOT, xinput::X);
         frames_until(&game, "the focus button reaching the word", || {
             game.image().input_now() & button::FOCUS != 0
         });

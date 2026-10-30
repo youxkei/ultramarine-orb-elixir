@@ -34,6 +34,16 @@
 //! can ask for a retry. What answers that question is a `press` at `until: { question: retry }`, the same as a
 //! player pressing at it.
 //!
+//! **And a `screenshot` that is of a question says `holding: true`.** orb's own menus read the bot's word, so
+//! a recipe that reaches a question and waits has it answered by the rules it is waiting with — measured on
+//! th06c on 2026-11-01, a retry offer raised at f1309 was gone by the frame its picture was taken on. Held,
+//! the bot's word reaches neither the menus nor the game for as long as the step is up, and the question
+//! stands for the picture.
+//!
+//! **And a `screenshot` of what the game draws across a buffer bigger than its own picture says `whole: true`**,
+//! which takes the whole buffer instead of the 4:3 picture centred in it — a `3840x2160` frame keeps what it
+//! drew at the buffer's origin, and a picture of the picture alone leaves that out.
+//!
 //! **And one of them says how the run is played rather than doing anything itself.** A `take_hits` hands the
 //! rules a chance of being hit on purpose in each chapter, which is the one thing a run played by rules that
 //! dodge everything cannot show: a death, the chapter retried, and the run carrying on from it. It stands from
@@ -150,7 +160,37 @@ pub enum Step {
     /// showing the menu before, and one asked for as a card started came out with no plate at all. The frames
     /// are the rules' to play rather than nobody's: a run whose player stands still for half a second is a run
     /// that gets shot.
-    Screenshot { named: String, frames: u32 },
+    /// **A picture of the frame, asked for `frames` into the step** — and, where `holding` is said, of a
+    /// question of orb's held up for it: the bot's word is kept off orb's own menus while the step is up,
+    /// which is what lets a recipe photograph one. See `crate::recipe`'s own doc.
+    Screenshot {
+        named: String,
+        frames: u32,
+        holding: bool,
+        /// **Whether the picture is of the window the frame is shown in** rather than the game's own picture
+        /// — see `orb_core::shot::ThePicture`: it is taken with Windows.Graphics.Capture, and it is what a
+        /// person looking at the window sees rather than what the buffer holds.
+        whole: bool,
+        /// **And whether it is of the back buffer itself**, the other half of that comparison: a frame whose
+        /// buffer and window differ is one to hold two pictures of, and the buffer's is a copy of what the
+        /// game drew rather than of what the desktop shows.
+        buffer: bool,
+    },
+    /// **Orb's own questions held up, or given back** — see `hold_questions`. What a run's death offers is
+    /// answered by the rules on the frame it comes up, so a recipe that wants a picture of it says
+    /// `hold_questions: true` before the death and `hold_questions: false` after.
+    HoldQuestions(bool),
+    /// **The pad buttons held, by the number the pad reports them under** — what a hand does and what a case
+    /// that is to be one presses: `press: [shot]` is orb's own name put through orb's own bindings, so a case
+    /// that presses one cannot tell a wrong binding from a right one.
+    ///
+    /// **The number is the pad's own and not orb's**: the first button is `0`, as winmm and DirectInput count
+    /// them, and what a number *means* is the game's own configuration's to say — the game's `th06.cfg` binds
+    /// its focus to a button, and the case presses the number a hand would.
+    ///
+    /// **`frames` is how many frames the buttons are held**, the same as a `press`'s: a game reads a button it
+    /// is held on, and a case that let go of the pad after one frame read as never having pressed it.
+    PressPad { buttons: Vec<u16>, frames: u32 },
     /// **The run asked to start over, which is what the game's own pause menu item does** — and what orb
     /// turns into its question of where to start again. The one way to reach a chapter again without dying
     /// first, so it is the one way a recipe can ask for a retry.
@@ -705,6 +745,26 @@ struct Written {
     quit: Option<bool>,
     /// What the picture is to be called — see [`Step::Screenshot`].
     screenshot: Option<String>,
+    /// **Whether the picture is of a question held up**, which is what a `screenshot` says when what it is of
+    /// is a menu: orb's own menus read the bot's word (`runtime::pad`), so a question a recipe waits at is
+    /// answered by the very rules it is waiting with. Held, the bot's word reaches neither the menus nor the
+    /// game while the step is up, and the question stands for the picture.
+    holding: Option<bool>,
+    /// **Whether the picture is of the whole buffer**, which a case about what the game draws across a buffer
+    /// bigger than its picture says — see [`Step::Screenshot`]'s `whole`.
+    whole: Option<bool>,
+    /// **Whether the picture is of the back buffer** rather than of the window — see
+    /// [`Step::Screenshot`]'s `buffer`.
+    buffer: Option<bool>,
+    /// **Whether orb's own questions are held up from this step on**, and given back by `false` — the one that
+    /// is not a recipe's to raise: the retry a run's *death* offers is answered by the rules on the frame it
+    /// comes up, so a recipe that wants a picture of it says this before the death and holds it after.
+    hold_questions: Option<bool>,
+    /// **The pad buttons pressed, by the number XInput reports them under** — `8` being the left shoulder —
+    /// which is what a person's hand does and what a recipe has to do to be one: a named button of orb's is
+    /// orb's own word put through its own bindings, and a case that presses one cannot tell a wrong binding from
+    /// a right one.
+    press_pad: Option<Vec<u16>>,
     /// And the pause menu's own ask, which orb answers with a question — see [`Step::StartOver`].
     start_over: Option<bool>,
     /// And the chance of being hit on purpose in a chapter — see [`Step::TakeHits`].
@@ -981,6 +1041,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => match frames {
                 None => return Err(format!("step {at} presses without saying for how long")),
                 Some(0) => return Err(format!("step {at} is over before it starts")),
@@ -1009,6 +1074,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => Step::Play {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -1031,6 +1101,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => Step::Wait {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -1053,6 +1128,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => Step::Leave,
             Written {
                 press: None,
@@ -1072,7 +1152,81 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => Step::Quit,
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: None,
+                take_hits: None,
+                bombs: None,
+                stand_at: None,
+                dodge: None,
+                answer: None,
+                name: None,
+                follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: Some(held),
+                press_pad: None,
+            } => Step::HoldQuestions(*held),
+            Written {
+                press: None,
+                frames,
+                until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: None,
+                take_hits: None,
+                bombs: None,
+                stand_at: None,
+                dodge: None,
+                answer: None,
+                name: None,
+                follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: Some(numbers),
+            } => {
+                let frames = match frames {
+                    None => {
+                        return Err(format!(
+                            "step {at} presses a pad without saying for how long"
+                        ));
+                    }
+                    Some(0) => return Err(format!("step {at} is over before it starts")),
+                    Some(frames) => *frames,
+                };
+                for number in numbers.iter() {
+                    if *number >= 32 {
+                        return Err(format!(
+                            "step {at} presses pad button {number}, and a pad's buttons are numbered 0 to 31"
+                        ));
+                    }
+                }
+                Step::PressPad {
+                    buttons: numbers.clone(),
+                    frames,
+                }
+            }
             Written {
                 press: None,
                 frames,
@@ -1091,6 +1245,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding,
+                whole,
+                buffer,
+                hold_questions: None,
+                press_pad: None,
             } => match named.trim() {
                 "" => return Err(format!("step {at} asks for a picture of nothing")),
                 named => Step::Screenshot {
@@ -1098,6 +1257,9 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                     // **Nothing said is the frame the step begins on**, which is what every picture asked for
                     // before this was and what a screen already up wants.
                     frames: frames.unwrap_or(0),
+                    holding: holding.unwrap_or(false),
+                    whole: whole.unwrap_or(false),
+                    buffer: buffer.unwrap_or(false),
                 },
             },
             Written {
@@ -1118,6 +1280,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => Step::StartOver,
             Written {
                 press: None,
@@ -1137,6 +1304,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => Step::TakeHits {
                 chance: a_chance("a chance", hits.chance, at)?,
                 // **Nothing said is a chance that does not change** — see [`WrittenHits`].
@@ -1166,6 +1338,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => Step::Bombs { allowed: *allowed },
             Written {
                 press: None,
@@ -1185,6 +1362,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => {
                 if stand.x.is_some() && stand.away_from_the_boss.is_some() {
                     return Err(format!(
@@ -1264,6 +1446,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => match *dodge {
                 WrittenDodge {
                     with,
@@ -1336,6 +1523,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: Some(answer),
                 name: None,
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => match answer.question.trim() {
                 "" => return Err(format!("step {at} answers a question with no name")),
                 question => Step::Answer {
@@ -1364,6 +1556,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: Some(typed),
                 follow: None,
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => match typed.trim() {
                 "" => return Err(format!("step {at} types a name of nothing")),
                 typed => Step::Name {
@@ -1389,6 +1586,11 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 answer: None,
                 name: None,
                 follow: Some(follow),
+                holding: None,
+                whole: None,
+                buffer: None,
+                hold_questions: None,
+                press_pad: None,
             } => match (follow.every, follow.path.is_empty()) {
                 (0, _) => {
                     return Err(format!(
@@ -1414,9 +1616,9 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             }
             _ => {
                 return Err(format!(
-                    "step {at} is a press, a play_until, a wait_until, a screenshot, a start_over, \
-                     a take_hits, a bombs, a stand_at, a dodge, a follow, an answer, a name, a leave or a \
-                     quit, and one of those and not two"
+                    "step {at} is a press, a press_pad, a play_until, a wait_until, a screenshot, a \
+                     start_over, a take_hits, a bombs, a stand_at, a dodge, a follow, an answer, a name, a \
+                     leave, a quit or a hold_questions, and one of those and not two"
                 ));
             }
         };
@@ -1476,10 +1678,16 @@ mod tests {
                 Step::Screenshot {
                     named: "the title menu".to_owned(),
                     frames: 0,
+                    holding: false,
+                    whole: false,
+                    buffer: false,
                 },
                 Step::Screenshot {
                     named: "orbs-question".to_owned(),
                     frames: 0,
+                    holding: false,
+                    whole: false,
+                    buffer: false,
                 },
             ]),
         );
@@ -1495,6 +1703,9 @@ mod tests {
             Ok(vec![Step::Screenshot {
                 named: "the card's own plate".to_owned(),
                 frames: 30,
+                holding: false,
+                whole: false,
+                buffer: false,
             }]),
         );
     }

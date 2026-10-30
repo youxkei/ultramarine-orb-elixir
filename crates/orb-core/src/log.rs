@@ -187,8 +187,13 @@ macro_rules! summary {
 #[macro_export]
 macro_rules! detail {
     ($($arg:tt)*) => {
+        // **Into the trace whether or not the log wants it.** A trace is the whole of what a launch did,
+        // frame by frame, and the level is what a *log* is rationed by — the file a person reads. So a
+        // detail is said to the trace at every level, and to the log only at the verbose one.
         if $crate::log::wanted($crate::log::VERBOSE) {
             $crate::log::line(&format!($($arg)*))
+        } else if $crate::trace::on() {
+            $crate::trace::said(&format!($($arg)*));
         }
     };
 }

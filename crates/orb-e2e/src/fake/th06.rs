@@ -4072,13 +4072,19 @@ unsafe extern "system" fn read_state(_device: usize, size: u32, state: *mut u8) 
 pub const MAPPING: Mapping = Mapping {
     shoot: 0,
     bomb: 1,
-    menu: 2,
-    up: 3,
-    down: 4,
-    // A button of its own, which is the configuration the game's own defaults are: shoot 0, bomb 1,
-    // focus 2, skip 3, menu 4. What the *other* configuration does — focus on the shoot button — is
-    // `a_pad_the_game_has_no_device_for.rs`'s, which maps the two together itself.
-    focus: 5,
+    // **The game's own defaults, which is what a launch plays with**: `cargo xtask real` takes the copy's
+    // `東方紅魔郷.cfg` aside, so the mapping a case finds is `0, 1, 2, 4, -1, -1, -1, -1, 3` — shoot 0, bomb 1,
+    // focus 2, menu 4, skip 3. The directions take numbers of their own here because a laid-out game has no
+    // stick to move the player with where the real one's defaults leave them unmapped. What the *other*
+    // configuration does — focus on the shoot button — is `a_pad_the_game_has_no_device_for.rs`'s, which maps
+    // the two together itself.
+    focus: 2,
+    // The two thumbs, which nothing else in this file's mappings names: `BACK` and `START` are buttons 6
+    // and 7, and an e2e test presses `BACK` to show that a button the mapping names nothing for does
+    // nothing.
+    up: 8,
+    down: 9,
+    menu: 4,
     // A quarter of the ±1000 the game gives an axis, which is far enough that the middle is not it. The
     // two differ so that a test pushing one axis past the other's threshold would be seen doing it.
     x_axis: 250,

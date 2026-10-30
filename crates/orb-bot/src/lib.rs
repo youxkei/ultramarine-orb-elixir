@@ -120,6 +120,9 @@ struct Playing {
     /// **Whether the rules may press the bomb**, which a [`Step::Bombs`] sets and every frame after it is
     /// steered under. True until a step says otherwise, which is the rules bombing as they see fit.
     bombs: bool,
+    /// **Whether orb's own questions are held up**, which a `hold_questions` sets and every frame after it
+    /// asks: while it is on, the bot answers none of them, so a run's death's retry offer stands for a picture.
+    questions_held: bool,
     /// Whether the step now being carried out has asked for its answer, for a [`Step::Answer`]: what ends one
     /// is the question it named being *gone*, and a question that was never up is one to wait for. Without
     /// this the two are the same frame, and a step whose question never came up read as done.
@@ -432,9 +435,25 @@ enum Step {
     Screenshot {
         named: String,
         frames: u32,
+        /// Whether the picture is of a question held up — see [`recipe::Step::Screenshot`].
+        holding: bool,
+        /// **Whether the picture is of the whole buffer** rather than the game's own picture — see
+        /// [`recipe::Step::Screenshot`]'s `whole`.
+        whole: bool,
+        /// **And whether it is of the back buffer itself** — see [`recipe::Step::Screenshot`]'s `buffer`.
+        buffer: bool,
     },
     StartOver,
     TakeHits(hits::Told),
+    /// **Orb's own questions held up, or given back** — see `recipe::Step::HoldQuestions`: while it is held
+    /// the bot answers none of them, which is what a picture of a run's death's own retry offer needs.
+    HoldQuestions(bool),
+    /// **The pad's own buttons held**, by the number XInput reports them under — see `recipe::Step::PressPad`:
+    /// what a hand does, and what a case that is to be one presses.
+    PressPad {
+        buttons: Vec<u16>,
+        frames: u32,
+    },
     /// Whether the rules may bomb from here on — see [`recipe::Step::Bombs`].
     Bombs(bool),
     /// Where the rules are told to stand from here on, or freed of it — or, with a card's number, where they
@@ -562,6 +581,7 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
         frames: 0,
         hits: hits::TakingHits::default(),
         bombs: true,
+        questions_held: false,
         asked: false,
         answer_pressed_on: None,
         in_run_seen: false,
@@ -636,8 +656,22 @@ fn steps_of(written: Vec<recipe::Step>, game: &dyn Game) -> Option<Vec<Step>> {
             },
             recipe::Step::Leave => Step::Leave,
             recipe::Step::Quit => Step::Quit,
-            recipe::Step::Screenshot { named, frames } => Step::Screenshot { named, frames },
+            recipe::Step::Screenshot {
+                named,
+                frames,
+                holding,
+                whole,
+                buffer,
+            } => Step::Screenshot {
+                named,
+                frames,
+                holding,
+                whole,
+                buffer,
+            },
             recipe::Step::StartOver => Step::StartOver,
+            recipe::Step::HoldQuestions(held) => Step::HoldQuestions(held),
+            recipe::Step::PressPad { buttons, frames } => Step::PressPad { buttons, frames },
             recipe::Step::TakeHits {
                 chance,
                 times_each_retry,
@@ -805,13 +839,25 @@ fn named_question(name: &str, at: usize) -> Option<Question> {
 /// sat out its bound: a run asked to start over could be sent back to the chapter it was in and nowhere else,
 /// which is what put a check of a stage's own first chapter half an hour of autoplay away.
 fn a_step_answers_the_retry(playing: &Playing) -> bool {
-    matches!(
-        playing.steps.get(playing.at),
+    match playing.steps.get(playing.at) {
         Some(Step::Answer {
             question: Question::Retry,
             ..
-        })
-    )
+        }) => true,
+        // **And a step that photographs the offer answers it**, in the only sense this asks: the offer raised
+        // for it is not one for the bot to take, or the picture would be of the run playing again.
+        Some(Step::Screenshot { holding: true, .. }) => true,
+        _ => false,
+    }
+}
+
+/// **Which picture a `screenshot` step asks for**, as `orb_core::shot` names them.
+fn the_picture_of(whole: bool, buffer: bool) -> orb_core::shot::ThePicture {
+    match (buffer, whole) {
+        (true, _) => orb_core::shot::ThePicture::TheWholeBuffer,
+        (false, true) => orb_core::shot::ThePicture::TheWindow,
+        (false, false) => orb_core::shot::ThePicture::TheGames,
+    }
 }
 
 /// The word the bot presses this frame, which is what the slot in `orb_core::runtime` is filled with.
@@ -1035,14 +1081,52 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
     steer::the_card_has_run(reached.card_frames);
     // **And the stage's own frame**, which the shot's let-go is timed by.
     steer::the_stage_has_run(reached.stage_frames);
+    // **A picture of a question, held up for it** — `recipe::Step::Screenshot`'s `holding`. Taken here rather
+    // than among the steps below because orb's own offer to retry is taken below whatever step is up, and that
+    // offer is the question being photographed: the step counts its own frames here and asks for the picture
+    // when they are through, answers nothing meanwhile, and keeps the bot's word off the menus — which is what
+    // a question photographed has to be, and what th06c's retry offer measured on 2026-11-01 was not: raised
+    // at f1309 and gone by the frame the picture was taken on.
+    let holding_picture = match playing.steps.get(playing.at) {
+        Some(Step::Screenshot {
+            named,
+            frames,
+            holding: true,
+            whole,
+            buffer,
+        }) => Some((named.clone(), *frames, *whole, *buffer)),
+        _ => None,
+    };
+    if let Some((named, frames, whole, buffer)) = holding_picture {
+        orb_core::runtime::hold_the_bots_word(true);
+        playing.frames += 1;
+        if playing.frames > frames {
+            orb_core::shot::wanted_of(&named, the_picture_of(whole, buffer));
+            log!(
+                "autoplay: step {} of {} asks for a picture of {named}",
+                playing.at + 1,
+                playing.steps.len(),
+            );
+            playing.at += 1;
+            playing.frames = 0;
+        }
+        return None;
+    }
+    orb_core::runtime::hold_the_bots_word(playing.questions_held);
     // **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on: Pointdevice mode
     // is a mode whose whole content is that a death is retried, and a death lands in the middle of a step — so
     // no recipe can say when, and a bot that waited for one to say so would stop at its first death. Tapped
     // rather than held, a menu answering the frame a button goes down.
+    //
+    // **And not taken at all while a recipe holds the questions up** — see [`Step::HoldQuestions`], which is how
+    // a picture of a death's own offer is had.
     if reached.question != Some(Question::Retry) {
         playing.retry_up = false;
     }
-    if reached.question == Some(Question::Retry) && !a_step_answers_the_retry(playing) {
+    if reached.question == Some(Question::Retry)
+        && !playing.questions_held
+        && !a_step_answers_the_retry(playing)
+    {
         playing.frames += 1;
         // **And nothing pressed at an offer already answered.** Where the chapter was drawn to be given up
         // at, the answer is asked for outright rather than pressed for — and a press that lands after the
@@ -1182,6 +1266,9 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // **nothing at all where those have nothing to say**, which is not the same as a word of no buttons:
         // this is the read the game makes on every screen, and a rule with no opinion about the screen that is
         // up should leave the read where it found it. A `wait` step's own silence is a word and stays one.
+        //
+        // **And no step is no hold**: the `screenshot` that takes the bot's word off orb's menus is past.
+        orb_core::runtime::hold_the_bots_word(false);
         let word = unsafe { steer::word_to_press(game, hazards, playing.bombs) };
         return (word != 0).then_some(word);
     };
@@ -1254,10 +1341,16 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // **The frames in front of it are the rules' to play**, and not a word of nothing: what a picture waits
         // out is a thing being drawn, which happens while a run carries on — and a player standing still for
         // half a second inside a card is a player that gets shot. Off a run the rules say nothing anyway.
-        Step::Screenshot { named, frames } => {
+        Step::Screenshot {
+            named,
+            frames,
+            whole,
+            buffer,
+            ..
+        } => {
             let now = playing.frames > *frames;
             if now {
-                orb_core::shot::wanted(named);
+                orb_core::shot::wanted_of(named, the_picture_of(*whole, *buffer));
                 log!(
                     "autoplay: step {} of {} asks for a picture of {named}",
                     playing.at + 1,
@@ -1509,6 +1602,45 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
                 true,
             )
         }
+        // **The pad's own buttons held, as a hand holds them** — see [`Step::PressPad`]: the numbers are the
+        // pad's, and they are read as a pad reads through the game's own configuration, so the word this
+        // answers is the one that same hand would have pressed. Nothing pressed on the keyboard, because a
+        // hand is not on one.
+        Step::PressPad { buttons, frames } => {
+            let held = buttons
+                .iter()
+                .fold(0, |buttons, number| buttons | 1 << number);
+            // **On the pad, and in the word only where the word is the road a pad reaches the game by.** A
+            // game holding a DirectInput device of its own reads the pad orb pushes — `the_state_of` and
+            // winmm both answer with it — where one whose read orb answers (`th06`, `th07`, `th06c`) gets its
+            // pad from the frame's word. A word carrying the press as well is worse than useless: the pad is
+            // pushed from the word every frame, so the press would push itself back and outlast its step.
+            orb_core::joystick::the_hand_holds(held);
+            let word = match unsafe { game.its_pad_device() } {
+                Some(_) => 0,
+                None => {
+                    let reading = orb_core::joystick::a_reading_with(held);
+                    unsafe { game.pad_word(Some(reading), false) }
+                }
+            };
+            (word, playing.frames > *frames)
+        }
+        // **Orb's own questions held up, or given back** — see [`Step::HoldQuestions`]: what is to answer a
+        // death's retry offer is kept off it from here on, so the offer stands for whatever step follows.
+        Step::HoldQuestions(held) => {
+            playing.questions_held = *held;
+            orb_core::runtime::hold_the_bots_word(*held);
+            log!(
+                "autoplay: step {} of {} {} orb's own questions up",
+                playing.at + 1,
+                playing.steps.len(),
+                match held {
+                    true => "holds",
+                    false => "lets go of",
+                },
+            );
+            (0, true)
+        }
         // **The run asked to start over, and the step over with the asking.** What raises the question is the
         // frame hook, on this frame or the first one a stage can be retried from, so there is nothing here to
         // wait for — the step after it presses at the question.
@@ -1651,6 +1783,8 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
             | Step::Quit
             | Step::Screenshot { .. }
             | Step::StartOver
+            | Step::HoldQuestions(_)
+            | Step::PressPad { .. }
             | Step::TakeHits(..)
             | Step::Bombs(..)
             | Step::StandAt { .. }
@@ -1663,6 +1797,11 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
             | Step::Follow { .. } => false,
         };
     if over || gave_up {
+        // **And a hand's buttons let go of where the step that held them is over**, a press being the frames
+        // it is held for and no more — see [`Step::PressPad`].
+        if matches!(playing.steps.get(playing.at), Some(Step::PressPad { .. })) {
+            orb_core::joystick::the_hand_holds(0);
+        }
         playing.at += 1;
         playing.frames = 0;
         playing.asked = false;

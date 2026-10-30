@@ -10,6 +10,63 @@
 
 use crate::{Bar, Hwnd, Rect};
 
+/// One frame of a window: the window's size in its own pixels, and the pixels as rows from the top.
+///
+/// `rows` is `width * height * 4` bytes: four bytes for every pixel, the rows one after another with no
+/// padding between them. The four bytes are blue, green, red and an unused fourth — the order a BMP
+/// keeps them in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picture {
+    pub width: u32,
+    pub height: u32,
+    pub rows: Vec<u8>,
+    /// **How many bytes the frame's own texture had between rows of it**, which is the picture's width four
+    /// times over unless the host's texture pads its rows — carried so that a picture that came out wrong can
+    /// say whether its rows were the reason.
+    pub row_pitch: u32,
+}
+
+/// **One frame of `window`, captured by the host in the window's own pixels.**
+///
+/// **Which is the window and not the buffer it shows**: the desktop composes it, so a window whose frame
+/// holds one thing and whose buffer another is photographed as it is — and a window that runs off every
+/// monitor answers **black** for the part over nothing (measured 2026-11-02, a `5120x2880` window on a
+/// `3840x2160` desktop). A caller that would rather have the frame holds the window where it fits.
+///
+/// `None` where the window could not be captured: a host with no capture to give, a window that is not
+/// there, or a frame that did not arrive before the wait ran out. A laid-out host answers the frame its
+/// canvas drew, through `Win::capture_window`.
+pub fn capture(window: Hwnd) -> Option<Picture> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.capture_window(window);
+    }
+    #[cfg(not(feature = "sim"))]
+    {
+        host::capture(window)
+    }
+    #[cfg(feature = "sim")]
+    {
+        let _ = window;
+        None
+    }
+}
+
+/// **Why the last [`capture`] answered nothing**, in the words of the step that gave up — the seam keeps it
+/// because a capture that fails is one line in a launch's record rather than a picture nobody can account for.
+pub fn why_the_capture_failed() -> String {
+    #[cfg(all(windows, not(feature = "sim")))]
+    {
+        crate::real::capture::why_the_last_capture_failed()
+    }
+    // A laid-out host answers through its own `capture_window`, whose `None` is the test's own to read: there
+    // is no capture of Windows' to name a step of.
+    #[cfg(any(not(windows), feature = "sim"))]
+    {
+        "the host's capture answered nothing".to_owned()
+    }
+}
+
 /// The window the host has in front, or [`Hwnd::NULL`] if that is none of them.
 ///
 /// Asked of the system rather than read from the game's own `WM_ACTIVATEAPP` flag, which only says
@@ -234,6 +291,10 @@ mod host {
     }
     pub fn client_rect(_window: Hwnd) -> Option<Rect> {
         no_windows("window::client_rect")
+    }
+    #[cfg(not(feature = "sim"))]
+    pub fn capture(_window: Hwnd) -> Option<super::Picture> {
+        no_windows("window::capture")
     }
     pub fn add_ex_style(_window: Hwnd, _ex_style: u32) -> bool {
         no_windows("window::add_ex_style")

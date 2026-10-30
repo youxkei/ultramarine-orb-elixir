@@ -2191,6 +2191,19 @@ const FIGHT_SONG_SLOT: u32 = 1;
 /// Handed over for `handed_over!`'s own reason: it is code, and a laid-out game has none.
 const RESEAL: usize = 0x004012b0;
 
+/// **The game's own write of the run's bombs and of its lives**, `__thiscall`s on [`G_GAME_MANAGER`] each taking
+/// the whole number to *add*: 0x42d612 for `+0x68` and 0x42d5cd for `+0x5c`. Each asks the check at 0x404fe0
+/// first, adds the number to the float, and reseals — see [`RESEAL`], whose two draws are part of what the call
+/// costs.
+///
+/// **And what orb's own writes of the field cost instead**: the bomb mode writes the game's counts back, and a
+/// float written over is a number the seal no longer covers — the check catches it at the next guarded write the
+/// game makes. Measured 2026-11-02 on `a_bomb_mode_run_hit_without_the_press`: the game was given its bomb back
+/// at the run's frame 14 by a write of this kind, and the run ended at the stage's frame 100, where the script's
+/// first guarded write tore the game down — the walk answering 0 with the run standing `bombing`, twice over.
+const ADD_TO_THE_BOMBS: usize = 0x0042d612;
+const ADD_TO_THE_LIVES: usize = 0x0042d5cd;
+
 /// `th07::AnmManager::DrawStringFormat`, `__cdecl` taking the manager, the vm the string is baked into, a
 /// colour, a second colour, and the text as a format string.
 ///
@@ -2206,6 +2219,18 @@ const RESEAL: usize = 0x004012b0;
 const DRAW_STRING: usize = 0x004543b0;
 
 handed_over!(RESEAL_AT, reseal, set_reseal, RESEAL);
+handed_over!(
+    ADD_TO_THE_BOMBS_AT,
+    add_to_the_bombs,
+    set_add_to_the_bombs,
+    ADD_TO_THE_BOMBS
+);
+handed_over!(
+    ADD_TO_THE_LIVES_AT,
+    add_to_the_lives,
+    set_add_to_the_lives,
+    ADD_TO_THE_LIVES
+);
 handed_over!(DRAW_STRING_AT, draw_string, set_draw_string, DRAW_STRING);
 handed_over!(BORDER_UP_AT, border_up, set_border_up, BORDER_UP);
 /// What [`Th07::says_what_it_reads_of_the_front_end`] said last, so that it says it once per change.
@@ -2474,6 +2499,25 @@ impl Th07 {
         // The pointer is the game manager's own field, read outright for the reason [`Th07::lasers`] gives.
         let run = unsafe { mem::read::<usize>(G_RUN_NUMBERS) };
         (run != 0).then_some(run)
+    }
+
+    /// **One of the run's two whole counts written to `wants` the way the game itself writes it**: through the
+    /// guarded write at `adds`, which takes the difference, because what it takes is a number to add — see
+    /// [`ADD_TO_THE_BOMBS`] for why the float is not written outright.
+    ///
+    /// The difference is what the game has at `field` read as a whole number, the way [`State::bombs`] and
+    /// [`State::lives`] read it, so a count the game is already at is a call that adds nothing and reseals.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a run in progress.
+    unsafe fn add_to_the_runs_numbers(&self, adds: fn() -> usize, field: usize, wants: i8) -> bool {
+        let Some(run) = (unsafe { self.run_numbers() }) else {
+            return false;
+        };
+        let has = unsafe { mem::read::<f32>(run + field) } as i8;
+        let add: unsafe extern "thiscall" fn(usize, i32) = unsafe { std::mem::transmute(adds()) };
+        unsafe { add(G_GAME_MANAGER, i32::from(wants) - i32::from(has)) };
+        true
     }
 
     /// The boss being fought, or nothing where none is: the first of the manager's [`BOSS_SLOTS`] pointers
@@ -4339,6 +4383,13 @@ impl Game for Th07 {
         unsafe { mem::write::<u16>(G_INPUT_READ, u16::MAX) };
     }
 
+    /// **The word the run acts on** — a copy of the read, made by the replay's own job at chain priority `0x11`
+    /// the frame the player's move reads it, so it is what the frame after is played with rather than what the
+    /// read produced. Read for a case that holds a recipe's press to the game's own word rather than to orb's.
+    unsafe fn the_word_the_run_acts_on(&self) -> Option<u16> {
+        mem::read_committed::<u16>(G_INPUT_THE_RUN_ACTS_ON)
+    }
+
     /// Nothing: this game's own read is a word and orb answers it with one — see [`INPUT_READ`] and
     /// `Game::press_into`, whose whole doc this is.
     unsafe fn press_into(&self, _state: *mut u8, _word: u16) {}
@@ -4694,13 +4745,15 @@ impl Game for Th07 {
         })
     }
 
-    /// The run's float [`State::lives`] is read from, which `set_run_state` writes too.
+    /// The run's float [`State::lives`] is read from, written through the game's own guarded write — see
+    /// [`ADD_TO_THE_BOMBS`], whose doc has why a write of the float is not one.
     unsafe fn set_lives(&self, lives: i8) -> bool {
-        let Some(run) = (unsafe { self.run_numbers() }) else {
-            return false;
-        };
-        unsafe { mem::write::<f32>(run + LIVES, f32::from(lives)) };
-        true
+        unsafe { self.add_to_the_runs_numbers(add_to_the_lives, LIVES, lives) }
+    }
+
+    /// The run's float [`State::bombs`] is read from, written the same way — see [`Game::set_bombs`].
+    unsafe fn set_bombs(&self, bombs: i8) -> bool {
+        unsafe { self.add_to_the_runs_numbers(add_to_the_bombs, BOMBS, bombs) }
     }
 
     /// The numbers back and the game asked to seal them, with the generator held still over that call — see

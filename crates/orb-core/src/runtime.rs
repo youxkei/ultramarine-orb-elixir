@@ -438,6 +438,15 @@ pub struct Runtime {
     stressing: (i32, u32),
     /// `Some` while the game is frozen on the retry menu.
     retry: Option<RetryMenu>,
+    /// **The frame the question is drawn over**, taken once as the question goes up — the game's own retry
+    /// screen paints its backdrop outside the playfield, and the run's own frame is what has to lie there.
+    /// Taken once and not every frame: a picture of the frame is a staging texture, a read-back of every
+    /// pixel and a texture of orb's own, and doing that on every frame of a run cost the game thirty times
+    /// what the run cost without it — measured on th06c's laid-out game, the slow-write case taking 17.4
+    /// seconds of wall clock with the picture taken every frame and 0.58 without.
+    last_frame: Option<crate::overlay::Picture>,
+    /// Whether the first frame drawn with a question up is to take that picture.
+    capture_the_frame: bool,
     /// Whether a death the count has taken is still being decided, which is a game's own deathbomb window
     /// standing between the count moving and the life being gone — see [`Game::where_a_counted_death_stands`].
     deciding_a_death: bool,
@@ -1619,6 +1628,8 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             stressed: 0,
             stressing: (-1, 0),
             retry: None,
+            last_frame: None,
+            capture_the_frame: false,
             deciding_a_death: false,
             lives: LivesMark::new(),
             marked: false,
@@ -1850,7 +1861,10 @@ unsafe fn what_is_reached(runtime: &Runtime) {
         let word = playing.pressing.unwrap_or(0);
         match unsafe { runtime.game.pushed_for(word) } {
             Some(pushed) => {
-                joystick::the_virtual_pad_is_pushed(pushed);
+                // **And the buttons a hand is holding laid over it**, which is what a recipe's `press_pad`
+                // presses: the pad is pushed afresh every frame with the word's own, so a press written into
+                // the pad once would be gone before the game's read — see `joystick::with_the_hand`.
+                joystick::the_virtual_pad_is_pushed(joystick::with_the_hand(pushed));
                 if !playing.through_the_pad {
                     log!("autoplay: the run is pressed through the virtual pad");
                 }
@@ -1874,10 +1888,28 @@ static SAID_NO_PAD: AtomicBool = AtomicBool::new(false);
 /// Whether the press past a stage's end was down on the tick before — see [`what_is_reached`].
 static A_STAGES_END_PRESSED: AtomicBool = AtomicBool::new(false);
 
+/// **Whether a recipe's step has taken the bot's word off orb's own menus** — see [`hold_the_bots_word`].
+static THE_BOTS_WORD_IS_HELD: AtomicBool = AtomicBool::new(false);
+
+/// **Holds the bot's word off orb's own menus, or gives it back.**
+///
+/// What answers a question of orb's is the bot's word: `pad` folds it into the pad the question reads, so a
+/// recipe that reaches a question and then waits has the question answered by the very rules it is waiting
+/// with — measured on th06c on 2026-11-01, a retry offer raised at f1309 was gone by the frame the picture
+/// was taken on, and the picture was of the run playing again. Held, the question stands and the recipe can
+/// photograph it. The game's own read is given nothing of the bot's while it is held too, which is what a
+/// frame with a question up is: the game is not running.
+pub fn hold_the_bots_word(held: bool) {
+    THE_BOTS_WORD_IS_HELD.store(held, Ordering::Relaxed);
+}
+
 /// **What the bot's word hands to the game's read, and to orb's menus**: what it is pressing, unless that went
 /// onto the virtual pad — which is then read as a person's pad is, and handed nowhere. See
-/// [`Playing::through_the_pad`].
+/// [`Playing::through_the_pad`]. Nothing at all while [`hold_the_bots_word`] holds it.
 fn handed_over() -> Option<u16> {
+    if THE_BOTS_WORD_IS_HELD.load(Ordering::Relaxed) {
+        return None;
+    }
     PLAYING_IT
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -3507,13 +3539,48 @@ unsafe fn the_keyboard_state(state: *mut u8) -> i32 {
         None if !active => {
             // What was held is forgotten with the frames given nothing — see [`get_input`]'s own.
             DECIDE_WAS_DOWN.store(false, Ordering::Relaxed);
+            // **And the pad read answered as a pad that is there and pressing nothing**, which is the
+            // nothing these frames are given: a pad is this machine's and not another window's typing, but
+            // what is pressed on it while the game is behind is not this run's either.
+            let there = joystick::reading().is_some();
+            THE_PADS_SHARE.store(if there { 0 } else { NO_WORD }, Ordering::Relaxed);
             let frame = unsafe { runtime.game.stage_frame() };
             unsafe { runtime.game.word_in(state) }.map(|_| unsafe { noted(runtime.game, frame, 0) })
         }
         None => {
             let frame = unsafe { runtime.game.stage_frame() };
-            unsafe { runtime.game.word_in(state) }.map(|pressed| unsafe {
-                noted(runtime.game, frame, held_back(runtime.game, pressed))
+            unsafe { runtime.game.word_in(state) }.and_then(|keys| unsafe {
+                // **Every input orb has, composed once and then split back.** The keys are the snapshot the
+                // game is about to read and the pad is orb's own sample of the pads; [`held_back`] decides
+                // over the two together, so that a decide pressed on either is one edge and is held out of
+                // both. What each read of the game's is answered with is its own half — the keys here and
+                // the pad in [`xinput_get_state`] — which is what makes one press reach the game once:
+                // folded into the snapshot as well, a pad's press arrived twice and moved a menu's cursor
+                // twice. See the launch of 2026-11-01 this change is about.
+                let pads = joystick::reading().map(|pad| {
+                    runtime
+                        .game
+                        .pad_word(Some(pad), DPAD_MOVES.load(Ordering::Relaxed))
+                });
+                let word = noted(
+                    runtime.game,
+                    frame,
+                    held_back(runtime.game, keys | pads.unwrap_or(0)),
+                );
+                THE_PADS_SHARE.store(
+                    pads.map_or(NO_WORD, |pads| i32::from(word & pads)),
+                    Ordering::Relaxed,
+                );
+                // **And nothing written into the snapshot where no key of the person's was held back**,
+                // because `press_into` writes every one of a word's keys — down for the bits it holds and
+                // *up* for the ones it does not — and a key the person presses that orb's word does not
+                // carry would be written up on the very read the game's own key-config screen takes it from
+                // (2026-11-02, "キーコンフィグ画面でちゃんとキーコンフィグを設定できない"). A word held back is
+                // written, which is a question of orb's over a frozen game and no key config.
+                match word & keys == keys {
+                    true => None,
+                    false => Some(word & keys),
+                }
             })
         }
     };
@@ -3569,12 +3636,19 @@ fn the_way(game: &dyn Game, word: Option<u16>) -> find::Way {
 /// **The pad orb is, for a game that reads one rather than the keys.**
 ///
 /// `DWORD XInputGetState(DWORD dwUserIndex, XINPUT_STATE *pState)`, answered for the first pad and
-/// refused for the rest: what the game finds is one pad, always there, pressing whatever the run is
-/// being played with.
+/// refused for the rest: what the game finds is one pad, pressing whatever the run is being played
+/// with — a bot's word where a launch plays itself, and the machine's own pad where somebody plays.
 ///
 /// **Answered and not called through, which is the point of it.** A real pad on this machine is
 /// somebody's and is not playing this run — and what a run needs is a read that works on every screen,
 /// where this game's keyboard works only on some. See `game::Hooks::reads_a_pad`.
+///
+/// **And a person's pad is answered here as well as a bot's.** The game looks this read up for itself,
+/// so every launch orb does not answer it in is a launch where the game reads the pads behind orb's
+/// back: orb's own sample of them reached a question of orb's only as keys typed into
+/// [`keyboard_state`]'s snapshot, which is the same device read twice and two edges out of one press.
+/// Answered here, the game's pad is orb's sample of the pads as its keyboard is orb's read of the keys,
+/// and [`keyboard_state`] decides over the two together and leaves this read the pad's own half.
 ///
 /// # Safety
 /// `state` must be what `XInputGetState` takes: the bytes of an `XINPUT_STATE`.
@@ -3587,16 +3661,76 @@ pub unsafe extern "system" fn xinput_get_state(user: u32, state: *mut u8) -> u32
     let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
         return NOT_CONNECTED;
     };
-    // **The frame's own word where orb runs the frame, and the bot's where it does not** — the same choice
-    // [`keyboard_state`] makes and for the same reason, plus one: the decide a question of orb's is to be
-    // raised on is held out of the frame's word by [`held_back`], and a pad filled from the bot's own put it
-    // straight back in. Measured on th06c: the title's item was pressed through on every launch and
-    // `menu: nothing to ask about the item under the cursor` was written on the frame after, the front end
-    // already a screen on.
-    let word = the_word_the_game_reads();
-    unsafe { runtime.game.press_into_pad(state, word.unwrap_or(0)) };
+    // **The frame's own word where orb runs the frame, and the pad's own where somebody plays** — the same
+    // choice [`keyboard_state`] makes for its snapshot, and the other half of what it composed there: the
+    // decide a question of orb's is raised on is held out of both, and a pad filled from the bot's own word
+    // with nothing held put it straight back in.
+    let word = match the_word_the_game_reads() {
+        Some(word) => word,
+        // **A launch playing itself and already inside a run of its own has no pad of the machine's**: the
+        // read is answered before the bot's first word is chosen, and a pad somebody is holding is not
+        // playing that run — see `Hooks::reads_a_pad` and the launch of th06nc's this cost.
+        None if playing_it() => 0,
+        // **And a pad nothing has looked at yet is answered as a pad at rest, not as one that is not
+        // there.** A game decides once, in its startup, whether it has a pad at all, and reads the pad
+        // through that answer for the rest of the launch: th06c binds its record to an XInput slot where one
+        // answered and to winmm where none did, so an answer of `NOT_CONNECTED` for the instant before orb's
+        // sampling thread had read anything left a launch of its reading the pad through winmm — measured,
+        // the record's slot field `0xffffffff` with the pad in XInput's slot 0 — and a pad read by the game
+        // itself is a pad the hold cannot reach. Nothing is answered as not there until every socket has
+        // been looked at and none had a pad in it.
+        None => {
+            let share = u16::try_from(THE_PADS_SHARE.load(Ordering::Relaxed)).ok();
+            let there = joystick::reading().is_some();
+            if share.is_none() && joystick::has_looked() && !there {
+                return NOT_CONNECTED;
+            }
+            share.unwrap_or(0)
+        }
+    };
+    unsafe { runtime.game.press_into_pad(state, word) };
+    // **And every button the pad holds, as the pad reports them**, for a screen of the game's own that
+    // configures a pad: orb answers this read with the *word* the game's bindings make of the pad, so a
+    // button no binding names — the one a person is trying to give the focus to — reached no screen at all
+    // (2026-11-02, "キーコンフィグ画面でちゃんとキーコンフィグを設定できない"). Laid over the answer rather
+    // than into the word, so nothing of the game's own mapping changes: th06c's config screen reads the
+    // `wButtons` bits through `FUN_140089f40`'s 26-byte array.
+    //
+    // **And nothing laid over while a question of orb's holds the decide**: the raw bits are the pad's own
+    // numbering and never pass through the game's bindings, so the hold that takes the decide out of the
+    // word — [`held_back`], which is the keyboard's half of the same word — cannot reach them one bit at a
+    // time. The screen a config is set on is one orb has no question up over, which is the screen this is
+    // for; a question up answers the pad's own half of the word and nothing else.
+    if !playing_it()
+        && !HOLD_DECIDE.load(Ordering::Relaxed)
+        && let Some(reading) = joystick::reading()
+    {
+        let mut raw = 0u16;
+        for number in 0..32u16 {
+            if reading.buttons & 1 << number != 0
+                && let Some(bit) = joystick::the_xinput_bit_of(number)
+            {
+                raw |= 1 << bit;
+            }
+        }
+        if raw != 0 {
+            let at = unsafe { state.add(4) }.cast::<u16>();
+            let answered = unsafe { at.read_unaligned() };
+            unsafe { at.write_unaligned(answered | raw) };
+        }
+    }
     0
 }
+
+/// **The pad's own half of the word [`keyboard_state`] decided**, which is what [`xinput_get_state`]
+/// answers a person's pad read with — the pad's buttons that the hold left, and `NO_WORD` while no pad
+/// answers anywhere.
+///
+/// Written where the word is composed and not read off the pads here, because the decide a question of
+/// orb's stands over has to be taken out of every input at once: [`held_back`] keeps one edge for the
+/// decide whichever device pressed it, and a second call to it from this read would be a second edge out
+/// of the one press.
+static THE_PADS_SHARE: AtomicI32 = AtomicI32::new(NO_WORD);
 
 /// **The word a read of the game's own — its keyboard, its pad — is filled from**: what [`the_frames_word`]
 /// decided where orb runs the frame, and the bot's own where it does not. `None` for a launch nobody is
@@ -4080,7 +4214,27 @@ unsafe fn the_bomb_button(game: &dyn Game, frame: Option<u32>, buttons: u16) -> 
     let Some(bit) = game.button_bit("bomb") else {
         return buttons;
     };
-    match unsafe { THE_BOMB_BUTTON.get() }.read(frame, buttons & bit != 0) {
+    let seen = unsafe { THE_BOMB_BUTTON.get() }.read(frame, buttons & bit != 0);
+    // **And a bomb the press has just set off, which is judged when its window ends** — see
+    // [`bomb::Run::the_bomb_is_over`]. Recorded here rather than at the death, because a bomb with no hit
+    // under it is never judged: nothing dies for it, and the quarter it costs is the only thing that
+    // remembers it.
+    if unsafe { THE_BOMB_BUTTON.get() }.a_bomb()
+        && let Some(runtime) = unsafe { RUNTIME.get() }.as_mut()
+    {
+        runtime.bombs.a_bomb(frame);
+        // **A game whose bombs are its power gives the whole charge back here**, and the quarter is taken when
+        // the bomb's window ends — see [`Game::a_bomb_costs_power`]. A game whose bombs are counted is given
+        // the game's own bomb back by [`bomb::Run::settled`], which writes the run's count over it.
+        if let Some(cost) = unsafe { runtime.game.a_bomb_costs_power() } {
+            // **The refund is what the game will take and no more**, which is what the run can pay: a bomb at
+            // nought power is one the game charges nothing for, and giving the whole cost back would be power
+            // the run never had — see [`Game::the_power`].
+            let paid = unsafe { runtime.game.the_power() }.map_or(0, |power| cost.min(power));
+            unsafe { runtime.game.move_the_power(paid) };
+        }
+    }
+    match seen {
         true => buttons,
         false => buttons & !bit,
     }
@@ -4693,6 +4847,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // beginning on the frame its build was asked for, `stage=1 frames=20646`, and a check reading the
     // second stage's clock there found it where the first stage's had stopped.
     unsafe { the_world_for_the_trace(runtime.game) };
+    // **And the word the game itself made of the last read**, which is what a check holds a recipe's press to —
+    // see [`trace::the_games_word`].
+    if let Some(word) = unsafe { runtime.game.the_word_the_run_acts_on() } {
+        trace::the_games_word(word);
+    }
     trace::frame(
         runtime.frames,
         runtime.previous,
@@ -5599,9 +5758,58 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 runtime.bombs.hit(state.stage_frames);
             }
             if !state.unsettled && !runtime.deciding_a_death {
-                runtime
-                    .bombs
-                    .settled((state.stage, runtime.chapters.started_at()), state.lives);
+                runtime.bombs.settled(
+                    (state.stage, runtime.chapters.started_at()),
+                    state.lives,
+                    state.bombs,
+                );
+            }
+            // **The window of a bomb that went off ending**: a hit landed under it is the bomb answering it
+            // and costing nothing, and a bomb with none costs a quarter — four of them a whole bomb, which the
+            // run gives — see [`bomb::A_BOMB_IN_PARTS`]. A tone for the one that answered nothing, the way
+            // there is one for a press in time: the panel shows whole bombs alone, so a quarter is a thing
+            // only a sound says.
+            if !state.bombing
+                && let Some(over) = runtime.bombs.the_bomb_is_over()
+            {
+                if !over.answered {
+                    orb_api::sound::a_tone();
+                    // **And the quarter taken out of a game whose bombs are its power**, which has no stock for
+                    // a counter of quarters to come to — see [`Game::a_bomb_costs_power`]. The cost said in the
+                    // line is what a check reading this trace holds the power it moves to a quarter of.
+                    let cost = unsafe { runtime.game.a_bomb_costs_power() };
+                    if let Some(cost) = cost {
+                        unsafe { runtime.game.move_the_power(-(cost / 4)) };
+                    }
+                    log!(
+                        "bomb: a bomb answered nothing; {}/{} of a bomb owed, bombs {}, cost {}",
+                        runtime.bombs.bomb_parts,
+                        bomb::A_BOMB_IN_PARTS,
+                        runtime
+                            .bombs
+                            .bombs
+                            .map_or_else(|| "for the game to say".to_string(), |it| it.to_string()),
+                        cost.map_or_else(|| "none".to_string(), |cost| cost.to_string()),
+                    );
+                } else {
+                    log!("bomb: the bomb answered a hit; it costs nothing");
+                }
+                if over.a_whole_bomb {
+                    log!(
+                        "bomb: the quarters came to a bomb; {} left",
+                        runtime
+                            .bombs
+                            .bombs
+                            .map_or_else(|| "for the game to say".to_string(), |it| it.to_string())
+                    );
+                }
+            }
+            // **And the bombs the run has written back over the game's**, which took a whole one for the bomb
+            // that went off: the mode charges the quarters above, not the game's own count.
+            if let Some(bombs) = runtime.bombs.bombs
+                && bombs != state.bombs
+            {
+                unsafe { runtime.game.set_bombs(bombs) };
             }
         }
     }
@@ -5678,6 +5886,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         log!("died in chapter {}", runtime.chapters.number());
         let chapters = offered(runtime);
         runtime.retry = Some(RetryMenu::new(runtime.language, chapters));
+        // **And the frame this question is drawn over is taken as it is drawn** — see
+        // [`Runtime::last_frame`], which says why it is not taken every frame.
+        runtime.capture_the_frame = true;
     }
 
     // **And the same menu where the game was asked to give the run up and begin it again**, which is its pause
@@ -5702,6 +5913,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         );
         let chapters = offered(runtime);
         runtime.retry = Some(RetryMenu::new(runtime.language, chapters));
+        runtime.capture_the_frame = true;
     }
 
     // The question after the character select, where a run has been chosen and a chapter of that
@@ -8190,6 +8402,24 @@ pub unsafe fn the_overlay_over_a_swapchain() {
         .as_ref()
         .and_then(|runtime| runtime.overlay.as_ref())
     {
+        // **The clock's own picture asked for here**, where a game that draws with a device asks it in its
+        // own frame — a canvas game has no device for that frame to ask it on, so `--shot-every` reached none
+        // of them before this.
+        if let Some(runtime) = unsafe { RUNTIME.get() }.as_ref() {
+            the_clocks_own_picture(runtime);
+        }
+        // **A picture asked for on this frame, taken with orb's own drawing on it** — see
+        // `crate::shot::taken_over_a_swapchain`, which is where a `screenshot` step reaches a game this one
+        // draws through a swapchain.
+        unsafe {
+            crate::shot::taken_over_a_swapchain(
+                overlay,
+                RUNTIME
+                    .get()
+                    .as_ref()
+                    .map_or(orb_api::Hwnd::NULL, |runtime| runtime.game.window()),
+            )
+        };
         unsafe { overlay.lets_go_of_this_frames_buffer() };
     }
     unsafe { profile::record(profile::Phase::Draw, started) };
@@ -8222,7 +8452,14 @@ unsafe fn draw_overlay() {
                 Overlay::new(device, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT)
             },
             (true, false) => unsafe {
-                Overlay::over_a_swapchain(swapchain, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT)
+                Overlay::over_a_swapchain(
+                    swapchain,
+                    runtime.game.the_pictures_own_size(),
+                    &font,
+                    face,
+                    FONT_HEIGHT,
+                    MARK_FONT_HEIGHT,
+                )
             },
             (true, true) => unsafe {
                 Overlay::on_a_direct3d_9_device(nine, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT)
@@ -8268,11 +8505,63 @@ unsafe fn draw_overlay() {
     if let Some((star, gone)) = the_star_a_part_is_gone_from(runtime) {
         let panel = unsafe { runtime.game.panel_tile() };
         let colour = runtime.game.panel_colour();
-        unsafe { crate::lives_ui::shave(overlay, star, gone, panel, colour) };
+        // **And the game's own pixels where orb has no tile of its panel**: a star's box taken from the
+        // bare slot beside the shaved star, which the game itself has drawn — see `lives_ui::shave`. The
+        // picture is what the cut is painted with, and it is dropped with this frame, the sheet it holds
+        // going back with it.
+        let background = match panel.is_some() {
+            true => None,
+            false => runtime
+                .bombs
+                .lives
+                .and_then(|lives| u32::try_from(lives).ok())
+                .and_then(|lives| runtime.game.a_starless_slot(lives))
+                .and_then(|slot| unsafe { overlay.copied_from_the_frame(slot) }),
+        };
+        // **Said into the trace, which is the only place it can be said**: a shave painted with the game's
+        // own tile, with its own pixels taken out of the frame, and with a colour measured off a photograph
+        // of its panel are all a star with a piece gone, and the one that fell back to orb's own colour is a
+        // rectangle — which is what a launch of th06c showed and no check could see from the log.
+        crate::trace::a_shaved_star(crate::trace::AShavedStar {
+            star: (star.left, star.top, star.width, star.height),
+            gone,
+            from: match (&background, &panel, colour) {
+                (Some(_), _, _) => "frame",
+                (_, Some(_), _) => "panel",
+                (_, _, Some(_)) => "colour",
+                _ => "orb",
+            }
+            .to_owned(),
+        });
+        unsafe { crate::lives_ui::shave(overlay, star, gone, panel, colour, background.as_ref()) };
     }
 
+    // **And the frame the run had, taken as the question goes up** — see [`Runtime::last_frame`]: the game's
+    // own retry screen paints its backdrop outside the playfield, and the run's own frame is what belongs
+    // there. Taken on the question's own first frame, and dropped when the question is answered.
+    if runtime.capture_the_frame && runtime.retry.is_some() {
+        runtime.capture_the_frame = false;
+        runtime.last_frame = unsafe { overlay.an_opaque_picture_of_the_frame() };
+    }
+    if runtime.retry.is_none() {
+        runtime.last_frame = None;
+        // **And no picture left asked for**: a question answered before it was ever drawn would leave the
+        // ask standing, and the frame taken under the next question would be one from after this one.
+        runtime.capture_the_frame = false;
+    }
     if let Some(menu) = &mut runtime.retry {
         let area = runtime.game.play_area();
+        // **The frame the run had, which this screen is drawn over**: the game's own retry screen puts
+        // its backdrop outside the playfield, and the frame the player saw is what has to lie there
+        // instead — see [`Runtime::last_frame`].
+        let backdrop = runtime.last_frame.as_ref();
+        crate::detail!(
+            "retry: the frame under this menu was {}",
+            match backdrop {
+                Some(_) => "kept",
+                None => "not kept",
+            }
+        );
         // The chapter by name, which is what the menu is offering to put the player back at —
         // and by number in a pass building the table, where every number on screen is one to
         // hold against the log.
@@ -8287,7 +8576,15 @@ unsafe fn draw_overlay() {
             Some(name) => name.to_string(),
             None => format!("CHAPTER {}", runtime.chapters.number()),
         };
-        unsafe { menu.draw(overlay, area, &chapter, runtime.chapters.retries()) };
+        unsafe {
+            menu.draw(
+                overlay,
+                area,
+                &chapter,
+                runtime.chapters.retries(),
+                backdrop,
+            )
+        };
         return;
     }
 
@@ -8380,7 +8677,19 @@ unsafe fn draw_the_line_beside(overlay: &Overlay) {
     // Smaller than a menu's text, the bar being a tenth of the picture's width: a line of a dozen and a
     // half characters fits in it at this scale.
     const SCALE: f32 = 0.5;
-    let right = 638.0;
+    // **In the black beside the picture where the game leaves any**, which is where this line belongs and
+    // where a game of another shape than its buffer leaves it: the output's own map runs on past its width
+    // into the bar, so a point past 640 is a point of the bar. Over a picture that fills the buffer there is
+    // no bar, and the line goes at the picture's edge with a ground of its own.
+    let bar = overlay.the_bar_beside();
+    let widest = labels
+        .iter()
+        .map(|label| label.width() * SCALE)
+        .fold(0.0f32, f32::max);
+    let (right, ground) = match bar {
+        Some(bar) if bar >= widest + 8.0 => (640.0 + bar - 4.0, false),
+        _ => (638.0, true),
+    };
     let mut y = 476.0;
     // From the bottom up, so the newest reading is the one nearest the corner a person looks at.
     let mut placed = Vec::new();
@@ -8397,13 +8706,15 @@ unsafe fn draw_the_line_beside(overlay: &Overlay) {
     // **A ground of its own where the game leaves no black beside the picture**: th06nc's 16:9 picture
     // fills its window, and measured, the line read over the game's own art there. Over a bar this is the
     // bar's own black again.
-    frame.fill(
-        left - 3.0,
-        top - 3.0,
-        wide - left + 6.0,
-        tall - top + 6.0,
-        0xff00_0000,
-    );
+    if ground {
+        frame.fill(
+            left - 3.0,
+            top - 3.0,
+            wide - left + 6.0,
+            tall - top + 6.0,
+            0xff00_0000,
+        );
+    }
     for (label, x, y) in placed {
         frame.label_scaled(label, x, y, SCALE, 0xffff_ffff);
     }

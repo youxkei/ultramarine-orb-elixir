@@ -96,10 +96,24 @@ pub struct Drawn {
     /// Rectangles the device was asked to clear, with the colour, for the wash a chapter boundary puts
     /// over the play field.
     pub clears: Vec<u32>,
+    /// **Pieces of one texture copied into another**, which is how a game's own frame is read back into
+    /// something a shader can draw from — see `orb_core::canvas::Canvas::copied_from_the_frame`.
+    pub copies: Vec<Copied>,
     pub scenes: u32,
     /// Viewports set, so that a frame drawn to the whole output rather than the play field is visible as
     /// such.
     pub viewports: Vec<Viewport>,
+}
+
+/// One `CopySubresourceRegion`, as it was asked for: the box taken and where it went.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Copied {
+    pub from: usize,
+    pub to: usize,
+    pub left: u32,
+    pub top: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Drawn {
@@ -238,6 +252,15 @@ pub struct Recording {
 /// legible in a failure and cannot be confused with [`DEVICE`].
 const FIRST_TEXTURE: usize = 0x7e00_0000;
 
+/// **How big the frame a game's own swapchain hands back is made here** — the size a laid-out game declares for
+/// its buffers, and large enough for one that declares none: a piece of it is copied out at whatever box the
+/// canvas works its output out to, and a box outside the held rows is a copy that moves nothing.
+const BACK_BUFFER: (u32, u32) = (1280, 720);
+
+/// **What every pixel of that frame holds**: a colour no quad of orb's draws with, so that a piece of the frame
+/// in a picture, or in a texture a quad was drawn from, is that and nothing else.
+pub const WHAT_THE_FRAME_HOLDS: u32 = 0xff12_3456;
+
 impl Default for Recording {
     fn default() -> Self {
         Self::new()
@@ -261,6 +284,7 @@ impl Recording {
         Drawn {
             quads: drawn.quads.clone(),
             clears: drawn.clears.clone(),
+            copies: drawn.copies.clone(),
             scenes: drawn.scenes,
             viewports: drawn.viewports.clone(),
         }
@@ -472,11 +496,102 @@ impl Recording {
         texture.0
     }
 
+    /// **The colour the frame a laid-out game hands back holds**, every pixel of it — see
+    /// [`Recording::the_back_buffer`]. What an e2e test asks a piece of the frame was drawn from by: a quad
+    /// drawn with this in its texture is one painted with the game's own frame and not with a fill of orb's.
+    pub fn what_the_frame_holds(&self) -> u32 {
+        WHAT_THE_FRAME_HOLDS
+    }
+
+    /// **The frame the game has drawn**, which here is a colour of this file's own: nothing rasterises the
+    /// game into it, and what a piece of it is copied out for is that the pixels a shave paints can be told
+    /// from a fill of orb's. One handle for every frame, a swapchain handing back the same buffer until it is
+    /// remade.
+    pub(crate) fn the_back_buffer(&self) -> usize {
+        /// Well clear of the textures handed out from [`FIRST_TEXTURE`], and of [`DEVICE`].
+        const ITS_OWN: usize = 0x7d00_0000;
+        let mut textures = self.textures.lock().unwrap();
+        textures.entry(ITS_OWN).or_insert_with(|| {
+            Box::new(Held {
+                width: BACK_BUFFER.0,
+                pixels: vec![WHAT_THE_FRAME_HOLDS; (BACK_BUFFER.0 * BACK_BUFFER.1) as usize],
+            })
+        });
+        ITS_OWN
+    }
+
+    /// **And that frame's size and pixels**, for the one reader that wants the whole of it rather than a box —
+    /// the picture a laid-out window is photographed as, see `Sim::capture_window`.
+    pub(crate) fn the_back_buffers_picture(&self) -> (u32, u32, Vec<u32>) {
+        let texture = self.the_back_buffer();
+        let pixels = self.pixels_of(texture).unwrap_or_default();
+        (BACK_BUFFER.0, BACK_BUFFER.1, pixels)
+    }
+
+    /// **A box of one texture's pixels copied into another**, which is what reading a frame back is: the
+    /// rows move across as they are, and a quad drawn from the texture copied into then says what the game
+    /// had drawn where the box was.
+    pub(crate) fn copy_d3d11_region(
+        &self,
+        from: usize,
+        region: orb_api::d3d11::SubresourceBox,
+        to: usize,
+        at: (usize, usize),
+    ) -> bool {
+        // **The ask kept whether or not it can be carried out**, that being what a test questions it by: the
+        // box a launch reads its own frame back at is the thing, and a fake with no rows there is a copy that
+        // moves nothing.
+        self.drawn.lock().unwrap().copies.push(Copied {
+            from,
+            to,
+            left: region.left,
+            top: region.top,
+            width: region.right.saturating_sub(region.left),
+            height: region.bottom.saturating_sub(region.top),
+        });
+        let textures = self.textures.lock().unwrap();
+        let Some(source) = textures.get(&from) else {
+            return false;
+        };
+        let (source_width, source_height) = (
+            source.width.max(1) as usize,
+            source.pixels.len() / source.width.max(1) as usize,
+        );
+        let (left, top) = (region.left as usize, region.top as usize);
+        let (width, height) = (
+            (region.right as usize).saturating_sub(left),
+            (region.bottom as usize).saturating_sub(top),
+        );
+        if left + width > source_width || top + height > source_height {
+            return false;
+        }
+        let mut taken = Vec::with_capacity(width * height);
+        for row in 0..height {
+            let start = (top + row) * source_width + left;
+            taken.extend_from_slice(&source.pixels[start..start + width]);
+        }
+        drop(textures);
+        let mut textures = self.textures.lock().unwrap();
+        let Some(destination) = textures.get_mut(&to) else {
+            return false;
+        };
+        let destination_width = destination.width.max(1) as usize;
+        for row in 0..height {
+            let start = (at.1 + row) * destination_width + at.0;
+            let take = width.min(destination.pixels.len().saturating_sub(start));
+            if take == 0 {
+                break;
+            }
+            destination.pixels[start..start + take]
+                .copy_from_slice(&taken[row * width..row * width + take]);
+        }
+        true
+    }
+
     /// What went into the vertex buffer, kept until the draw that reads it.
     pub(crate) fn canvas_wrote(&self, bytes: &[u8]) {
         self.canvas.lock().unwrap().vertices = bytes.to_vec();
     }
-
     /// The output a vertex's clip space is against — and kept in [`Drawn::viewports`] as well, that being
     /// what a viewport set through the other backend is kept as.
     ///
