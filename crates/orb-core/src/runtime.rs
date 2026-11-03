@@ -3636,8 +3636,15 @@ fn the_way(game: &dyn Game, word: Option<u16>) -> find::Way {
 /// **The pad orb is, for a game that reads one rather than the keys.**
 ///
 /// `DWORD XInputGetState(DWORD dwUserIndex, XINPUT_STATE *pState)`, answered for the first pad and
-/// refused for the rest: what the game finds is one pad, pressing whatever the run is being played
-/// with — a bot's word where a launch plays itself, and the machine's own pad where somebody plays.
+/// refused for the rest: what the game finds is one pad, always there, pressing whatever the run is
+/// being played with — a bot's word where a launch plays itself, and the machine's own pad where somebody
+/// plays.
+///
+/// **A pad is always there, which is what a pad plugged in mid-run needs.** th06c settles, in its startup
+/// and again at a device arrival, which read its pad's record comes through: a record bound to winmm's
+/// joystick 0 — the phantom Windows leaves with every field zero — reads nothing of the pad that arrives
+/// later. Answered as a pad at rest, the record binds to this read, and the sample that arrives later
+/// fills it.
 ///
 /// **Answered and not called through, which is the point of it.** A real pad on this machine is
 /// somebody's and is not playing this run — and what a run needs is a read that works on every screen,
@@ -3671,22 +3678,11 @@ pub unsafe extern "system" fn xinput_get_state(user: u32, state: *mut u8) -> u32
         // read is answered before the bot's first word is chosen, and a pad somebody is holding is not
         // playing that run — see `Hooks::reads_a_pad` and the launch of th06nc's this cost.
         None if playing_it() => 0,
-        // **And a pad nothing has looked at yet is answered as a pad at rest, not as one that is not
-        // there.** A game decides once, in its startup, whether it has a pad at all, and reads the pad
-        // through that answer for the rest of the launch: th06c binds its record to an XInput slot where one
-        // answered and to winmm where none did, so an answer of `NOT_CONNECTED` for the instant before orb's
-        // sampling thread had read anything left a launch of its reading the pad through winmm — measured,
-        // the record's slot field `0xffffffff` with the pad in XInput's slot 0 — and a pad read by the game
-        // itself is a pad the hold cannot reach. Nothing is answered as not there until every socket has
-        // been looked at and none had a pad in it.
-        None => {
-            let share = u16::try_from(THE_PADS_SHARE.load(Ordering::Relaxed)).ok();
-            let there = joystick::reading().is_some();
-            if share.is_none() && joystick::has_looked() && !there {
-                return NOT_CONNECTED;
-            }
-            share.unwrap_or(0)
-        }
+        // **And a machine with no pad on it at all is answered as a pad at rest as well** — never as one
+        // that is not there, which is the binding the doc above is about. `THE_PADS_SHARE` is `NO_WORD`
+        // until a frame composes one, and what is answered until then is a pad at rest too: the read before
+        // the first frame is the game's own startup check, which is the one answer that decides the bound.
+        None => u16::try_from(THE_PADS_SHARE.load(Ordering::Relaxed)).unwrap_or(0),
     };
     unsafe { runtime.game.press_into_pad(state, word) };
     // **And every button the pad holds, as the pad reports them**, for a screen of the game's own that

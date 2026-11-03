@@ -253,16 +253,19 @@ static PAD: Mutex<Option<Reading>> = Mutex::new(None);
 /// **Whether the sampling thread has been round every socket at least once**, which is what tells a pad that
 /// is not there from one nothing has looked at yet.
 ///
-/// The two are not the same answer to give a game: th06c decides *once*, in its startup, whether it has an
-/// XInput pad at all, and binds the record it reads the pad through for the rest of the launch on that
-/// answer — an XInput slot where one answered, winmm where none did. Measured: answered `NOT_CONNECTED` for
-/// the instant before this thread had read anything, a launch of th06c's with the pad in XInput's slot 0 left
-/// its record's slot field at `0xffffffff` and read the pad through winmm all launch. See
-/// `runtime::xinput_get_state`.
+/// **A game laid out by hand asks it to place its startup where a real launch's is**: th06c's input is
+/// initialized seconds after orb attaches, by which time the sweep has looked, so `orb-e2e`'s
+/// `fake::th06c` waits for this before asking the read its own startup asks. Nothing of orb's own reads
+/// it: `runtime::xinput_get_state` answers the slot as a pad at rest whatever the sweep found, since a
+/// game bound to winmm there never reads a pad that arrives later.
 static LOOKED: AtomicBool = AtomicBool::new(false);
 
 /// Whether every socket has been looked at, so that a `None` from [`reading`] is a pad that is not there
 /// rather than one nobody has looked for yet.
+///
+/// `cfg` "sim" because what asks it is a game laid out by hand and nothing of orb's; the sampling thread
+/// itself keeps the flag either way — see `LOOKED`.
+#[cfg(any(test, feature = "sim"))]
 pub fn has_looked() -> bool {
     LOOKED.load(Ordering::Relaxed)
 }

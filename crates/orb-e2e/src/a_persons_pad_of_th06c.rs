@@ -17,6 +17,11 @@
 //! `fake::th06c`'s `Pad`, which asks the same question of the same read before its first frame. An answer of
 //! `NOT_CONNECTED` there is a record bound to winmm, and a pad read by the game itself is a pad orb's hold
 //! never reaches: this test's pad is in XInput alone, so a launch bound the other way never sees its press.
+//!
+//! **And a pad that arrives after the launch is the same trial on the other side**: the launch comes up
+//! with nothing anywhere, the game settles its record on that answer, and only then does the pad appear —
+//! which is the case a record bound to winmm can never read, and the reason the answer is a pad at rest
+//! and never one that is not there.
 
 use std::sync::atomic::Ordering;
 
@@ -40,22 +45,28 @@ const WAITS: u32 = 3000;
 /// reading, and not orb's own numbering of the same buttons.
 const A_PRESSES: u32 = 0x0001 | 0x0100;
 
-/// A launch nobody is playing, with the machine's pad in the first slot holding `A` once orb has sampled it.
-fn a_person_holding_a() -> Box<Fake> {
-    let game = Fake::attach_configured(
+/// A launch nobody is playing, with nothing plugged in anywhere — what the game's startup is handed
+/// before the pad arrives.
+fn a_person_with_no_pad(name: &str) -> Box<Fake> {
+    Fake::attach_configured(
         Display::agreed(120),
-        "th06c-a-persons-pad",
+        name,
         Work::wandering(WORK_US),
         |config| config.autoplay = None,
-    );
+    )
+}
+
+/// The machine's pad put in the first slot pressing `buttons`, and waited for until orb's own thread has
+/// read it.
+fn the_pad_arrives(game: &Fake, buttons: u16) {
     game.sim().xinput().attach(SLOT);
-    game.sim().xinput().pushes(SLOT, xinput::A);
+    game.sim().xinput().pushes(SLOT, buttons);
     for _ in 0..WAITS {
         if game
             .log()
             .said(&format!("joystick: xinput {SLOT} has a pad"))
         {
-            return game;
+            return;
         }
         game.frame();
         std::thread::sleep(std::time::Duration::from_millis(1));
@@ -64,6 +75,13 @@ fn a_person_holding_a() -> Box<Fake> {
         "orb's sampling never read the pad in xinput {SLOT}:\n  {}",
         game.log().lines().join("\n  ")
     );
+}
+
+/// A launch nobody is playing, with the machine's pad in the first slot holding `A` once orb has sampled it.
+fn a_person_holding_a() -> Box<Fake> {
+    let game = a_person_with_no_pad("th06c-a-persons-pad");
+    the_pad_arrives(&game, xinput::A);
+    game
 }
 
 /// **A pad that starts answering is the one played with, though nothing pushes it** — a controller swapped
@@ -105,6 +123,29 @@ fn a_persons_pad_is_answered_with_the_pad_orb_sampled() {
             game.image().the_word_the_run_acts_on() & A_PRESSES,
             A_PRESSES,
             "the pad's press never reached the game's own pad read:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A pad plugged in after the launch plays the game**, which is the case a record bound to winmm cannot
+/// do: the game settles at its startup which read its pad comes through for the rest of the launch, and a
+/// record bound to winmm reads the phantom Windows leaves at joystick 0 even after a pad answers in
+/// XInput.
+#[test]
+fn a_pad_plugged_in_after_the_launch_plays_the_game() {
+    in_its_own_process(|| {
+        // **The launch comes up with nothing anywhere, and orb's thread has been round every socket
+        // before the game's startup** — see `fake::th06c`'s own startup check, which is where this game
+        // settles its record. So this is the launch that binds winmm unless orb answers the read some
+        // other way.
+        let game = a_person_with_no_pad("th06c-a-pad-plugged-in-later");
+        the_pad_arrives(&game, xinput::A);
+        game.frames(4);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & A_PRESSES,
+            A_PRESSES,
+            "a pad plugged in after the launch never reached the game's own pad read:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

@@ -726,7 +726,9 @@ pub struct Hooks {
     /// game's keyboard comes two ways — a DirectInput device while a run is on and a translation from
     /// virtual keys while a menu is — so a key orb writes reaches a menu and not a run. An XInput pad is
     /// read through one call on every screen, and orb answering that call is a pad nothing had to
-    /// install.
+    /// install. **Answered as a pad always there**, because th06c settles at its startup which read its
+    /// pad comes through and binds to winmm where this one answers not connected — see
+    /// `runtime::xinput_get_state`.
     ///
     /// `None` for a game whose pad orb reads for itself and hands over a word of — which is th06 and
     /// th07, where [`Hooks::joystick`] is the read that is stood in front of.

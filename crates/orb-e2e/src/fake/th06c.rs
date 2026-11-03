@@ -144,6 +144,11 @@ const REPEATS_PAST: u32 = 0x1d;
 const REPEATS_EVERY: u32 = 8;
 const REPEATS_BACK_PAST: u32 = 0x25;
 const REPEATS_BACK_TO: u32 = 0x1e;
+/// How long this game's startup gives orb's own thread to have been round every socket, in milliseconds —
+/// the wait a real launch takes between orb's attach and the game's input being initialized. A simulated
+/// host reads every socket in microseconds, so the bound is only reached by a thread that never ran, and
+/// saying so is better than asking the question before anything has looked.
+const WAITS_FOR_THE_SWEEP: u32 = 3000;
 
 /// **The title's items**, nine — `0x1400364b0(menu, 9)` and the jump at `0x14002d657` over 0 to 8, the last
 /// the one a cancel puts the cursor on (`movl $0x8` at `0x14002f9a5`) — of which `0x14002d592` steps the
@@ -300,15 +305,15 @@ pub const DIFFICULTY: i32 = 1;
 pub const CHARACTER: u8 = 0;
 pub const SHOT_TYPE: u8 = 0;
 
-/// **Which read this game takes its pad through**, settled once in its startup the way `0x14008d290` settles
-/// it: the record it reads the pad through for the rest of the launch is an XInput slot where the read orb
-/// answers this game with answered a pad, and winmm's joystick where none did.
+/// **Which read this game takes its pad through**, settled in its startup the way `FUN_14008b540` settles
+/// it: `FUN_14008cdf0` asks `XInputGetState` for each of the four user indices and gives a record to every
+/// one that answers nought, so the record the frame reads is an XInput slot where the read orb answers this
+/// game with answered a pad, and winmm's joystick 0 where none did.
 ///
-/// **A bind that is not made again**, which is what makes the first answer matter: a game bound to winmm
-/// reads its pad itself and orb's hold never reaches it. Measured on the real game — a launch whose first
-/// answer was `NOT_CONNECTED`, for the instant before orb's sampling thread had read anything, left the
-/// record's slot field at `0xffffffff` and read the pad through winmm all launch; with the answer that
-/// instant gives now, two records and the first of them on XInput's slot 0.
+/// **A bind the frame keeps**, which is what makes that answer matter: a game bound to winmm reads its pad
+/// itself and orb's hold never reaches it. A device arriving asks the question again — `WM_DEVICECHANGE`
+/// sets `0x140443f40` and the next message loop rebuilds the list through `FUN_14008a1f0` — which this
+/// laid-out game does not model, an attach here raising no message; the same read is what both ask.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pad {
     /// Nothing has asked yet, which is every frame before this game's first.
@@ -625,9 +630,23 @@ impl Fake {
                 },
             )
         };
+        // **And the launch has been up long enough for orb's own thread to have been round every socket**,
+        // which is where a real launch's startup lands: the game's input is initialized seconds after orb
+        // attaches, so this game waits for the first sweep before asking its startup's question — see
+        // [`Pad`].
+        let _ = orb_core::joystick::reading();
+        let mut looked = false;
+        for _ in 0..WAITS_FOR_THE_SWEEP {
+            if orb_core::joystick::has_looked() {
+                looked = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(looked, "orb's own thread never looked at the sockets");
         // **And its startup's own decision about the pad**, made once and before its first frame, as
-        // `0x14008d290` makes it: whether there is an XInput pad at all — asked of the read orb answers this
-        // game with — and the record it reads the pad through for the rest of the launch bound on that
+        // `FUN_14008b540` makes it: whether there is an XInput pad at all — asked of the read orb answers
+        // this game with — and the record it reads the pad through for the rest of the launch bound on that
         // answer. See [`Pad`].
         let mut pad = [0u8; 16];
         fake.pad_read.set(

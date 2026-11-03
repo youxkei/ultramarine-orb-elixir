@@ -1012,6 +1012,47 @@ fills: `GetKeyboardState` into the stack, `0x14008e29d` memsets those 256 bytes 
 `0x1402bc0b0` until its `0xffff`. **So the game's own read is a whole state and not a set of presses** —
 every key nobody holds is written up — and that read is made at its own rate rather than once a frame.
 
+### The pad, and the one answer its startup binds
+
+**The pad is read through a list of records, one per device it found, and the frame reads record nought of
+it.** `0x14042b4a4` is how many there are; they sit `0x530` apart from `0x14042b4a8`, and record *n*'s
+choice of read is the dword at `+0xd8` — `0x14042b580 + n·0x530` — which is an XInput user index where the
+record came from XInput and `0xffffffff` where it came from winmm. `0x140441fc0` is how many of them came
+from XInput: the winmm devices are appended after those, and a winmm record's index into winmm is its own
+index less that count.
+
+**The list is built in `FUN_14008b540`, the input subsystem's one initialization.** It walks
+`xinput1_4.dll`, `xinput1_3.dll` and `xinput9_1_0.dll` in turn, keeps the first that loads at
+`0x140441f88`, and puts `XInputGetState` and `XInputSetState` at `0x140441f90` and `0x140441f98`; then
+`FUN_14008a360` calls `FUN_14008cdf0`, which resets the count to nought and asks `XInputGetState` for each
+of the four user indices, writing a record for every one that answers nought — its slot at `+0xd8`, and
+the name `Controller (XBOX 360 For Windows)` into it. When that returns, `FUN_14008b540` asks
+`joyGetDevCapsW` for devices 0 to 15 in turn and appends a record for every one that answers, its slot
+`0xffffffff`, stopping at the first that does not.
+
+**And a device arriving asks the question again, once.** The window procedure at `0x140098100` takes
+`WM_DEVICECHANGE` (`0x219`) with `wParam` 7 — `DBT_DEVNODES_CHANGED` — as `0x140443f40 = 1`; the next call
+to `0x140098030`, which the game makes from many places, spends that flag through `FUN_140090980`,
+which calls `FUN_14008a1f0` and so `FUN_14008cdf0` again. So a pad plugged in mid-run is asked about
+exactly once, at the message, and the rebuild keeps only what XInput answers at that moment: the winmm
+records the startup appended are dropped, and a launch with nothing in XInput is left with no record at
+all.
+
+**The frame reads record nought.** `FUN_14000f710` is the pad's half of the word: it takes the 26 bytes
+`FUN_140089f40(1, …)` hands back and turns them into the bits and the direction above. That device number
+is never anything else — the exe's only two calls pass 1 — and `FUN_140089f40` indexes the list by
+`(device & 0xffffefff) - 1`, so device 1 is record 0. It calls `FUN_14008d290` on that record first, which
+is where the read is made: a record whose slot is nought or more is read through `XInputGetState(slot)`,
+one whose slot is `0xffffffff` through `joyGetPosEx(record index - 0x140441fc0)`, and an XInput read that
+answers anything but nought zeroes the 26 bytes at `+0xbc` that `FUN_140089f40` hands out as the pad's
+state.
+
+**Which decides which read a frame makes.** A launch started with nothing in XInput has record nought on
+winmm's device 0 — the phantom Windows leaves with every field nought — and reads that, and nothing else,
+for the rest of itself: the device arrival rebuilds the list from `XInputGetState` alone, and where that
+answers `ERROR_DEVICE_NOT_CONNECTED` the list is left empty. So what answers that read at the startup and
+at the arrival decides whether a pad that comes later can be read at all.
+
 ## The hit test itself, and what it halves
 
 `0x14004c690` is what every hazard asks about the player, and it is two boxes overlapping:
