@@ -44,7 +44,7 @@ pub const QUEUE_DRAWN: &str = "queue drawn";
 pub const CAMERA_SET: &str = "camera set";
 pub const FOG_SET: &str = "fog set";
 
-/// **The calls of one frame, in the order the game's own frame at 0x439390 makes them** — `asm.md`'s *The frame*:
+/// **The calls of one frame, in the order the game's own frame at 0x439390 makes them**:
 /// the queue drawn, the camera set, the calc walk, the sounds, the fog set inside the scene, the draw walk, the
 /// queue drawn again and the present.
 pub const THE_FRAMES_OWN_ORDER: [&str; 8] = [
@@ -153,7 +153,7 @@ const THE_LAST_ITEM: i32 = 7;
 
 /// **The frames a stage's build runs on its thread**, from the frame the game object is made to the one its
 /// flag is taken off: a launch read the stage's frames at nought through all of them, 55 before a run's first
-/// stage (`asm.md`'s *The stage's script*).
+/// stage.
 const A_BUILD_RUNS_FOR: u32 = 55;
 /// **The replay's record the build hands the seam**, `push 0x477710` beside the game object's `+0x5c` (0x417a86).
 const THE_REPLAYS_RECORD: u32 = 0x0047_7710;
@@ -2392,7 +2392,7 @@ extern "stdcall" fn draw(_chain: *mut c_void) -> i32 {
     fake.walks_its_draw_list()
 }
 
-/// **The game's own frame, 0x439390**, `stdcall` on the window — `asm.md`'s *The frame*, in its order and less the
+/// **The game's own frame, 0x439390**, `stdcall` on the window, in its order and less the
 /// limiter and the frame skip, a frame here being one update and one draw: the queue drawn, the camera set with its
 /// viewport, the calc walk and its two ways out (0x439450, 0x43946a), the sounds, `BeginScene`, the queue put back,
 /// the fog forced and set, the draw walk, the queue drawn, `SetTexture(0, null)`, `EndScene` and the present.

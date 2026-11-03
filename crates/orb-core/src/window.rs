@@ -795,7 +795,7 @@ pub unsafe extern "system" fn direct3d_create9(sdk: u32) -> *mut c_void {
 /// some 110 milliseconds after it was made — tick 3501540094 to 3501540109 on the log's clock, between the window
 /// made at 3501539993 and the pad read at 3501540233, WinMain's device (0x439890) being the one call of the game's
 /// between those. Whether it is the device or Windows bringing a new process's first window forward is not
-/// established — see th10's `asm.md`, where the window still comes to the front with this flag on.
+/// established — the window still comes to the front with this flag on.
 ///
 /// **And made presenting without waiting for the display**, where the launch is paced faster than it — see
 /// [`presents_without_waiting`]. **Written into the game's own parameters** rather than a copy of them, because

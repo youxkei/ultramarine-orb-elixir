@@ -571,7 +571,7 @@ fn nothing_is_a_run_of_th06nc_before_one_is_started() {
 /// state to tell apart: both callers of the replay's own start `0x14004ede0` are the front end's replay
 /// list, and a launch of `the-front-end-after-a-run.yaml` left a run, watched the front end walk `16, 17,
 /// 18` and sat on 18 for 21,600 frames with nothing pressed and no playback of any kind — see
-/// `Th06nc::in_a_run`, where both readings are, and `th06nc/asm.md`'s table of the screens.
+/// `Th06nc::in_a_run`, where both readings are.
 ///
 /// **And the wider reading is what a judging pass needs**: `Chapters::tracking` is
 /// `in_game || (during_replay && playing && !demo)` and `runtime::step` asks for `state.in_run` as well,

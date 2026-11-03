@@ -23,9 +23,8 @@
 //! **And the judging half is what this game has not got.** The stepping keys want
 //! `during_replay && state.replay && state.in_run` together, which that same reading makes impossible
 //! here, so `stepping_inside_a_stage_of_th06nc` and the second test of
-//! `a_chapter_table_collected_for_th06c` have no counterpart until the flag is read —
-//! `th06nc/asm.md`'s *What is not established* is where it would go. Which is what a sitting at this table
-//! has to work without: a boundary this pass proposes is kept or dropped by editing `tuning.txt` rather
+//! `a_chapter_table_collected_for_th06c` have no counterpart until the flag is read. Which is what a sitting
+//! at this table has to work without: a boundary this pass proposes is kept or dropped by editing `tuning.txt` rather
 //! than by stepping onto it.
 //!
 //! The waves are driven from the test rather than laid out as a script, which is what the laid-out game has:

@@ -74,7 +74,7 @@ impl Push {
 /// **th08 reads its own the same way**, which a reading of that exe settled rather than assumed:
 /// 0x4477b1 loads `th08.cfg` whole into `0x17ce870`, and the fold at 0x43d170 hands the word at
 /// `+0x0` to the shot's bit, `+0x2` to the bomb's, `+0x4` to the focus's and `+0x6` to the menu's —
-/// see that game's own `asm.md`. The copy of the install this was read on holds `02 00 05 00 04 00
+/// The copy of the install this was read on holds `02 00 05 00 04 00
 /// 00 00`, so the decide below is button 2 and the cancels are 5 and 0.
 ///
 /// **Shoot decides; bomb and menu cancel**, which is what the game's own menus do — its

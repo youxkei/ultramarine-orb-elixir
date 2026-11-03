@@ -1,6 +1,6 @@
 //! **What a stage of th08 leaves its player as, and what a hit does to it: the states nothing can kill it in.**
 //!
-//! Read off the exe — `asm.md`'s *The player* has every address:
+//! Read off the exe:
 //!
 //! - **A stage's build registers the player on its own thread** (0x44c230 on both of the build's paths, the
 //!   added callback at once at 0x43c8a8), which leaves the state byte at `[player+0x0]` at **1** and the count

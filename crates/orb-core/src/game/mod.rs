@@ -247,8 +247,7 @@ pub const KNOWN: &[Known] = &[
         game: &th07::Th07,
     },
     // The third: [`th08::Th08`] answers `rewinds` with `true` as well, so a launch here gets what one of
-    // th07 does. Pinned by the md5 alone for the reason th07's build is, and what of it is still not read
-    // is at the end of `th08/asm.md`.
+    // th07 does. Pinned by the md5 alone for the reason th07's build is, and part of it is still not read.
     Known {
         exe: "th08.exe",
         cfg: "th08.cfg",
@@ -260,8 +259,7 @@ pub const KNOWN: &[Known] = &[
         game: &th08::Th08,
     },
     // The fourth: [`th10::Th10`] answers `rewinds` with `true` as well, so a launch here gets what one of
-    // th07 and th08 does. Pinned by the md5 alone, and what of it is not read is at the end of
-    // `th10/asm.md`.
+    // th07 and th08 does. Pinned by the md5 alone, and part of it is not read.
     Known {
         exe: "th10.exe",
         cfg: "th10.cfg",
@@ -272,8 +270,8 @@ pub const KNOWN: &[Known] = &[
         }],
         game: &th10::Th10,
     },
-    // The fifth: [`th11::Th11`], played in the game's own mode until it rewinds. Pinned by the md5 alone, and what
-    // of it is not read is at the end of `th11/asm.md`.
+    // The fifth: [`th11::Th11`], played in the game's own mode until it rewinds. Pinned by the md5 alone, and part
+    // of it is not read.
     Known {
         exe: "th11.exe",
         cfg: "th11.cfg",
@@ -426,8 +424,6 @@ pub enum Read {
 /// measured, th06c's keyboard slot held `0x0` when orb read it. Answering the ask needs no address at
 /// all, which is what makes it hold across a build and across where the loader put the exe.
 ///
-/// See `th06c/asm.md`, where the three hundred and forty-two names this kind of game asks for are
-/// listed.
 pub struct Lookup {
     /// **The name, which is the whole of what identifies it.** Not the module beside it: the handle the
     /// game passes is one it got wherever it liked, and a name like `GetKeyboardState` belongs to one
@@ -544,7 +540,7 @@ pub struct Hooks {
     /// this hook in place a launch counted 683, 692, 736, 761 and 773 reads against every 600 walks of
     /// the calc chain, so between a seventh and a quarter of the words were decided off a world that had
     /// not moved since the word before. See `orb_bot::steer::a_tick_read_again`, which is what answers
-    /// those where this is `None`, and `th06c/asm.md` for the frame itself.
+    /// those where this is `None`.
     pub runs_its_frame: Option<Patch>,
     /// Writes a replay file. `None` if the game has nothing to suppress.
     pub save_replay: Option<Patch>,
@@ -1535,7 +1531,7 @@ pub trait Game {
     /// **`None` is not a game with no music**, it is a game that does not keep the name: th06 builds the
     /// `.wav` and `.pos` paths of a track in stack buffers at `Supervisor::PlayAudio`, hands them to
     /// `SoundPlayer::LoadBGM`, and keeps the mmio handle, the length and the loop points of what it opened —
-    /// so there is nothing in its memory to read the name off. See `th06/asm.md`. What a line about its
+    /// so there is nothing in its memory to read the name off. What a line about its
     /// music has instead is [`music_identity`](Game::music_identity), which tells one track from another
     /// without naming either.
     fn the_track_heard(&self) -> Option<String> {
@@ -2005,7 +2001,7 @@ pub trait Game {
     ///
     /// **An emptied record is not a zeroed one, which is why this cannot be a scan for zero bytes.** th07's
     /// own emptying zeroes every record and then writes each one's `CATK` header and card number back into it
-    /// — `th07/asm.md`, under the score file's own phases — so an array a run's build has just emptied
+    /// — so an array a run's build has just emptied
     /// answers full to anything counting bytes. Only the game whose records they are can tell a header from a
     /// count, so the question is here.
     ///

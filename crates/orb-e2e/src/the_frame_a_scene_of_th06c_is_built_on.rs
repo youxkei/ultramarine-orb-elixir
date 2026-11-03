@@ -1,7 +1,7 @@
 //! **The frame a scene of th06c is built on is a frame that scene is updated on — and the input words are
 //! left holding whatever was down, which th06 1.02h zeroes.**
 //!
-//! Two readings off the exe, both in `th06c/asm.md`:
+//! Two readings off the exe:
 //!
 //! - **The calc walk reads an element's `+0x28` after its callback has returned**, `0x140025709` against the
 //!   call at `0x1400256e8`, and the chain is a list in priority order. So a job registered by the job being

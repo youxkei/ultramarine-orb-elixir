@@ -3,8 +3,7 @@
 //! `th10.exe`, 487,936 bytes, `md5 7dc488d82c81dd4aee4ba098b8804d83`, `ver 1.00a`. Every address below was
 //! read off that exe with `i686-w64-mingw32-objdump -d -M intel` and nothing else: no table anybody
 //! published and nothing carried across from th08's addresses, which are where the same things happen to
-//! live in a different program. `asm.md` beside this file is that reading; the constants here are what orb
-//! does with it.
+//! live in a different program. The constants here are what orb does with that reading.
 //!
 //! **What this game answers so far** is its frame's two walks, its scenes, its keys, the screens and cursor
 //! of its front end, the run chosen and the run's own numbers, the generator and the stage's clocks, the
@@ -16,7 +15,6 @@
 //! **And it rewinds**: [`Th10::rewinds`] answers `true`, so a launch in Pointdevice mode takes a snapshot at
 //! each chapter, answers a hit with the retry menu, forks the score file to `pointdevice_scoreth10.dat` and
 //! writes a run left unfinished to be picked up where it was left — see `resume.rs`.
-#![doc = include_str!("asm.md")]
 
 /// The midstage table, in a file of its own because a `--tune` pass writes one to paste over it.
 pub mod chapters;
@@ -158,14 +156,14 @@ use crate::log;
 /// th10 — 東方風神録, Mountain of Faith — as the [`Game`] whose addresses are in this module.
 pub struct Th10;
 
-/// The `IDirect3DDevice9` this game's one `CreateDevice` made — see *The window, the device and the
-/// frame* in `asm.md`, where the twelve slots it is called through are.
+/// The `IDirect3DDevice9` this game's one `CreateDevice` made, with the twelve slots it is called
+/// through.
 const G_D3D_DEVICE: usize = 0x0049_1c30;
 
 /// The window object the frame is called on, whose `+0x0` is the HWND.
 const G_GAME_WINDOW: usize = 0x0049_24f0;
 
-/// The frame, `stdcall` on [`G_GAME_WINDOW`] — see `asm.md`, which has it in order.
+/// The frame, `stdcall` on [`G_GAME_WINDOW`].
 ///
 /// **orb's own frame leaves out the `0x44c150` this one makes on its way out**, and needs nothing in its place:
 /// WinMain's teardown makes the same call on the same thread's object before the process goes, so the thread
@@ -176,7 +174,7 @@ const RENDER: usize = 0x0043_9390;
 const RENDER_PROLOGUE: &[u8] = &[0x55, 0x8b, 0x6c, 0x24, 0x08];
 
 /// The chain, whose calc list the frame walks through [`RUN_CALC_CHAIN`] and whose draw list through
-/// [`RUN_DRAW_CHAIN`] — see *The chain* in `asm.md`.
+/// [`RUN_DRAW_CHAIN`].
 const G_CHAIN: usize = 0x0049_1be4;
 const RUN_CALC_CHAIN: usize = 0x0044_9c00;
 const RUN_DRAW_CHAIN: usize = 0x0044_9d40;
@@ -241,7 +239,7 @@ const THE_FIGHTS_SONG: usize = 1;
 const G_LOCKS: usize = 0x0049_2274;
 const LOCKS_BYTES: usize = 0x0049_2324 - 0x0049_2274;
 
-/// The present, which takes nothing and pops nothing — see `asm.md`.
+/// The present, which takes nothing and pops nothing.
 const PRESENT: usize = 0x0043_91f0;
 
 /// **The sprite manager**, whose queue of quads the frame draws out either side of its draw chain.
@@ -1258,7 +1256,7 @@ impl Game for Th10 {
     /// **The seams this game's own frame is reached through, and no more**: the two walks, which put orb
     /// inside every frame, and the pad's half of the read, which is what a recipe presses through.
     ///
-    /// **The frame itself is the game's still** — see `asm.md`, which has it in order. What is declined is
+    /// **The frame itself is the game's still**. What is declined is
     /// each a reading not yet made rather than a decision: the window's making is reached through the
     /// import table, which orb rewrites for every game, and a function entered with the instance in `ebx`
     /// (0x439730, `mov ebx,esi; call` at 0x438be8) is not one a hook in Rust can stand in front of and call
@@ -1580,7 +1578,7 @@ impl Game for Th10 {
         Some(same_song(&fights, &track))
     }
 
-    /// The music's own thread — see *The sound* in `asm.md`, whose manager keeps the id at `+0x614`.
+    /// The music's own thread, whose manager keeps the id at `+0x614`.
     fn audio_thread(&self) -> Option<u32> {
         mem::read_committed::<u32>(G_SOUND_MANAGER + SOUND_MUSIC_THREAD).filter(|it| *it != 0)
     }
@@ -1725,7 +1723,7 @@ impl Game for Th10 {
     unsafe fn set_play_viewport(&self, _device: Device) {}
 
     /// **The chain the two walks are called on**, which this game allocates rather than keeping it as a
-    /// static — see *The chain* in `asm.md`.
+    /// static.
     fn chain(&self) -> *mut c_void {
         Self::object(G_CHAIN).unwrap_or(0) as *mut c_void
     }
@@ -1768,7 +1766,7 @@ impl Game for Th10 {
     }
 
     /// **What the game's frame does between its limiter and its calc walk**, in its order: the queue drawn
-    /// out, the camera set and its viewport, and the word after it — see *The frame* in `asm.md`.
+    /// out, the camera set and its viewport, and the word after it.
     ///
     /// `device` is nought, [`Th10::d3d_device`] answering none — the device every call here is made on is
     /// the game's own, read where the game keeps it.

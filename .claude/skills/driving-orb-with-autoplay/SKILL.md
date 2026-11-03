@@ -198,7 +198,7 @@ Leave it playing in these:
   show the fight advancing at all. **What says it is going is `spell=`**, the state line's field for the
   card that is up: a launch closed on ten thousand frames of one `script=` had gone two cards further on
   inside them. So put `spell=` in the tick and read it before calling a fight stuck — th08 is the game
-  this was measured on, and `game/th08/asm.md` says which of its clocks does what.
+  this was measured on.
 
 ## Pictures
 
@@ -293,8 +293,8 @@ between 0xc0 and 0x3c48`, the first twelve written out as `0x1128+0x3 cc0d6d -> 
 span's own shortlist, since a byte the run has not touched is one a restore writes with what is there.
 
 **And what names the block is not the bisect**: `restore: 11 static(s) of .data point into heap1.1:
-+0x74bc08=…` is said once a launch per source, and a static that points into the span is a name `asm.md`
-and a disassembly can look up. That is what turned th06nc's stage 2 from a span into
++0x74bc08=…` is said once a launch per source, and a static that points into the span is a name a
+disassembly can look up. That is what turned th06nc's stage 2 from a span into
 `[0x140abae28]`, the object a conversation runs in, in one launch.
 
 ## Across launches

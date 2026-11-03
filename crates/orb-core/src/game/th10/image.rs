@@ -16,8 +16,7 @@
 //!
 //! **The addresses and the offsets are the game's own, written from the same constants the reads use**, so what
 //! this cannot catch is one of those that is wrong: a wrong one is wrong on both sides at once, and only the
-//! real game says otherwise — every one of them was read against `th10.exe` of md5 `7dc488d8`, see
-//! `th10/asm.md`.
+//! real game says otherwise — every one of them was read against `th10.exe` of md5 `7dc488d8`.
 //!
 //! **The values are this file's own, and taking one from [`Th10`](super::Th10) is what is refused here** — th07's
 //! image has why: a scene number, a screen number, a state or a mask shared between the writer and the reader is
@@ -277,7 +276,7 @@ const A_DEATHS_FAITH_FLOOR: i32 = 5_000;
 const A_DEATH_TAKES_OFF_474C98: i32 = 0x400;
 const A_DEATH_TAKES_OFF_THE_POWER: i16 = 0x40;
 /// **The player's half box**, half of `[0x476fb8 + character * 4]` (0x4249eb through 0x424a0b): `1.0` for Reimu,
-/// as `asm.md`'s table of the player has it.
+/// as the game's own table of the player has it.
 const REIMUS_HALF_BOX: f32 = 1.0;
 /// The float a place in hundredths is multiplied by, `0.01` at `0x470b00`.
 const A_HUNDREDTH: f32 = 0.01;
@@ -1101,7 +1100,7 @@ impl Image {
     /// **A cleared Extra moved past**, which 0x423570 writes before it places the score where the stage word is 7
     /// and the run was cleared: both stage words 8 and the record after the Extra's, `0x474908` (0x42358f through
     /// 0x4235a3) — put back to 7 after the placing only where the stage still reads 7 (0x4235cc), which it does
-    /// not. See `asm.md`'s *The pause and the end of a run*.
+    /// not.
     pub fn a_cleared_extra_is_moved_past(&self) {
         let space = self.space();
         if space.read::<i32>(super::G_STAGE) != THE_LAST_STAGE_WORD || !self.the_run_was_cleared() {

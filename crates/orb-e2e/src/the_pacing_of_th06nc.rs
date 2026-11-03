@@ -11,7 +11,7 @@
 //! which puts every clock more than a period past `base + period × (count + 1)` and so starts the limiter
 //! over without a wait: neither the sleep through `0x140c6e310` nor the `pause` spin at `0x14003ddb4` is
 //! reached, and the whole of what the game used to spend waiting is orb's to spend. `Th06nc::end_drawing`
-//! has why that and not the pieces of it, and `th06nc/asm.md`'s *The timing* has the reading.
+//! has why that and not the pieces of it.
 //!
 //! **What this game does more than once a frame it does for a replay and not for a run**: `0x14003d910`
 //! walks the calc chain again up to seven more times, and its gate wants `[0x14053d3dc]` set,

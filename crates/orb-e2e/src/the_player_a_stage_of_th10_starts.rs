@@ -1,7 +1,7 @@
 //! **What a stage of th10 leaves its player as, and what a hit does to it: the states orb reads as a run in the
 //! middle of something.**
 //!
-//! Read off the exe — `asm.md`'s *The player* has the fields:
+//! Read off the exe:
 //!
 //! - **A run's player is made playing with nothing to hit it for 120 frames**: the player's making registers its
 //!   jobs and puts `0x78` under the count at `+0x4310` (0x424d14), and a stage's start puts the state at `+0x458`

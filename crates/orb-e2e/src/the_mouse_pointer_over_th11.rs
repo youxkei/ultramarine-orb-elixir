@@ -7,7 +7,7 @@
 //! these read back rather than a flag — see th07's file.
 //!
 //! **th07's fourth case, the game asking for the pointer back, is not asked here**: th11's window procedure does
-//! answer `WM_SETCURSOR` (0x445e00, `th11/asm.md`'s *The window procedure*), showing the cursor where windowed or
+//! answer `WM_SETCURSOR` (0x445e00), showing the cursor where windowed or
 //! inactive, but which call it makes for that has not been read off its exe, and a laid-out game answering it
 //! would be a guess written down as the game.
 

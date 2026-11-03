@@ -3454,7 +3454,7 @@ unsafe fn the_window_is_in_front(game: &dyn Game) -> bool {
 ///
 /// **It is not that game's tick, though, and nothing here makes it one.** The read is made more often
 /// than the game moves — 66 times a second against a game that moves 60, measured over a whole stage
-/// and written down in `game/th06c/asm.md` — so a recipe's count of frames is that many reads and not
+/// and written down — so a recipe's count of frames is that many reads and not
 /// that many of the game's own, and the rules are asked for a word on readings that are the reading
 /// before over again. What answers those is `orb_bot::steer::a_tick_read_again`, off the reading itself,
 /// rather than a tick read here: nothing in this exe has been found that counts one.

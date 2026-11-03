@@ -2,8 +2,8 @@
 //! recipe and rules reach the game the way a person's pad does: through the game's own read of a pad, and through
 //! orb's menus' read of one, and not by having their word handed to the read.
 //!
-//! **Both of th10's ways of reading a pad are held here**, the startup deciding between them (`game/th10/asm.md`,
-//! *The pad's half*): `joyGetPosEx(0)` where its DirectInput enumeration found none — the virtual pad answering as
+//! **Both of th10's ways of reading a pad are held here**, the startup deciding between them:
+//! `joyGetPosEx(0)` where its DirectInput enumeration found none — the virtual pad answering as
 //! joystick 0, its caps the ones the startup check keeps — and the DirectInput pad it found otherwise, whose
 //! `GetDeviceState` orb stands in front of. **What says a press went through a pad** is what the game's own read
 //! made of its pads, with the keyboard's word left out — `Fake::the_pads_share_of_the_read`.

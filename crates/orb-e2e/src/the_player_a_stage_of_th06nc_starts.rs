@@ -2,7 +2,7 @@
 //!
 //! th06 1.02h's own answer is `the_player_a_stage_starts.rs` and th06c's is
 //! `the_player_a_stage_of_th06c_starts.rs`; this game has the same one, read off its own exe rather than
-//! carried over — `th06nc/asm.md`'s *The frames nothing can reach the player in*:
+//! carried over:
 //!
 //! - **`0x140069b2c` is the register.** Where `[0x14053d405]` is set — a scene — it leaves the state and
 //!   the count at nought, and otherwise `0x140069b3b` puts **1** in `cl` and **0x78** in `eax` and
@@ -23,7 +23,7 @@
 //!
 //! **And the third is the shot the register leaves the player firing, which is none.** The pair at
 //! `+0x408` and `+0x40c` is the phase of the shot being fired and the phase the update before had —
-//! `th06nc/asm.md`'s row for it — and a stage carries neither in: `0x140069e46` writes the idle pair
+//! and a stage carries neither in: `0x140069e46` writes the idle pair
 //! beside the eighty slots `0x140069d74`–`0x140069e3f` clears. What the test holds is the cycle the press
 //! then starts: `0x14006ae14` on the composed word's own `0x1`, `0x14006b38a` a phase an update, and
 //! `0x14006b39e` the end of it at thirty.

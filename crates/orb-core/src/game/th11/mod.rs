@@ -3,7 +3,7 @@
 //! `th11.exe`, 688,128 bytes, `md5 6af1e3b37f28293f4fc127ee01d2632c`, `ver 1.00a`. Every address below was
 //! read off that exe — Ghidra's decompilation to find a thing and `i686-w64-mingw32-objdump -d -M intel` to
 //! say it — and nothing carried across from th10's, which is the same engine with every address and most
-//! offsets its own. `asm.md` beside this file is that reading; the constants here are what orb does with it.
+//! offsets its own. The constants here are what orb does with that reading.
 //!
 //! **What this game answers so far** is its frame's two walks and its frame, its scenes, its keys, the screens
 //! and cursor of its front end, the run chosen and the run's own numbers, the generator and the stage's clocks,
@@ -15,7 +15,6 @@
 //! **And it rewinds** — see [`Th11::rewinds`]: a chapter is cut at each stage's first frame and at each attack, a
 //! death answered by putting the chapter back, and a run left unfinished written down and picked up again out of
 //! the stage's own replay record.
-#![doc = include_str!("asm.md")]
 
 /// The midstage table, in a file of its own because a `--tune` pass writes one to paste over it.
 pub mod chapters;
@@ -153,7 +152,7 @@ const G_D3D_DEVICE: usize = 0x004c_3288;
 const G_GAME_WINDOW: usize = 0x004c_3d88;
 
 /// **The frame**, `stdcall` on [`G_GAME_WINDOW`] (`ret 0x4` at 0x4464fd): the one of the three WinMain chooses
-/// between that is th10's frame in its order, limiter and all — see `asm.md`. Its trampoline is what a frame orb
+/// between that is th10's frame in its order, limiter and all. Its trampoline is what a frame orb
 /// hands back reaches, whichever of the three the pump called.
 const RENDER: usize = 0x0044_6420;
 /// `push ebx; push ebp; mov ebp,[esp+0xc]`, six bytes ending on an instruction.

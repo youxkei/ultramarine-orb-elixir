@@ -23,13 +23,12 @@
 //! the save file is not this API's business either way.
 //!
 //! **And eight methods over seven slots of those four are called**, which is what says a vtable of
-//! noughts is an answer and not a hope. Each name was read off the DLL that ships beside the exe — see
-//! `th06c/asm.md`, which has the two commands it takes:
+//! noughts is an answer and not a hope. Each name was read off the DLL that ships beside the exe:
 //!
 //! | interface | slot | method | what the game does with the answer |
 //! | --- | --- | --- | --- |
 //! | Utils | `+0x110` | `IsSteamRunningOnSteamDeck` | nought is a desktop, which is what this is |
-//! | UserStats | `+0x30` | `SetAchievement` | nought is "not set", and there is no account to set it on. Read off th06nc, whose `0x1400693c0` is the one function both of its achievements go through — `Achievement01` as a run starts and `Achievement21` as the name entry ends, see `th06nc/asm.md`'s *Steam* — and it is the reason a driven run wants this module and not only a client that is closed |
+//! | UserStats | `+0x30` | `SetAchievement` | nought is "not set", and there is no account to set it on. Read off th06nc, whose `0x1400693c0` is the one function both of its achievements go through — `Achievement01` as a run starts and `Achievement21` as the name entry ends — and it is the reason a driven run wants this module and not only a client that is closed |
 //! | UserStats | `+0x48` | `StoreStats` | nought is "not stored", and there is nothing to store to; the site is in the frame loop behind a flag the answer would clear, so it is asked again every frame and costs a call into this module. `0x1400693c0` tail-calls it after the set above |
 //! | Apps | `+0x20` | `GetCurrentGameLanguage` | a string the game compares, which is why [`LANGUAGE`] is the one slot that answers something |
 //! | Input | `+0x00` | `Init` | nought, and the game ignores it |

@@ -5,8 +5,7 @@
 # **Item 2 is the practice, which a picture settled**: a launch pressed it and held the screen after it for
 # a minute, and that screen is 9, the difficulty select, with `PRACTICE` across the bottom of it. The byte
 # a run carries it by is `0x14053d404`, which the run's own start writes from the item's `+0x168d1` — see
-# `game/th06nc/asm.md`'s *The main menu's ten items*, and `Th06nc::read_state`, which answers `practice`
-# off it.
+# `Th06nc::read_state`, which answers `practice` off it.
 #
 # **The walk is `a_run_left_in_its_second_chapter`'s with the item aimed at 2**, and the screens are this
 # game's own: 2 the title, 3 the menu, 8 on its own, 9 the difficulty, 11 the character, 13 the shot, and

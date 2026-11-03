@@ -246,7 +246,7 @@ fn a_region_of_th06nc_that_appeared_after_the_chapter_is_not_written_back_over()
 /// **And the object a conversation runs in is another of them**, which is what stage 2's own death turned
 /// out to be: two of its fields are pointers to blocks the stage's asset load frees and refills, so a
 /// chapter of one stage holds pointers into memory a later stage has handed back — see
-/// `Th06nc::live_handles`, `game::th06nc::THE_CONVERSATIONS_BYTES` and `asm.md`'s *The conversation*.
+/// `Th06nc::live_handles` and `game::th06nc::THE_CONVERSATIONS_BYTES`.
 ///
 /// **Held to the whole allocation's length**, `0x4228`, because that is the decision the fix makes: the
 /// span a bisect measured was the object's first `0x2000`, and what goes into `live_handles` is the
@@ -286,8 +286,7 @@ fn the_conversation_of_th06nc_is_not_written_back_over() {
 
 /// **And the allocator's own state is one of the ranges a restore holds back**, which is what the real
 /// game's death turned out to be: its TLSF checks the structure on every allocation, and a structure put
-/// back from a snapshot describes an arena the heap has moved on from — see `Th06nc::live_handles` and
-/// `th06nc/asm.md`'s *The allocator, which checks itself and kills the process*.
+/// back from a snapshot describes an arena the heap has moved on from — see `Th06nc::live_handles`.
 ///
 /// **The span is looked for in the restore's own skip line** rather than in anything of the laid-out
 /// game's: the block is a static of the real one's, and what orb can be held to here is that a restore

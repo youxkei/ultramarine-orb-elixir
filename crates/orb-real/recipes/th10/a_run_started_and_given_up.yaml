@@ -4,8 +4,7 @@
 #
 # **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the
 # title's `+0x1c`: the title's `decide` presses reach 2, the main menu, whose item 0 starts a run; 6 is the
-# difficulty, 7 the character and 8 the shot, whose `decide` asks for the run. `orb-core`'s `game/th10/asm.md`
-# has where each was read.
+# difficulty, 7 the character and 8 the shot, whose `decide` asks for the run.
 #
 # **The difficulty remembers the last one**, so the cursor is taken to 0 and then down to 1, Normal, rather
 # than pressed at wherever it came up; the character and the shot are taken to 0, Reimu and her A.

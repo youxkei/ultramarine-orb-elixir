@@ -3,8 +3,7 @@
 #
 # **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the
 # front end's `+0x14428`: 0 is the title menu — item 0 starts a run — 4 is the difficulty, which comes up
-# on Normal, and 5 the team select, 「人と妖怪の選択の刻」. `orb-core`'s `game/th08/asm.md` has where each
-# was read.
+# on Normal, and 5 the team select, 「人と妖怪の選択の刻」.
 #
 # **Two presses at the team select and not one**: a launch that pressed once left the game on that screen
 # with the scene still the front end's.

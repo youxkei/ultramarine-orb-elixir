@@ -1,7 +1,7 @@
 //! **A launch of th08 pressing through a pad** — `--through-a-pad` — whose recipe reaches the game through the
 //! game's own read of a pad (0x43d120) and not by having its word handed to the read.
 //!
-//! **Both of th08's ways of reading a pad are held here**, as th10's are (`game/th08/asm.md`, *The pad*):
+//! **Both of th08's ways of reading a pad are held here**, as th10's are:
 //! `joyGetPosEx(0)` where the input's set-up found no DirectInput pad — the virtual pad answering as joystick 0,
 //! its caps the ones the startup check keeps — and the DirectInput pad it found otherwise, whose `GetDeviceState`
 //! orb stands in front of. **What says a press went through a pad** is what the game's own read made of its pads,

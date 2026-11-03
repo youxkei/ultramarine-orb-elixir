@@ -1,6 +1,6 @@
 //! **The score file of th08 as bytes**: `score.dat` as 0x453d0d writes it and 0x45a5e0 reads it back — for the one
 //! thing that makes one other than the game, the records `orb-real` lays into a copy for a case that starts from a
-//! clear. orb itself never reads it; see `asm.md`'s *The score file, and the records it is read into*.
+//! clear. orb itself never reads it.
 //!
 //! **The file**: a header of `0x1c` bytes — `+0x1` and `+0x6` random bytes, `+0x2` a word sum of every byte from
 //! `+0x4`, `+0x4` the version 1, `+0x8` the offset the chunks start at, `0x1c`, `+0x10` and `+0x14` the length the

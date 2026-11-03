@@ -20,7 +20,7 @@
 //! count of updates**, and the reason is this game's: the two counts are the same number here. th07's case
 //! rests on the game slowing its own run down — 0x42e186 answering 3 to one update in five, which steps
 //! neither of its clocks — and no update of th06 that leaves `GAME_FRAMES` standing inside a run has been
-//! read. `asm.md` names none; the one that stops short of the stage, `GameManager::OnUpdate`'s early break
+//! read; the one that stops short of the stage, `GameManager::OnUpdate`'s early break
 //! while `isInGameMenu` or `isInRetryMenu` is set, is a menu of the game's own, and the button that opens
 //! it is kept out of a run's record on purpose (the fake's own `MAP` is held to that), so a playback never
 //! feeds it; and a conversation is a frame of the run like any other on this game — see

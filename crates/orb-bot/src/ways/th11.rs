@@ -65,7 +65,7 @@ pub(super) fn normal() -> Ways {
             // and bodies kept 16 further from the gap's way, none of the sixteen hit (2026-10-10).
             (127, Dodge::ThroughTheGap),
             // **Card 131, 贖罪「旧地獄の針山」**, its name on the pictures (`hits/s5-c8-f17448`, 2026-10-09) and 131 in the
-            // card table (`game/th11/asm.md`), and not `呪精「ゾンビフェアリー」`, which is 123 and the card the way
+            // card table, and not `呪精「ゾンビフェアリー」`, which is 123 and the card the way
             // tried below up as each wave comes was written after: its "zombie fairies" are this card's spirits going
             // round. What follows was read so.
             // Its spirits, thirty-six to fifty-one of them,

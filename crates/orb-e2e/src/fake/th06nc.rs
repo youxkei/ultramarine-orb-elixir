@@ -153,8 +153,8 @@ fn the_pads_word() -> u16 {
     super::the_word_of_a_bound_pad(u16::from_le_bytes([pad[4], pad[5]]), bound, swapped)
 }
 
-/// **The main menu's ten items**, of which orb has a question over the first two — see `asm.md`'s own
-/// table, read off launches: a fresh launch's taps of down went `0, 2, 3 … 9`, the Extra stepped over
+/// **The main menu's ten items**, of which orb has a question over the first two, read off launches: a
+/// fresh launch's taps of down went `0, 2, 3 … 9`, the Extra stepped over
 /// while it is locked.
 const MENU_ITEMS: i32 = 10;
 
@@ -264,7 +264,7 @@ const A_BOMB_KEEPS_THE_PLAYER_UNTOUCHABLE_FOR: i32 = 0x168;
 
 /// **The count state 1 and state 2 are held against and what state 1 hands it over to** — `0x14006a6a9`'s
 /// `cmp r8d,0x1e`, `0x14006a4b7`'s `cmp ecx,0x1e` over the death's animation, and the `0xf0` at
-/// `0x14006a6cf`. `th06nc/asm.md`'s *The frames nothing can reach the player in* is the reading: a stage's
+/// `0x14006a6cf`. A stage's
 /// start spends one update in state 1, the register's count being already past that gate, and 241 out of
 /// the hit test's reach.
 const RESPAWN_TAKES: i32 = 0x1e;
@@ -1427,7 +1427,7 @@ impl Fake {
                     // **Every other item, none of which this laid-out game lays out**: on the real game
                     // item 4 is the replay list, 5 the ranking — 夢の記録, whose state 12 asks the
                     // supervisor for 6 — 6 the music room, 7 the credits, 8 the options and 9 the game
-                    // quitting; see `th06nc/asm.md`'s *The main menu's ten items*. This game's
+                    // quitting. This game's
                     // `show_ranking` declines, so nothing of orb's walks item 5.
                     _ => {}
                 }
@@ -2074,8 +2074,7 @@ impl Fake {
     /// goes down**: the real one's `0x140075b40`, the screen's taken-out callback, serialises `score.dat`
     /// from memory where `+0x9e99` says the screen is a run's own — so on the real game orb writing the
     /// way out over this screen writes the file all the same — and `0x14007301f`, state 13's confirm, is
-    /// the replay's own write, of `replay/th6_%.2d.rpy`. See `th06nc/asm.md`'s *The score file's two
-    /// writes*.
+    /// the replay's own write, of `replay/th6_%.2d.rpy`.
     ///
     /// **One entry where the game has two**: the one a run arrives at is state 9's, `+0x9e70`, which
     /// `Th06nc::types_its_name` writes and whose name the `HSCR` hung in the ranking's list carries into

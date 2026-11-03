@@ -3,8 +3,8 @@
 #
 # **The game's own mode, because the title lights its items out of the game's own file.** `orb_core::score`
 # forks the score file while the pointdevice mode is settled, so no pointdevice run writes `score.dat`; and
-# this game lights Extra Start only out of Kaguya's clear (0x43c1e9, `asm.md`'s *What a clear writes into a
-# `CLRD` record*), whose route is open only where the records hold Eirin's stage passed. So this run clears
+# this game lights Extra Start only out of Kaguya's clear (0x43c1e9), whose route is open only where the
+# records hold Eirin's stage passed. So this run clears
 # Final A, which is where a first run goes, and the case after it clears Final B.
 #
 # **And the ending pressed through, because that is what writes the clear**: a launch that stopped short of

@@ -4,8 +4,7 @@
 #
 # **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the title's
 # `+0x1c`: the title comes up on 1, the main menu, with no screen before it waiting for a key; its item 0 starts a
-# run; 5 is the difficulty, 6 the character and 7 the partner, whose `decide` asks for the run. `orb-core`'s
-# `game/th11/asm.md` has where each was read.
+# run; 5 is the difficulty, 6 the character and 7 the partner, whose `decide` asks for the run.
 #
 # **The main menu reads no key for its first eighty frames** (0x43a22d), so the cursor is taken to 0 once it is up;
 # and the difficulty remembers the last one, so its cursor is taken to 0 and then down to 1, Normal. The character

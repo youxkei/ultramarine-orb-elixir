@@ -998,8 +998,8 @@ impl Snapshot {
     /// restore must not write and never what they are, where what orb needs in order to hold a block back
     /// for good is the *pointer the game keeps it in* — [`crate::game::Game::live_handles`] is a list of
     /// exactly those, each a static read at a chapter. So the chapter's own `.data` is scanned for words
-    /// that land inside the source's regions, and what comes back is `.data + offset`, which `asm.md` and
-    /// a disassembly can put a name to.
+    /// that land inside the source's regions, and what comes back is `.data + offset`, which a disassembly
+    /// can put a name to.
     ///
     /// **The chapter's copy and not the live memory**, since the two hold the same pointer and this one is
     /// a buffer of orb's own: a nine-megabyte walk of the game's statics is a walk this can do without.

@@ -6,7 +6,7 @@
 //! with**: its input's set-up 0x43ba90, run on a thread of its own (`_beginthreadex` at 0x420249), makes the
 //! keyboard device at `[0x491c38]` and sets bit `0x200` of its input flags' word `[0x491ff4]`, and the read takes
 //! `IDirectInputDevice8::GetDeviceState` wherever that bit is set (0x44a628) and `GetKeyboardState` (0x44a636)
-//! only where it is clear — see `asm.md`'s *The input*.
+//! only where it is clear.
 //!
 //! **Whether that device, taken `DISCL_NONEXCLUSIVE | DISCL_FOREGROUND` (0x43b8d0), sees a sent key is not
 //! measured**, which is why the flag lets it go rather than trusting it: the laid-out device answers what the

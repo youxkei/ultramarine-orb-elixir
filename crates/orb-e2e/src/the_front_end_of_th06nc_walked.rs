@@ -4,7 +4,7 @@
 //!
 //! Where the order comes from: `1, 2, 3, 8, 9, 11, 13, 14, 24, 25` is what a launch of the real game wrote
 //! as its own `front end: screen N` lines walking into a run, which is what every recipe of
-//! `cargo xtask real` is written against — see `th06nc/asm.md`'s table of the screens. A laid-out game that
+//! `cargo xtask real` is written against. A laid-out game that
 //! put a screen somewhere else in that order would part from every trace that reaches it.
 //!
 //! **The menu underneath is `the_main_menu_of_th06nc_walked`'s subject** — its ten items, the Extra stepped
@@ -42,7 +42,7 @@ const FRAMES: u32 = 1_200;
 /// The screen a launch begins on, before its front end has been built at all.
 const SCREEN_NOTHING: i32 = 0;
 
-/// **The three screens between the shot select and the stage**, which `th06nc/asm.md`'s table names: 14 the
+/// **The three screens between the shot select and the stage**: 14 the
 /// banner, 24 the one screen of the three that takes a press — `0x14004d981`, edge-checking the decide
 /// after fifteen frames — and 25 the one that reads no word at all and calls the run's own start,
 /// `0x14004dbe9`.

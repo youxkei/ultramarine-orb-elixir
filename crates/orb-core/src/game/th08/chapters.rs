@@ -1,7 +1,7 @@
 //! Midstage chapter boundaries, as script frame numbers.
 //!
-//! **The script clock stands still while a boss or a midboss is up** — see *The script clock* in `asm.md` —
-//! so each fight is one frame of it, and a stage is divided at its midboss and its boss before any row here
+//! **The script clock stands still while a boss or a midboss is up** — so each fight is one frame of it,
+//! and a stage is divided at its midboss and its boss before any row here
 //! is read. What a row divides is the stretch between two of those: the stage's start to its midboss, and
 //! the midboss beaten to the boss. Boss attacks are not listed: those boundaries are found as the fight is
 //! fought.
@@ -65,7 +65,7 @@
 //! find wrong before it could find its own. th08's stages are not th07's stages either: the waves differ,
 //! and so does what the player is doing between them.
 //!
-//! **Nine rows, which is what this game's own tables hold** — see the stage table in `asm.md`: the two
+//! **Nine rows, which is what this game's own tables hold**: the two
 //! `.std` tables at `0x4c731c` and `0x4c7340` and the `.ecl` one at `0x4c73cc` each have nine entries,
 //! indexed by `0x164d2cc` counted from zero, and the name table beside them names the same nine. The
 //! Last Words are the tenth name and none of those nine, loading `ecldata_yk.ecl` and its five siblings

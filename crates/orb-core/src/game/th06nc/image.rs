@@ -11,7 +11,7 @@
 //!
 //! The addresses are the game's own, written from the same constants the reads use, so what this cannot
 //! catch is a constant that is wrong: a wrong one is wrong on both sides at once, and only the real game
-//! says otherwise — every one of them was read against `th06nc.exe`, see `th06nc/asm.md`. What it does
+//! says otherwise — every one of them was read against `th06nc.exe`. What it does
 //! catch is everything built on top of them, which is where the code is.
 //!
 //! **The values are this file's own, though, and taking one from [`Th06nc`](super::Th06nc) is what is
@@ -224,8 +224,7 @@ const CALC_RESULT_SCREEN: u16 = 13;
 /// run, three the stage after one, seven the screen a run that finished ends at and eight a run given up
 /// — `0x14007bdfc` writing one into the state wanted, and `super::STATE_RUN`,
 /// `super::STATE_THE_RUNS_OWN_END` and `super::STATE_RUN_OVER` where the other three are read. The
-/// remaining seven of the twelve its job dispatches on are read too — `th06nc/asm.md`'s *The two tables
-/// whole* — and not laid out here.
+/// remaining seven of the twelve its job dispatches on are read too, and not laid out here.
 const SCENE_FRONT_END: i32 = 1;
 const SCENE_RUN: i32 = 2;
 const SCENE_REBUILDING: i32 = 3;
@@ -237,7 +236,7 @@ const SCENE_RUN_OVER: i32 = 8;
 /// 25` and back out of one as `16, 17, 18`.
 ///
 /// **A practice run's walk has one screen more**, `14, 22, 24, 25`, which is where the stage to be
-/// practised is chosen — see `th06nc/asm.md`'s table of the screens. Nothing here lays 22 out: the
+/// practised is chosen. Nothing here lays 22 out: the
 /// laid-out game is walked into a run by the screens above, and a recipe that aims its last press at a
 /// chapter rather than at a screen walks either game.
 pub const SCREEN_LOGO: i32 = 1;

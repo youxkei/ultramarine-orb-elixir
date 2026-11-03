@@ -3,7 +3,7 @@
 //! Its own for the reason every game's is: a file is the game's, and one version number over two games'
 //! numbers is what let a field go into th06's file without being raised — see `th06::resume`.
 //!
-//! **What a stage of this game is restarted from is its own replay record** — see *The replay* in `asm.md`: the
+//! **What a stage of this game is restarted from is its own replay record**: the
 //! build fills a stage's `0x1c4`-byte record out of the run as it records (0x4290bf through 0x42910d), the
 //! stage's first frame fills the player's part (0x42a4fc through 0x42a58f), and a playback puts every field back
 //! at the same two moments (0x4292de through 0x429347, 0x42a5a8 through 0x42a68c). Every field of it is here,

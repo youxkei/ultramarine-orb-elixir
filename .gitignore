@@ -5,6 +5,12 @@
 # machine in it.
 /scripts
 
+# This machine's own notes: where the local workflow and the decompiled games are.
+/CLAUDE.local.md
+
+# This machine's scratch: work that is not a build output.
+/tmp
+
 # vpatch's own redistributable, kept beside the tree for reference rather than
 # vendored: orb does the same jobs itself now, and its readme is the reference
 # worth having, not the binaries. Drop this line to vendor it.

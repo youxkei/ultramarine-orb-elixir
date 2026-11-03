@@ -48,8 +48,7 @@ const THE_CORNER_HOLDS_FOR: u32 = 60;
 
 /// How long a test waits for the show before calling it a window that is never shown. Twice the frames
 /// above, because what the wait counts is the frames `keeps_its_corner` is asked on and this game's read
-/// is asked rather more often than its frames come — see `game/th06nc/asm.md`, which has 66 reads to 60
-/// frames measured over a stage.
+/// is asked rather more often than its frames come — 66 reads to 60 frames measured over a stage.
 const AND_NO_LONGER_THAN: u32 = 2 * THE_CORNER_HOLDS_FOR;
 
 /// Where the game puts its own window, which for the real one is the middle of the primary monitor: the

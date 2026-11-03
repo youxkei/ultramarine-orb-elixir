@@ -17,8 +17,7 @@
 //!
 //! **The addresses and the offsets are the game's own, written from the same constants the reads use**, so what
 //! this cannot catch is one of those that is wrong: a wrong one is wrong on both sides at once, and only the
-//! real game says otherwise — every one of them was read against `th11.exe` of md5 `6af1e3b3`, see
-//! `th11/asm.md`.
+//! real game says otherwise — every one of them was read against `th11.exe` of md5 `6af1e3b3`.
 //!
 //! **The values are this file's own, and taking one from [`Th11`](super::Th11) is what is refused here** — th07's
 //! image has why: a scene number, a screen number, a state or a mask shared between the writer and the reader is
@@ -525,7 +524,7 @@ pub struct TheTitlesEntry {
 }
 
 /// **The steps every one of those screens goes through**: the set-up, waiting out the frames it ignores a key for,
-/// reading one, leaving forward and leaving back (asm.md's *The front end*).
+/// reading one, leaving forward and leaving back.
 pub const STEP_BUILT: i32 = 0;
 pub const STEP_WAITING: i32 = 1;
 pub const STEP_READING: i32 = 2;
@@ -1269,8 +1268,7 @@ impl Image {
 
     /// **A cleared Extra moved past**, which 0x42d850 writes before it places the score where the stage word is 7
     /// and the run was cleared: both stage words 8 and the record past the Extra's, `0x4a3a28` (0x42d856 through
-    /// 0x42d87b) — put back only where the stage still reads 7, which it does not. See `asm.md`'s *The pause and the
-    /// end of a run*.
+    /// 0x42d87b) — put back only where the stage still reads 7, which it does not.
     pub fn a_cleared_extra_is_moved_past(&self) {
         let space = self.space();
         if space.read::<i32>(super::G_STAGE) != THE_LAST_STAGE_WORD || !self.the_run_was_cleared() {

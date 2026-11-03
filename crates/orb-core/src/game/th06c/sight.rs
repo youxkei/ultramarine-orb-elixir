@@ -49,8 +49,8 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     // **And how many bombs there are to spend**, which this game keeps as a byte of its own — see
     // `Frame::bombs`, whose reason is that the rules wait after one whether it went off or not.
     into.bombs = unsafe { mem::read::<i8>(at(BOMBS)) };
-    // **Unread.** Where this game keeps the line of dialogue that is up is one of the readings
-    // `th06c/asm.md` still lists as not established; a line is pressed past by the shot the rules
+    // **Unread.** Where this game keeps the line of dialogue that is up is not established; a line is
+    // pressed past by the shot the rules
     // hold anyway.
     into.dialogue = false;
     into.boss = unsafe { the_boss_the_fight_is_with() };
@@ -113,7 +113,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         // again and compares along the beam — so what is left of a fading laser is a stub of its own
         // line about the middle of it, at the width it always had. The test is run on it only while its
         // frames are under the slot's own `+0x0` (`0x14000e8fb`); it goes across here as fading on every
-        // frame of the phase. `th06c/asm.md` has the registers.
+        // frame of the phase.
         let (near, far) = match phase >= laser::FADING {
             true => {
                 let narrows = unsafe { mem::read::<i32>(beam + laser::NARROWS_OVER) };

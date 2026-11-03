@@ -4,7 +4,6 @@
 # **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the game
 # manager's state: 1 is the logo, 2 the title, 3 the main menu — item 0 starts a run — 8 goes by on its own, 9 is
 # the difficulty, 11 the character, 13 the shot, and 14, 24 and 25 each take a press before the stage.
-# `orb-core`'s `game/th06nc/asm.md` has where each was read.
 #
 # **Six frames a press, because these menus repeat a held key** rather than taking one edge from it, the way
 # th06c's do.

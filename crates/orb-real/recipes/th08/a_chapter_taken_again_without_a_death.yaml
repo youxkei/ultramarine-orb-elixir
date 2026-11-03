@@ -3,8 +3,7 @@
 # puts its question of where to start again in front of.
 #
 # **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
-# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses. `orb-core`'s
-# `game/th08/asm.md` has where each was read.
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses.
 #
 # **And orb's own mode question stands over the title's first item**, answered with the pointdevice mode
 # here: what this case is about is the mode, and the question is what `Th08::rewinds` answering true puts

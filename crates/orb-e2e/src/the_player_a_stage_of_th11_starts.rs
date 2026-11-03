@@ -1,7 +1,7 @@
 //! **What a stage of th11 leaves its player as, and what a hit does to it: the states orb reads as a run in the
 //! middle of something.**
 //!
-//! Read off the exe — `asm.md`'s *The player* has the fields:
+//! Read off the exe:
 //!
 //! - **A run's player is made playing**: the stage's start puts the state at `+0x928` at 1 (0x42feca), so a run's
 //!   first stage has the player playing from its first frame. **What th10's file asks beside it, the frames nothing

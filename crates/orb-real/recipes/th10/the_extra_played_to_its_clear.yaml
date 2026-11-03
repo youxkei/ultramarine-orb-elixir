@@ -51,8 +51,7 @@
 # **And the screen the run ends at**: the ranking's name typed into its entry where the run ranks, and the
 # replay of a run nobody will add to again kept — orb taking the game's own menu off that screen (state 8 of the
 # end of the run, sent to the title) and putting up its own question in its place. **No decide reaches that
-# menu**: after a cleared Extra its first item starts the run over from a stage that has no file (asm.md, *The
-# pause and the end of a run*).
+# menu**: after a cleared Extra its first item starts the run over from a stage that has no file.
 # The end of the run's own screen pressed on to the ranking's name entry: its first state takes a decide past
 # ten frames (0x42371c), and the tally after it opens the entry where the score ranks (0x42386d).
 - press: [decide]

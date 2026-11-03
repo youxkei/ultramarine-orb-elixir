@@ -61,7 +61,6 @@ of an earlier convention, and settles nothing.
 | --- | --- |
 | `README.md` | one sentence: what orb is, where to download it, and which games it runs, the table saying supported or not supported. The one link out is to `README.ja.md` |
 | `README.ja.md` | the same in Japanese, edited together with `README.md`. Each names the games and the mode in its own language |
-| `crates/orb-core/src/game/<game>/asm.md` | what one game does, read off its exe: the build's md5, the commands to read it again, the functions with every address in them, and at the end the list of what is not established. One file per game, pulled into the game module's doc with `#![doc = include_str!("asm.md")]` |
 
 Where a piece of writing goes:
 
@@ -70,7 +69,6 @@ Where a piece of writing goes:
 - the reasoning behind how the code is shaped → the `//!` of the crate or module it constrains, and
   *Shape* below where it is a rule for working here
 - a decision still to be taken → the description of the change for it (see *What is left*)
-- a reading that spans a whole path through an exe → that game's `asm.md`
 - the measurement a constant is the number it is because of → a comment beside that constant, with how
   it was found
 - the reason an alternative was rejected → a comment beside the code that would tempt someone back to

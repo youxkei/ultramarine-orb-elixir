@@ -20,8 +20,7 @@
 //! back would be a transition every e2e test here agreed with.
 //!
 //! **And the rank is not among what this asks about**, where th06c's module asks about it and the step
-//! towards it: the byte this game's manager keeps a rank in is unread — see `th06nc/asm.md`'s *What is
-//! not established*.
+//! towards it: the byte this game's manager keeps a rank in is unread.
 
 use crate::fake::th06nc::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};

@@ -99,7 +99,7 @@ pub(crate) const TO_A_RUN: &str = "\
 ";
 
 /// **The bits of the word this game's own read builds out of its 256 keys**, by the DirectInput code of the
-/// key — read off `0x14000fc24` onwards, see `th06c/asm.md`: `Z` carries the shot with the two shortcut bits
+/// key, read off `0x14000fc24` onwards: `Z` carries the shot with the two shortcut bits
 /// beside it, `X` the bomb with one, `Escape` two shortcut bits and no button of a run's, `Enter` the decide's
 /// own bit and the shot's, and the four arrows their four.
 ///

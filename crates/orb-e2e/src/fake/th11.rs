@@ -46,8 +46,8 @@ pub const QUEUE_DRAWN: &str = "queue drawn";
 pub const CAMERA_SET: &str = "camera set";
 pub const FOG_SET: &str = "fog set";
 
-/// **The calls of one frame, in the order the game's own frame at 0x446420 makes them** — `asm.md`'s *The frame at
-/// `0x446420`, in order*: the queue drawn, the camera set, the calc walk, the fog set inside the scene, the draw
+/// **The calls of one frame, in the order the game's own frame at 0x446420 makes them**: the queue drawn,
+/// the camera set, the calc walk, the fog set inside the scene, the draw
 /// walk, the queue drawn again and the present. **No sounds**: this game carries its sound's commands out inside the
 /// calc walk, from the supervisor's job (0x429058).
 pub const THE_FRAMES_OWN_ORDER: [&str; 7] = [
@@ -302,7 +302,7 @@ const THE_GRID: &[u8; 91] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-=.,!?@:;[]()_/{}|~^#$%&*   ";
 const A_GRIDS_ROW: i32 = 13;
 /// **The frames the title's name entry's steps and the replay's slots wait**: its first step's, which is not read
-/// (th10's 6); its third's five on to the slots (`asm.md`'s *The name entries*); the slots' own wait, not read (th10's
+/// (th10's 6); its third's five on to the slots; the slots' own wait, not read (th10's
 /// 6); and a cancel's six frames out of them (`+0x2b4 > 5`).
 const THE_TITLES_ENTRY_READS_PAST: i32 = 6;
 const THE_TITLES_ENTRY_LEAVES_PAST: i32 = 5;
@@ -2845,7 +2845,7 @@ fn the_draw_walk_as_the_frame_calls_it() -> i32 {
     answer
 }
 
-/// **The game's own frame, 0x446420**, `stdcall` on the window — `asm.md`'s *The frame at `0x446420`, in order*, less
+/// **The game's own frame, 0x446420**, `stdcall` on the window, in its order and less
 /// the limiter and the frame skip, a frame here being one update and one draw: the queue drawn, the camera set with
 /// its viewport, the calc walk and its two ways out (0x4464ec, 0x446505), `BeginScene`, the queue put back, the fog
 /// forced and set, the draw walk, the queue drawn, `SetTexture(0, null)`, `EndScene` and the present. **Which of the

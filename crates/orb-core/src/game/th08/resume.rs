@@ -6,7 +6,7 @@
 //! **What a stage of this game is restarted from is its own replay record**, which is what `CLAUDE.md`
 //! asks a resume be shaped from: 0x452b5f through 0x452ce6 fills the record's `0x24`-byte header out of
 //! the run as a stage ends, and 0x452ee1 through 0x452fe5 puts it back as a replay plays that stage
-//! again. Fourteen fields go back, and `asm.md`'s *The replay* has the table with every address in it.
+//! again. Fourteen fields go back.
 //!
 //! **Four of the fourteen have no name of the game's**, and each is written here by where it is:
 //! `[run+0x22]`, `[run+0x1c]`, `0x164d334` and `0x164d0b0`. Guessing a name for one of those would be
@@ -36,7 +36,7 @@ use crate::resume::{Again, Kept, MAX_STAGE_FRAMES};
 /// **The numbers a stage of th08 starts with, which is what a stage of it needs to be played again.**
 ///
 /// The fourteen the game's own per-stage replay record puts back, plus the two it does not —
-/// see the module's own doc for which are which, and `asm.md` for the address each was read at.
+/// see the module's own doc for which are which.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Numbers {
     /// **orb's own and not the record's**: the score as the stage began, where the record keeps the score

@@ -24,8 +24,7 @@
 //! any of them, and a chapter falls at a stage's start and nowhere inside one until such a run happens. One
 //! thing is declined on purpose and says why where it is, [`Th07::run_slot`]'s names.
 //!
-//! See `th07/asm.md` for
-//! the paths through the exe no one constant here is about. A snapshot is the piece this game answers a changed
+//! A snapshot is the piece this game answers a changed
 //! number by sabotaging itself over: see [`DEATHS`] and [`CARD_CHECK`].
 //!
 //! **Nothing here panics.** An `unimplemented!()` in a method a frame reaches would take somebody's
@@ -92,7 +91,6 @@
 //! is a stage per entry with nothing in any of them, so a chapter falls at a stage's start and nowhere inside
 //! one. [`crate::tuning`] is the procedure that fills it, and it is the one thing about this game that
 //! cannot be read off the exe.
-#![doc = include_str!("asm.md")]
 
 /// The midstage table, in a file of its own because a `--chapter-tuning` pass writes one to paste over it.
 pub mod chapters;
@@ -802,7 +800,7 @@ const SEALED_WORD: usize = 0x3c;
 #[cfg(any(test, feature = "sim"))]
 const SEALED_COPY: usize = 0xac;
 /// **Two things the game's own replay restore puts back, the rank and the run's header**, both said in the log
-/// at a stage's start — see `th07/asm.md` for the whole of what that restore does.
+/// at a stage's start.
 ///
 /// `[0x62f8a4]` is `[gm+0x9634]`, the rank: 0x42e38c fills it at 0x42e3a4, with its floor and its ceiling,
 /// out of the table by difficulty at `[0x49f5d0 + difficulty*0xc]`, and it is put back from a stage's record
@@ -873,8 +871,8 @@ const SEED_AT_STAGE_START: usize = 0x95e4;
 /// five calls it after its add; 0x404fe0 is the check, and where it fails the caller fills 0xb4 dwords from
 /// 0x575950 with 0xffffffff — the device pointer, the viewport, [`PAD_MAPPING`] and the scene at
 /// [`SUPERVISOR_SCENE`] all inside that range. So this game answers a changed number by destroying itself,
-/// and a snapshot of orb's that put lives back one field at a time would trip it. The whole of the seal, the
-/// check and the five guarded writes is `th07/asm.md`.
+/// and a snapshot of orb's that put lives back one field at a time would trip it. The seal is that check
+/// and five guarded writes.
 const DEATHS: usize = 0x50;
 const LIVES: usize = 0x5c;
 const BOMBS: usize = 0x68;
@@ -1610,8 +1608,8 @@ const STAGES: i32 = 8;
 /// **The word is the game manager's `+0x93d8`** as well, which is how those three read it: 0x626270 +
 /// 0x93d8 is 0x62f648, and both spellings are the same word.
 ///
-/// Bits 2 and 4 are not written down here because nothing of orb's reads them — `th07/asm.md` has where
-/// each is set, and that bit 4, a run that ended of its own accord, is cleared at 0x42f29a on every build,
+/// Bits 2 and 4 are not written down here because nothing of orb's reads them — bit 4, a run that ended
+/// of its own accord, is cleared at 0x42f29a on every build,
 /// a stage transition's included.
 const G_RUN_KIND: usize = 0x0062f648;
 const RUN_IS_A_PRACTICE: u32 = 1 << 0;
@@ -1794,7 +1792,7 @@ const RESULT_PHASE: usize = 0x08;
 /// `[this+0x10]` is taken down by one and 0x447087 writes a space where it now points.
 ///
 /// **Which is the name a replay of the game's own carries.** Seven of this machine's `replay/th7_*.rpy` were
-/// read the way `th07/asm.md` says one is read: at +0x5e of the unpacked header, eight bytes with spaces
+/// read one way: at +0x5e of the unpacked header, eight bytes with spaces
 /// to the end. One name in six of them and the same name less a letter in the seventh.
 const RESULT_NAME: usize = 0xbfaf;
 const RESULT_NAME_BYTES: usize = 8;

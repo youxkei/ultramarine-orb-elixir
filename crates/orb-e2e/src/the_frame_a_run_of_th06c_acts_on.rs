@@ -5,8 +5,8 @@
 //! at chain priority 0, moves the player at 8 and only copies the read into the word the run acts on at 0x10,
 //! so the player moves on the frame before's keys until orb hands the read to the run.
 //!
-//! **This game has no such gap to close**, and where that was read is `th06c/asm.md`'s *Where that word comes
-//! from*: the job at `0x140058330` is the calc chain's priority nought, and inside one walk of it
+//! **This game has no such gap to close**: the job at `0x140058330` is the calc chain's priority nought,
+//! and inside one walk of it
 //! `0x1400583b8` copies `0x140955390` into `0x140955394`, `0x1400583c4` calls `0x14000fa80` for the new word
 //! and `0x1400583cf` writes it back — the word is built, the player moves on it and the bullets test against
 //! where it moved, all in that same walk. So `Th06c` hands no read to the run and this file says what is left

@@ -3,8 +3,7 @@
 //! `th08.exe`, 840,704 bytes, `md5 77b6785e04a3406e50be68714a193650`. Every address below was read off
 //! that exe with `i686-w64-mingw32-objdump -d -M intel` and nothing else: no table anybody published
 //! and nothing carried across from th07's addresses, which are where the same things happen to live in
-//! a different program. `asm.md` beside this file is that reading; the constants here are what orb does
-//! with it.
+//! a different program. The constants here are what orb does with that reading.
 //!
 //! **What this game answers so far** is its frame, its scenes, its stage, its difficulty, its keys, the
 //! screens and cursor of its front end, the generator, the stage's frame count, the numbers a run is
@@ -30,7 +29,6 @@
 //! empties before its draw chain and draws after it, and the fog flag it forces on in between — because
 //! th07's first loop over its frame used addresses that were all correct and took the game down on its
 //! first frame. See [`Th08::begin_drawing`], which is that order.
-#![doc = include_str!("asm.md")]
 
 /// The midstage table, in a file of its own because a `--chapter-tuning` pass writes one to paste over it.
 pub mod chapters;
@@ -106,7 +104,7 @@ struct Nearby {
 /// Read off the vtable rather than off the create: WinMain compares `[[0x17ce760]+0xc]`'s answer against
 /// `0x88760869` at 0x441b36, which is `D3DERR_DEVICENOTRESET`, so that slot is
 /// `IDirect3DDevice8::TestCooperativeLevel` and this is a device. Five more slots agree — `+0x38` Reset,
-/// `+0x3c` Present, `+0x88` BeginScene, `+0x8c` EndScene, `+0xa0` SetViewport — see `asm.md`.
+/// `+0x3c` Present, `+0x88` BeginScene, `+0x8c` EndScene, `+0xa0` SetViewport.
 const G_D3D_DEVICE: usize = 0x017ce760;
 
 /// The game's own window, which is the object the frame runs on as well as its `+0x0`.
@@ -151,7 +149,7 @@ const CHAIN_JOB_ARGUMENT: usize = 0x1c;
 
 /// How far that walk goes before it gives up, a list longer than this being one orb has read wrong.
 ///
-/// **Sixty-four, which is four times the longest list this game's own frame builds**: `asm.md`'s table of
+/// **Sixty-four, which is four times the longest list this game's own frame builds**: the table of
 /// everything the chain runs has sixteen entries at their own priorities, so a list of more than that is
 /// either a pointer followed wrong or a game orb has no reading of.
 const CHAIN_JOBS_AT_MOST: usize = 64;
@@ -360,7 +358,7 @@ handed_over!(FOG_OFF_AT, fog_off, set_fog_off, FOG_OFF);
 ///
 /// 0x43d970 fills a 0x100-byte buffer with `GetKeyboardState` (0x43d996) and folds each key into one
 /// word by testing its byte against 0x80 — so what stands in front of it is a [`Patch`] and what it owes
-/// back is a `u16`. Every bit of that word is in `asm.md`; the five orb cares about are
+/// back is a `u16`. The five bits orb cares about are
 /// [`BUTTON_SHOT`] and its four siblings.
 ///
 /// **Two things want this one.** Keys are not read to the game while its window is behind — this read
@@ -443,7 +441,7 @@ const G_SHOT_HELD_FOR: usize = 0x0164_d51c;
 /// **What a run of this game is written down as**, which is every bit but the pause.
 ///
 /// **Not the game's own mask, which is no mask at all**: its replay writes `[0x164d528]` down whole, two
-/// bytes a frame at 0x4523af through 0x4523f9 — see *What a replay writes down per frame* in `asm.md`. th07
+/// bytes a frame at 0x4523af through 0x4523f9. th07
 /// records the whole word too, and can, its run reading a word of its own; here the run and the front end
 /// share [`G_INPUT_READ`], so a word handed back with `0x8` in it is a run that opens its own menu on the
 /// frame it is fed — and a resume's playback feeds every word it keeps into that one read. Which is th06's
@@ -728,8 +726,8 @@ const BOMBS: usize = 0x80;
 const POWER: usize = 0x98;
 
 /// **The five more of the run's numbers the replay's own record carries**, which is what a resume of
-/// this game is shaped from — see `resume`, and `asm.md`'s *The replay* for the address each was read
-/// at. Four of the five have no name of the game's and are written here by where they are.
+/// this game is shaped from — see `resume`. Four of the five have no name of the game's and are written
+/// here by where they are.
 ///
 /// `+0x24` is what one point item is worth, which the item's own collect at 0x440e50 reads; `+0x34` is
 /// the step of the night's own table of point-item counts, which 0x440495 indexes `0x4c7a84` by; and
@@ -889,7 +887,7 @@ const PLAYER_BOX_FAR: usize = 0x398;
 /// declines for 2 and 1 by name.
 /// So **0** is a player that can be hit, **2** a player that has been and has thirty frames before the life
 /// goes, **1** a player coming in at the start, which moves nothing (0x44c4b5 through 0x44c4cb), and **3** a
-/// player untouchable and blinking (0x44d3cf) — see `asm.md`'s *The player* for the whole timeline.
+/// player untouchable and blinking (0x44d3cf).
 const PLAYER_STATE: usize = 0x0;
 /// And the value orb takes for a player that can be hit.
 ///
@@ -911,7 +909,7 @@ const PLAYER_HIT: u8 = 2;
 /// `+0x0` takes `-0x3e7`.
 const PLAYER_HIT_COUNTDOWN: usize = 0xe2af4;
 /// **The hit's own count, the game's `preDeadCount`** (it logs ` preDeadCount %d`, 0x44ad1d), which 0x44cbf0
-/// runs down before the countdown above counts at all — see `asm.md`'s *The player* — and the field of the
+/// runs down before the countdown above counts at all — and the field of the
 /// active member's spec states 0 and 3 hold it at.
 const PLAYER_PRE_DEAD_COUNT: usize = 0xe2a68;
 #[allow(
@@ -978,7 +976,7 @@ const ENEMY_ALIVE: usize = 0x3324;
 /// its box as `position ± size / 2`, dividing by the 2 at `0x4b42ec` four times.
 const ENEMY_POSITION: usize = 0x2d88;
 /// **And the two that position is made from**: the place `+0x2d34` and the offset `+0x2d40` added to it
-/// (`asm.md`'s update table, 0x42c8b6) — the place being what 0x424820's beam is laid from.
+/// (0x42c8b6) — the place being what 0x424820's beam is laid from.
 const ENEMY_PLACE: usize = 0x2d34;
 #[allow(
     dead_code,
@@ -1243,8 +1241,7 @@ const BULLET_COUNT: usize = 0x6ba538;
 /// end, `0x1a880 + 0x645000` being `0x65f880`.
 ///
 /// `[bullet+0xdb8]` is a word the walk reads first: nothing means the slot is free, and 0x4312ef takes
-/// one off it and compares against 4, which is a kind of five. Nothing else of a bullet is read — see
-/// the list of what is not established in `asm.md`.
+/// one off it and compares against 4, which is a kind of five. Nothing else of a bullet is read.
 const BULLETS_AT: usize = 0x1a880;
 const BULLET_BYTES: usize = 0x10b8;
 const BULLET_SLOTS: usize = 0x600;
@@ -1255,7 +1252,7 @@ const BULLET_KIND: usize = 0xdb8;
 /// `0x44a230` is the box test that reaches the life-taker at 0x44a34e, and **it has one caller**: 0x4316b1,
 /// inside kind 1's own branch. **The spawn kinds call `0x449ff0` instead — 0x4317cf, 0x4318e1 and 0x4319f2,
 /// one apiece — and that is not a test of the player at all**: it walks the 192 circles of the player's own
-/// at `player+0xbb834` that *erase* a bullet, which is read in *The bullets* of `asm.md`. So those branches
+/// at `player+0xbb834` that *erase* a bullet. So those branches
 /// ask whether the bullet is inside one of those circles and nothing else, and a 2 marks the bullet —
 /// 0x4317dc writes 1 into `[bullet+0xdbe]`, and on the frame its spawn ends 0x431812 writes **5** over the
 /// kind and drops the cancel's item, and the branch still jumps to 0x431306, which writes 1 over the 5 the
@@ -1401,7 +1398,7 @@ const BULLET_ACCELERATION_FRAMES: usize = 0xfcc;
 /// the end of the bullet array to the count and there is nothing else in there.
 ///
 /// **That is why no laser manager was found**: the reading before this one looked for an object of its
-/// own on the chain and there is none, the eleven elements the chain runs being the ones `asm.md` lists.
+/// own on the chain and there is none, the eleven elements the chain runs being those.
 const LASERS_AT: usize = 0x660938;
 const LASER_BYTES: usize = 0x59c;
 const LASER_SLOTS: usize = 0x100;
@@ -1601,7 +1598,7 @@ const DIALOGUE_NO_LINE: i32 = -1;
 ///
 /// **And put on 1,800 by the instruction that starts a conversation**, which is the only other write of
 /// this word in the exe: instruction 148 of the stage `.ecl` adds `0x708` at 0x41d6cd, having handed the
-/// line to the conversation the gate above asks about — see `asm.md`, whose table has the arm. So this
+/// line to the conversation the gate above asks about. So this
 /// clock takes a number, skips 1,800 of them, and then stands still for as long as the line is up, and a
 /// recording keyed by it has 1,800 keys nothing was ever noted against per conversation: a stage 1 run
 /// wrote 15,743 frames of buttons with the generator on 10,344 of them. Which is what
@@ -1673,7 +1670,7 @@ const G_STAGE: usize = 0x0164d2cc;
 /// stage ends: 2 goes to 3 or 4 by the character, both of those to 5, and 5 to 6 or 7 — so a run walks
 /// 0, 1, 2, one of 3 and 4, 5, and one of 6 and 7. The run manager ends the run instead of choosing
 /// where the stage is already 6, 7 or 8 (0x439d4d), which is why a recipe of this game waits for the
-/// log's `stage=7` and not its `stage=6`. `asm.md` has both tables.
+/// log's `stage=7` and not its `stage=6`.
 const STAGES: i32 = 9;
 
 /// **The front end**, as a pointer: the 0x14490-byte object 0x47146d allocates for scene 1 and keeps
@@ -1729,8 +1726,8 @@ const SCREEN_TITLE: i32 = 0;
 /// front end — the jump table at 0x468357 sending 1, 2 and 3 to 0x467e8f, 0x467f40 and 0x467dd9. So 1 is
 /// the Extra, whose flow settles `cursor + 4`; 2 the spell practice, bit 14 being [`RUN_IS_A_SPELL_PRACTICE`];
 /// and 3 the stage practice. **And 1 and 2 are the two the title can leave out**: 0x467977 steps the cursor
-/// past 2 where 0x43c2c5 answers no and 0x46799c past 1 where 0x43c1e9 does — see `asm.md`'s *What a clear
-/// writes into a `CLRD` record*. What orb needs of them is that the first four start a run and the fifth
+/// past 2 where 0x43c2c5 answers no and 0x46799c past 1 where 0x43c1e9 does. What orb needs of them is
+/// that the first four start a run and the fifth
 /// is the replays.
 const TITLE_ITEM_START: i32 = 0;
 const TITLE_ITEM_EXTRA: i32 = 1;
@@ -1797,7 +1794,7 @@ const G_SHOT_TYPE: usize = 0x0164d0b2;
 /// `+0xfc` the bonus its capture is worth.
 ///
 /// **And the chain agrees it is this object**: `0x43c880` registers it at priority 0xc with 0x418010 as
-/// its update (0x417fee), which is `asm.md`'s own table of everything a frame runs.
+/// its update (0x417fee).
 ///
 /// **Measured on the real game**: a launch of a Normal run read `boss=true spell=3` through stage 1's
 /// fight, out of this object's bit 0 and its `+0x8` — which is what says the address, the bit and the
@@ -1839,9 +1836,7 @@ const CARD_TIME: usize = 0x114 + 0x8;
 /// **The time left under which a card pays the floor of [`CARD_TIME_ORBS`]'s ramp**, 180 frames (0x416338).
 const CARD_PAYS_ITS_LEAST_UNDER: i32 = 180;
 
-/// **The record this game keeps per spell card**, 222 of them at `[gm+0x40]` and `0x22c` bytes apiece —
-/// see `asm.md`'s *The score file*, where the reader that fills them and the `CATK` chunk each one is
-/// are written out.
+/// **The record this game keeps per spell card**, 222 of them at `[gm+0x40]` and `0x22c` bytes apiece.
 ///
 /// 0x43bbe1 zeroes the lot and stamps each with its own tag, length, version 3 and index before the file
 /// is read over them, and 0x43bdc1 copies all 222 aside afterwards.
@@ -1861,7 +1856,7 @@ const CARD_RECORD_SUM: usize = 0xe;
 /// **They are the same three things twice**: the best bonus taken, the attempts and the captures, once
 /// for an ordinary run and once for a **spell practice** — and which pair the game writes is bit 14 of
 /// the run kind, which [`RUN_IS_A_SPELL_PRACTICE`] is. 0x415adb branches the attempt on it and 0x416500
-/// the capture. `asm.md`'s *What a `CATK` record holds* has the address each of the twelve is written at.
+/// the capture.
 ///
 /// orb writes the ordinary run's attempts and carries the other five by address — see
 /// [`Th08::count_card_attempt`], which declines a practice for the reason written there.
@@ -1910,7 +1905,7 @@ const RUN_HANDS_ITSELF_OVER: u32 = 0x20;
 /// **The scene the run wants next**, `[gm+0x3db9c]` — `0x164d0a4` absolutely — which is `-1` while a run
 /// goes on (0x439c29 ors `-1` in) and is what 0x439fb6 gives the supervisor.
 ///
-/// What its own endings put there is read in `asm.md`: 6 and 9 for the two results and 7 for a replay's
+/// What its own endings put there: 6 and 9 for the two results and 7 for a replay's
 /// last stage (0x439e43). The other two scenes go straight into the supervisor's wanted scene with this
 /// left at `-1`: 7 where a replay has no stage left (0x439dc8), and 3 — `SCENE_RUN_AGAIN` — where there is
 /// a next stage (0x439ddc, 0x439e25).
@@ -2007,7 +2002,7 @@ const INIT_D3D_DEVICE_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0xb8, 0x88, 0x20, 0x
 /// 0x471507, and it is a `__thiscall` of four instructions that calls the title's own load, 0x470a6c — which
 /// asks the three questions the title's items are lit from (0x43c1e9, 0x43c2c5 and 0x447d04), puts up the
 /// message for an item newly lit, and then reads `CLRD`, `PSCR`, `CATK` and `FLSP` out of the score file into
-/// memory. See `asm.md`'s *What a clear writes into a `CLRD` record*.
+/// memory.
 ///
 /// **That read is the one that has to be the game's own file whichever mode a launch is in**, and what it cost
 /// to leave it following the mode is every clear this game recorded. orb starts a launch in Pointdevice mode,
@@ -2250,8 +2245,8 @@ impl Th08 {
         ) + &unsafe { self.the_teams_spec_said() }
     }
 
-    /// **The first sixteen floats of the active team member's own numbers** — see [`G_TEAM_SPEC`], and
-    /// `asm.md` for why they are said as numbers rather than named.
+    /// **The first sixteen floats of the active team member's own numbers** — see [`G_TEAM_SPEC`], which
+    /// says them as numbers because the game names none.
     ///
     /// The speeds this game moves the player by are in a `.sht` inside `th08.dat`, so the disassembly
     /// gives the offsets of a file's fields and no values. A launch gives the values: a recipe that held
@@ -2378,8 +2373,7 @@ impl Th08 {
     }
 
     /// **The numbers a stage of this game would be started again from**, which is the set its own replay
-    /// record carries — see [`resume::Numbers`], and `asm.md`'s *The replay* for the address each field
-    /// was read at.
+    /// record carries — see [`resume::Numbers`].
     ///
     /// **Nothing where there is no run**, which is a read off a pointer the next build frees — see
     /// [`Th08::run_numbers`], whose gate this is behind.
@@ -2657,8 +2651,7 @@ impl Game for Th08 {
     /// The two chain runners put orb inside every frame; the read of the keyboard is what a recipe
     /// presses through; the window and the device are where a launch's screen setting is obeyed; the
     /// frame itself is orb's loop; and the stage's build is where a stage's seed goes in. Every other
-    /// field is `None`, and each of those is a reading not yet made rather than a decision — see the list
-    /// in `asm.md`.
+    /// field is `None`, and each of those is a reading not yet made rather than a decision.
     ///
     /// **`render` is taken**, now that the frame it replaces has been read in its own order — see
     /// [`RENDER`], which lists what 0x441e70 does between the time and the present. The order was the
@@ -2736,7 +2729,7 @@ impl Game for Th08 {
             // `0x34`-byte `JOYINFOEX` with `dwFlags = 0xff` and keeps the caps at `0x164d388`, and
             // 0x43d120 reads it again every frame and folds `dwButtons` into the same word the keyboard
             // folds into, through the same helper the configuration's own buttons go through (0x43d760).
-            // What DirectInput8 is here is the *keyboard*, the branch at 0x43dd18 — see `asm.md`.
+            // What DirectInput8 is here is the *keyboard*, the branch at 0x43dd18.
             //
             // So a real pad works under orb natively, and orb's own d-pad does not reach a run of this
             // game: what would make it is this pair of hooks and a `reads_a_pad` beside them, which is
@@ -2820,7 +2813,7 @@ impl Game for Th08 {
     /// Where the game is, and the emptiest true answer for everything about a run.
     ///
     /// The scenes, the stage, the difficulty and the frames are readings; the rest is not, and a zero
-    /// here is orb declining rather than orb measuring nothing. `asm.md` says which is which.
+    /// here is orb declining rather than orb measuring nothing.
     /// **A line with words on it**, which is the narrower predicate: [`DIALOGUE_LINE`] holds the line's
     /// own number, and the `-2` the game also counts as a conversation is the frame it hands the screen
     /// back on. So `State::in_dialogue` takes both and this takes the numbered ones.
@@ -3592,8 +3585,8 @@ impl Game for Th08 {
     /// which is the word the run manager's own ending section at 0x439bc7 reads first (0x439be4) —
     /// nothing at all happens while they are 0, a 2 starts the ending and a 1 or a 3 goes straight to
     /// the hand-over. The scene that hand-over gives the supervisor comes out of `[gm+0x3db9c]`, which
-    /// is `-1` while a run goes on, and 0x439fb6 is the one place that copies it across. `asm.md`'s
-    /// *How a run of th08 ends* has the scenes the game's own endings put there, the two — 7 and 3 — they
+    /// is `-1` while a run goes on, and 0x439fb6 is the one place that copies it across. The scenes the
+    /// game's own endings put there are the two — 7 and 3 — they
     /// write into the supervisor's wanted scene directly instead (0x439dc8, 0x439ddc, 0x439e25), and which
     /// press the hand-over waits for.
     ///
@@ -4286,8 +4279,8 @@ impl Game for Th08 {
 
     /// **The buttons a recipe names, which is the whole of how a launch of this game is driven.**
     ///
-    /// Every bit here was read off the fold at [`INPUT_READ`] — see `asm.md` for the key each one comes
-    /// from — and the two masks are the ones every screen of the front end tests, see
+    /// Every bit here was read off the fold at [`INPUT_READ`], and the two masks are the ones every screen
+    /// of the front end tests, see
     /// [`Th08::menu_decide`].
     ///
     /// `menu` is in the list because the game's own pause menu is behind it and 「最初からやり直す」 is
@@ -4311,8 +4304,7 @@ impl Game for Th08 {
     }
 
     /// **Every job on the chain's calc list**, as the callback each is and the object it is called on —
-    /// see [`G_CHAIN`], whose calc head is `+0x0`, and *The chain* in `asm.md` for the element's own
-    /// three fields.
+    /// see [`G_CHAIN`], whose calc head is `+0x0`, for the element's own three fields.
     ///
     /// **Bounded at [`CHAIN_JOBS_AT_MOST`]**, which is what every walk orb makes of a game's own list is:
     /// a next pointer read wrong is a walk that never ends, and a frame that never ends is a game that

@@ -5,7 +5,6 @@
 //! exact build. Offsets are spelled out rather than derived from Rust structs
 //! because only a handful of the fields matter and mirroring whole structs
 //! (`Player` alone is 0x98f0 bytes) would be far more to get wrong.
-#![doc = include_str!("asm.md")]
 
 pub mod chapters;
 /// Reachable from this crate's own tests and, through the `sim` feature, from the tests of the
@@ -1071,7 +1070,7 @@ mod gui {
     /// whole of whether the plate is on the screen: the panel's draw at 0x41b078 reads
     /// `[impl+0x2174] & 1` and skips both the plate and the name where it is clear, and `AnmManager::Draw`
     /// at 0x432adc asks the same bit of every vm handed to it. The card's own ANM script sets it as the card
-    /// is shown and the interrupt the card's end sends clears it. See `th06/asm.md`.
+    /// is shown and the interrupt the card's end sends clears it.
     pub const VM_FLAGS: usize = 0x80;
     pub const VM_IS_VISIBLE: u32 = 1;
 }
@@ -1653,8 +1652,8 @@ impl Game for Th06 {
     /// crashes.
     fn music(&self) -> Option<Music> {
         /// The game's streaming buffer is four half-second chunks of 44100Hz 16-bit stereo, 352,800
-        /// bytes — `LoadBGM` works the chunk out at 0x430c3c–0x430c82 and passes 4 at 0x430ce0, see
-        /// `th06/asm.md`. Anything near this is not a buffer size.
+        /// bytes — `LoadBGM` works the chunk out at 0x430c3c–0x430c82 and passes 4 at 0x430ce0. Anything
+        /// near this is not a buffer size.
         const MAX_BUFFER_SIZE: u32 = 8 << 20;
 
         let streaming = self.streaming_sound()?;
@@ -1701,8 +1700,8 @@ impl Game for Th06 {
         ))
     }
 
-    /// **Read off the thread at 0x431370 and the refill it calls**, and the whole path is in
-    /// `th06/asm.md`. Every chunk's notification position is bound to one auto-reset event and the
+    /// **Read off the thread at 0x431370 and the refill it calls**. Every chunk's notification position
+    /// is bound to one auto-reset event and the
     /// thread waits on that one event; the refill at 0x43b560 writes a chunk at `NEXT_WRITE_OFFSET` and moves
     /// it on by a chunk, and **nothing on that path calls `GetCurrentPosition`** — where the next chunk goes
     /// is how many wakes there have been. Two notifications before one wake set the event once, so the thread

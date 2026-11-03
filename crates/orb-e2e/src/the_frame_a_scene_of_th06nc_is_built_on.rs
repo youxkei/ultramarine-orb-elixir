@@ -11,7 +11,7 @@
 //! where it was taken.
 //!
 //! **And the word a run acts on is zeroed by the transition, together with the frame before's.** All six
-//! writers of `0x140abae80` are read — see `th06nc/asm.md` — and two of them are cases of the front
+//! writers of `0x140abae80` are read, and two of them are cases of the front
 //! end's own jump table at `0x140049232`, each writing nought into that word, into `0x140abae84` and into
 //! the two repeat statics beside them. So the pair an edge is taken from starts a run empty, and a key
 //! held from before the run is not a press inside it.

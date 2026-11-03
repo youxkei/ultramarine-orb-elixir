@@ -1086,7 +1086,7 @@ fn the_cases_of_th08() -> Vec<Case> {
         // **And the two clears that light the Extra, and the Extra played to its clear with the bomb allowed** —
         // this game lights Extra Start only out of Kaguya's clear, a run goes to Kaguya only where the records hold
         // Eirin's stage passed, and both have to be the game's own mode, a pointdevice run's records going to the
-        // mode's own file. See `asm.md`'s *What a clear writes into a `CLRD` record*. Kaguya's starts from records
+        // mode's own file. Kaguya's starts from records
         // of Eirin's, and the Extra's from records of both.
         Case {
             game: Game::Th08,
@@ -1536,8 +1536,7 @@ fn the_cases_of_th10() -> Vec<Case> {
 /// for the Extra that clear unlocked.
 ///
 /// **Each is a reading of its own**: the run ends where the run ends because the stage's own jobs leave
-/// the chain, and a clear is known from the ending's own job arriving. Both are `orb-core`'s
-/// `game/th06nc/asm.md`'s.
+/// the chain, and a clear is known from the ending's own job arriving.
 ///
 /// **And a list of its own rather than the rewinding games'**, for this game's own front end and records
 /// — see [`cases_of`], which also has why six of its checks were once shorter than th06c's.

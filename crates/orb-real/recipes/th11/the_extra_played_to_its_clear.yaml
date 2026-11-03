@@ -52,8 +52,7 @@
 # of a run nobody will add to again kept — orb taking the game's own menu off that screen and putting up its own
 # question in its place (`Th11::skip_replay_prompt`). **No decide reaches that menu**: after a cleared Extra the
 # lost run's menu, where a score that does not place lands, starts the run over from its item 0, and the stage it
-# starts over is the Extra's own ranking's 8, which has no file (asm.md, *`+0x1f4`, `+0x1f8`, and the Extra's stage
-# 8*).
+# starts over is the Extra's own ranking's 8, which has no file.
 #
 # **Waited for and not pressed at**: a won run's end opens on state 21, whose tally goes to the ranking's name entry
 # by itself ten frames on where the score places (0x42e774 through 0x42e849) — th10's first state, which takes a

@@ -397,7 +397,7 @@ const STREAMED_TRACK: Track = Track {
 };
 /// How big the buffer that track is streamed into is, and how much the streaming thread writes each time it
 /// is woken. **Not this game's own numbers, which are 352,800 and 88,200** — four half-second chunks of
-/// 44100Hz 16-bit stereo, read off `LoadBGM` in `orb-core`'s `game/th06/asm.md` — but the shape of them: a ring of four
+/// 44100Hz 16-bit stereo, read off `LoadBGM` — but the shape of them: a ring of four
 /// chunks, which is what the arithmetic is over. The game's byte counts against a [`STREAMED_TRACK`] small
 /// enough to hold in memory would buffer nearly the whole track rather than a few refills of it.
 pub const STREAM_BUFFER: usize = 32_768;

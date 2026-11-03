@@ -206,8 +206,8 @@ fn a_step_ends_where_a_spell_card_of_th06_is_running() {
 /// so the frame the card starts is a frame the name is on the screen for.
 ///
 /// What says the plate is up is the visible bit of the vm the name is baked into — `Image::card_name_vm`, the
-/// one a restore bakes a name back through — which this game's own draw reads before it draws either; see
-/// `orb-core`'s `game/th06/asm.md`. The laid-out game sets it as a card starts and clears it as one ends, the way the card's
+/// one a restore bakes a name back through — which this game's own draw reads before it draws either. The
+/// laid-out game sets it as a card starts and clears it as one ends, the way the card's
 /// ANM script does.
 #[test]
 fn a_step_ends_where_th06s_cards_name_is_shown() {

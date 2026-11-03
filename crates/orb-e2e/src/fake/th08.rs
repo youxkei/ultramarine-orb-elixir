@@ -239,7 +239,7 @@ const THE_CLOCK_A_LINE_COSTS: u32 = 1800;
 /// `push 0xc8` at 0x42de49 — and so on a stage's first frame too, the timer starting from nothing.
 const THE_SEAL_IS_CHECKED_EVERY: u32 = 200;
 
-/// **The player's own update, by the state its byte is in** — `asm.md`'s *The player*, off the exe:
+/// **The player's own update, by the state its byte is in**, off the exe:
 ///
 /// - the count under it at `[player+0xe2af4+0x8]` goes up by one an update in states 0, 1 and 2 (0x44d409)
 ///   and down by one in state 3 (0x44d35c);
@@ -325,8 +325,7 @@ fn the_stage_after(stage: i32, to_kaguya: bool) -> Option<i32> {
 
 /// **What this game's `CLRD` records say that a walk of its front end turns on**, kept as the three facts
 /// and not as the records: orb reads none of the records, so what this file owes is what they decide —
-/// which items the title draws, and which last stage a run goes to. See `asm.md`'s *What a clear writes
-/// into a `CLRD` record*.
+/// which items the title draws, and which last stage a run goes to.
 ///
 /// - `eirins_stage_passed`: bit 6 in a Normal, Hard or Lunatic `+0x16` word, which the run manager ORs in
 ///   as stage word 6 ends (0x439c50 through 0x439d02) and 0x439856 asks for at 0x433b47 — and a run after
@@ -2361,7 +2360,7 @@ impl Fake {
         // is why `resume::Again` keeps every read of a frame and not the last.
         //
         // The script's own clock is not held: it went 4223 to 4283 across a real conversation while the run
-        // clock stood at 17,132 — see `asm.md`'s *The dialogue does not stop it*.
+        // clock stood at 17,132.
         let carrying = match self.conversation.get() {
             0 => match self.a_conversation_at.get() {
                 Some((at, lasts)) if state.stage_frames + 1 == at => {

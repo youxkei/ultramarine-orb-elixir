@@ -11,7 +11,7 @@
 //! chapter taken on the other side of it.
 //!
 //! `the_word_a_run_of_th07_is_written_down_as` is the same claim over the game that keeps two words and copies
-//! one into the other; th06c keeps one — see `th06c/asm.md`.
+//! one into the other; th06c keeps one.
 
 use crate::fake::th06c::{Fake, TO_A_RUN};
 use crate::fake::{Display, Launched, Work, in_its_own_process};

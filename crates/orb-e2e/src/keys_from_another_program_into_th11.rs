@@ -6,7 +6,7 @@
 //! with**: its input's set-up, run on the main thread in WinMain before `Direct3DCreate9` (0x4456aa through
 //! 0x445702), makes the keyboard device at `[0x4c32a0]` in 0x447ab0 and sets bit `0x400` of its input flags' word
 //! `[0x4c3810]`, and the read takes `IDirectInputDevice8::GetDeviceState` wherever that bit is set (0x4576d3,
-//! 0x457862) and `GetKeyboardState` (0x4576e8) only where it is clear — see `asm.md`'s *The input*.
+//! 0x457862) and `GetKeyboardState` (0x4576e8) only where it is clear.
 //!
 //! **th10's race is not this game's**: th10 made its device on a thread of its own, so a launch's first frame
 //! could come before it; th11's is made before the window has a device to draw with, so it is there before orb's

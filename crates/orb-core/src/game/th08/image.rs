@@ -15,7 +15,7 @@
 //!
 //! The addresses are the game's own, written from the same constants the reads use, so what this cannot
 //! catch is a constant that is wrong: a wrong one is wrong on both sides at once, and only the real game
-//! says otherwise — every one of them was read against `th08.exe` of md5 `77b6785e`, see `th08/asm.md`.
+//! says otherwise — every one of them was read against `th08.exe` of md5 `77b6785e`.
 //! What it does catch is everything built on top of them, which is where the code is.
 //!
 //! **The values are this file's own, though, and taking one from [`Th08`](super::Th08) is what is refused
@@ -63,8 +63,8 @@ const A_CARD_HELD: u8 = 1;
 
 /// **How far apart the jobs a test lays on the chain's calc list stand**, and how far the first of them
 /// is past the chain itself: a number of this file's choosing, the game's own allocator being where a real
-/// element comes from — see [`Image::the_calc_list_holds`], and *The chain* in `asm.md` for the three
-/// fields one carries. Wide enough that no element's own fields reach the next.
+/// element comes from — see [`Image::the_calc_list_holds`] for the three fields one carries. Wide enough
+/// that no element's own fields reach the next.
 const A_JOBS_OWN_SPACE: usize = 0x100;
 
 /// **The object the drawing queues its quads in**, `SprtCtrlInf`: a base of this file's choosing, the
@@ -332,7 +332,7 @@ const PLAYER_START: (f32, f32) = (192.0, 384.0);
 
 /// **The player's two states orb names none of**: 1, coming in at the start a stage puts it at, which the
 /// added callback writes (0x44d886) and a hit run out writes (0x44d012); and 3, untouchable and blinking
-/// (0x44d3cf), which 0x44d252 writes once state 1's count has reached thirty. See `asm.md`'s *The player*.
+/// (0x44d3cf), which 0x44d252 writes once state 1's count has reached thirty.
 const PLAYER_COMING_IN: u8 = 1;
 const PLAYER_UNTOUCHABLE: u8 = 3;
 
@@ -434,7 +434,7 @@ impl Image {
         // writes the 1.0, and a laid-out game with nothing there would say every laser grows by nothing.
         space.write::<f32>(super::G_FRAME_STEP, 1.0);
         // **And the pad's mapping, as the game's own defaults have it** — `0, 1, 2, 4, -1, -1, -1, -1, 3`,
-        // the eighteen bytes `asm.md`'s *The window's own settings* lays out: shoot 0, bomb 1, focus 2, menu 4,
+        // the eighteen bytes laid out as: shoot 0, bomb 1, focus 2, menu 4,
         // skip 3. **The defaults and not the measured copy's file** (`2, 5, 4, 0, …, 1`), because a case plays
         // with `th08.cfg` taken aside and finds exactly these — a laid-out game holding the file's would answer
         // a press of button 2 with a different bit than the real game does. A laid-out game with nought there

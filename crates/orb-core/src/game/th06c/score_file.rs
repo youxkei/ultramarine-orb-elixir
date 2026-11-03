@@ -5,7 +5,7 @@
 //! **Because this game reads its file once and never again.** th06 1.02h and th07 open `score.dat` at every
 //! screen that wants it, so orb's fork of that open — `crate::score` — sends each read to whichever file the
 //! mode points at. th06c opens it at `0x14002c239`, at startup, into a buffer at `0x140bc2ad8` that every
-//! later parse decrypts and every write is rebuilt from (`th06c/asm.md`, the score file). So the fork reaches
+//! later parse decrypts and every write is rebuilt from. So the fork reaches
 //! one read, made before anybody has been asked which mode the launch is, and what that read landed in is the
 //! file both modes' writes are built on. Which would be the game's own file written back out of orb's or the
 //! other way about — the thing the fork exists to stop.
@@ -68,7 +68,7 @@ pub fn th6k() -> Record {
 /// A `CLRD` record for one shot — `character * 2 + shot` — with the stage each difficulty has reached without a
 /// retry and at all, [`CLEARED`] being a clear: `0x18` bytes, the two arrays at `+0xc` and `+0x11`, the shot at
 /// `+0x16`. The first is raised only where the run has taken no retry (`+0x17e0` nought, 0x140024d3c and
-/// 0x140024d7c), the second whatever it has (0x140024da9). See `th06c/asm.md`.
+/// 0x140024d7c), the second whatever it has (0x140024da9).
 pub fn clrd(shot: u8, reached_without_a_retry: [u8; 5], reached_at_all: [u8; 5]) -> Record {
     let mut body = Vec::with_capacity(12);
     body.extend_from_slice(&reached_without_a_retry);
@@ -79,8 +79,7 @@ pub fn clrd(shot: u8, reached_without_a_retry: [u8; 5], reached_at_all: [u8; 5])
 }
 
 /// Whether any `CLRD` among `records` says a run has cleared the game the way the title asks to offer the Extra
-/// (0x14002d526): Normal, Hard or Lunatic of the array reached without a retry, the record's `+0xd` to `+0xf`
-/// — see `th06c/asm.md`.
+/// (0x14002d526): Normal, Hard or Lunatic of the array reached without a retry, the record's `+0xd` to `+0xf`.
 pub fn a_clear_is_among(records: &[Record]) -> bool {
     records.iter().any(|record| {
         record.magic() == b"CLRD"

@@ -4,7 +4,7 @@
 //! `Game::front_end_screen` answers the front end's `+0x14428` and `front_end_cursor` its `+0x1442c`, and
 //! the three numbers those come back with are what both of this game's recipes are written against: 0 is
 //! the title menu, whose item 0 starts a run; 4 is the difficulty select, which comes up on Normal; and 5
-//! is the team select, 「人と妖怪の選択の刻」. `orb-core`'s `game/th08/asm.md` has where each was read.
+//! is the team select, 「人と妖怪の選択の刻」.
 //!
 //! **Which is what an e2e test over this game can say about the front end and the whole of it**: what a
 //! press does on each of those screens is the laid-out game's, so nothing here holds the real game to a

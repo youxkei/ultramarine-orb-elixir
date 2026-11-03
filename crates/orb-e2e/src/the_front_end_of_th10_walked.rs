@@ -4,8 +4,7 @@
 //! `Game::front_end_screen` answers the title's `+0x1c` and `front_end_cursor` its `+0x24`, and the numbers
 //! those come back with are what every recipe of this game is written against: 1 is the screen that waits for
 //! a key, 2 the main menu, whose item 0 starts a run; 6 the difficulty select, which comes up on Normal; 7 the
-//! character select and 8 the shot select, whose decide asks for the run (0x430f5a). `orb-core`'s
-//! `game/th10/asm.md` has where each was read.
+//! character select and 8 the shot select, whose decide asks for the run (0x430f5a).
 //!
 //! **Which is what an e2e test over this game can say about the title and the whole of it**: what a press does
 //! on each of those screens is the laid-out game's, so nothing here holds the real game to a screen it does not

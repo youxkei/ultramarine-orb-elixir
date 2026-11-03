@@ -1,7 +1,7 @@
 //! What a bot playing th08 is told of it, which is this game's own arrays read.
 //!
-//! **Every address here is in `th08/mod.rs` beside its own reading**, and `asm.md` is where each came
-//! from. What this file is, is the shape those readings take for `orb_bot`: the field, the player, the
+//! **Every address here is in `th08/mod.rs` beside its own reading**. What this file is, is the shape
+//! those readings take for `orb_bot`: the field, the player, the
 //! player's own box, the four speeds, one [`Hazard`] per live enemy — with one more per box a long
 //! enemy's own trail is tested at — and per live bullet, one [`Beam`] per live laser and one [`Pickup`]
 //! per item on the list.

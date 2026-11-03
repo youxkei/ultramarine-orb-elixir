@@ -6,8 +6,7 @@
 //! frame limiter is never called at all**. `0x140025af0` onwards is what th06c paces itself with — a clock
 //! through a pointer, an average over `0x5f` of them, a sleep to its own deadline and then a spin on
 //! `pause` — and orb's loop calls the eleven pieces of the frame instead of that function, so the whole
-//! `14.7ms` of a `16.6ms` frame it used to spend waiting is orb's to spend. See `th06c/asm.md`'s *The
-//! frame, and the loop that runs it*.
+//! `14.7ms` of a `16.6ms` frame it used to spend waiting is orb's to spend.
 //!
 //! **And this game's update count is the sound's.** `0x140025900` walks the calc chain again up to seven
 //! more times while the samples played say the run is behind, so the clocks orb answers are what a run's

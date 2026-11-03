@@ -11,7 +11,7 @@
 //!
 //! The addresses are the game's own, written from the same constants the reads use, so what this cannot
 //! catch is a constant that is wrong: a wrong one is wrong on both sides at once, and only the real game
-//! says otherwise — every one of them was read against `th06c.exe` running, see `th06c/asm.md`. What it
+//! says otherwise — every one of them was read against `th06c.exe` running. What it
 //! does catch is everything built on top of them, which is where the code is.
 //!
 //! **The values are this file's own, though, and taking one from [`Th06c`](super::Th06c) is what is refused

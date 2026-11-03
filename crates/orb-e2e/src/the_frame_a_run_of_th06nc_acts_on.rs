@@ -5,8 +5,8 @@
 //! keys at chain priority 0, moves the player at 8 and only copies the read into the word the run acts on
 //! at 0x10, so the player moves on the frame before's keys until orb hands the read to the run.
 //!
-//! **This game has no such gap to close either**, and where that was read is `th06nc/asm.md`'s reading of
-//! the supervisor: `0x14007b8a6` onwards copies `0x140abae80` into `0x140abae84` and then builds the new
+//! **This game has no such gap to close either**: `0x14007b8a6` onwards copies `0x140abae80` into
+//! `0x140abae84` and then builds the new
 //! word into `0x140abae80`, all at the calc chain's priority nought — and the player's own job is
 //! priority 7, behind it in the same walk. So `Th06nc` hands no read to the run and this file says what
 //! is left to say: that nothing of orb's puts a frame between the keys and the update, and that the pair

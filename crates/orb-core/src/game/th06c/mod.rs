@@ -1,8 +1,7 @@
 //! th06c — the Steam release of 東方紅魔郷 — as a [`Game`].
 //!
 //! **A game of its own and not a build of th06.** It is a 64-bit process built two decades later, whose
-//! every address, struct and calling convention is its own, and `th06c/asm.md` is where what has
-//! been read off its exe is written down. Nothing of `game::th06` means anything here.
+//! every address, struct and calling convention is its own. Nothing of `game::th06` means anything here.
 //!
 //! **Two seams, and a stage read through them.** The dialog is got past by clicking what a person would,
 //! and the keyboard read is this game's one moment per tick, so a recipe's steps are walked there and the
@@ -41,7 +40,6 @@
 //! convention, a 64-bit build falls back to the C one for it, and it warns each time. The loop's own
 //! signatures stay `fastcall` because that code is compiled for both architectures, where `win64` is not
 //! a name at all — and on this one the two are the same four registers.
-#![doc = include_str!("asm.md")]
 
 use std::ffi::c_void;
 use std::ops::Range;
@@ -72,7 +70,7 @@ const IMAGE_BASE: usize = 0x1_4000_0000;
 
 /// **The field a run is played in**, on the game's 640x480 output: the four floats at `0x1403ed01c`, which
 /// `.data` initialises to these and the stage callback writes the same four to as a run starts
-/// (`0x140024329` onwards) — see `asm.md`, *The field the player may move in*. What moves them between is a
+/// (`0x140024329` onwards). What moves them between is a
 /// job of the game's own (`0x140055c70`), and it is not up while a menu of orb's is.
 const PLAY_AREA: Rect = Rect {
     left: 32.0,
@@ -267,21 +265,21 @@ const DEVICE: usize = 0x1_4044_1fd0;
 const KEYBOARD_READ: &str = "GetKeyboardState";
 
 /// **And the name it asks for to make its window**, which orb answers for the same reason: there is no
-/// `CreateWindowEx` of either width in this exe's import table, only the string in its `.rdata` — see
-/// `th06c/asm.md`. Its answer lands in the slot at `0x140442588` and is called at `0x140094419`.
+/// `CreateWindowEx` of either width in this exe's import table, only the string in its `.rdata`. Its
+/// answer lands in the slot at `0x140442588` and is called at `0x140094419`.
 const WINDOW_MADE: &str = "CreateWindowExW";
 
 /// **And the name it reads a pad with**, which orb answers by being the pad — see
 /// [`Game::press_into_pad`], and `Hooks::reads_a_pad` for why a pad rather than the keys.
 ///
 /// This exe walks `xinput1_4.dll`, `xinput1_3.dll` and `xinput9_1_0.dll` for whichever is there and
-/// keeps the handle at `0x140441f88`, then asks that module for this by name — see `th06c/asm.md`.
+/// keeps the handle at `0x140441f88`, then asks that module for this by name.
 const PAD_READ: &str = "XInputGetState";
 
 /// **The copy of the score file the game reads once, at startup, and every screen parses**: the pointer to
 /// the block, written at `0x14002c2b2` and read by the parse at `0x14004e63f`, and its length beside it.
 /// The result screen's deinit builds a new one from what its screens hold, frees this and points here at
-/// its own (`0x140055570`..`0x140055583`) — see `th06c/asm.md`, the score file, and [`score_file`] for
+/// its own (`0x140055570`..`0x140055583`) — see [`score_file`] for
 /// why orb puts one here itself.
 const SCORE_FILE_COPY: usize = 0x1_40bc_2ad8;
 const SCORE_FILE_COPY_LENGTH: usize = 0x1_40bb_89ec;
@@ -609,7 +607,6 @@ const EVERYTHING_HELD: usize = 0x1_403e_d7d2;
 /// **The one function of the frame there is to stand in.** `0x1400258a0` calls this once and then up to
 /// seven times more, as many as the sound's own position says the run is behind by, and walks the *draw*
 /// chain inlined in its own code — so the draw side has no function of its own and this side has one.
-/// `th06c/asm.md` has the frame, the return codes the walk acts on, and how both were read.
 /// **Called rather than patched**, nothing of the game's calling it once the frame around it is orb's:
 /// see [`walks_the_calc_chain`], which is what orb's own loop calls and where the answer this gives is
 /// turned into one that loop reads.
@@ -618,7 +615,7 @@ const RUN_CALC_CHAIN: usize = 0x1_4002_56b0;
 /// **The whole frame, which orb replaces to own this game's own.** The loop at `0x14002c5b7` calls it
 /// once round and nothing else calls it at all, and what it holds is the viewport, the calc chain, the
 /// sound's own catch-up, the draw chain walked inline and the frame's own timing — every one of which
-/// orb's own loop now calls, in that order. `th06c/asm.md` has the frame.
+/// orb's own loop now calls, in that order.
 const THE_FRAME: usize = 0x1_4002_58a0;
 /// `mov [rsp+0x10],rbx; mov [rsp+0x18],rbp; mov [rsp+0x20],rsi` — fifteen bytes to the end of the third
 /// instruction, none of them rip-relative, where a 64-bit jump needs fourteen.
@@ -636,7 +633,7 @@ const THE_DRAW_CHAIN: usize = 0x1_403e_c5b0;
 /// first thing it does is test it — and the frame passes the element there.
 const TAKES_AN_ELEMENT_OUT: usize = 0x1_4000_f620;
 
-/// The fields of a `ChainElem` a walk reads. `th06c/asm.md` has the whole `0x40` bytes of one.
+/// The fields of a `ChainElem` a walk reads.
 mod chain {
     /// **The callback a frame runs**, called with [`ON`] in `rcx`.
     pub const CALLBACK: usize = 0x8;
@@ -676,7 +673,7 @@ const THE_OUTPUT: (u32, u32) = (0x280, 0x1e0);
 /// **The size the game's own fit works in**: the two dwords `0x1400592d0` compares with `640` and `480` to
 /// decide whether the picture is drawn `1:1` at the buffer's origin or fitted and centred into it. They are
 /// written by `0x140072180` from the size the renderer was asked for, and left at `640x480` (or `320x240`)
-/// where the renderer answered `-1` — see `asm.md`, and the doubled frame that a `1:1` copy under a fitted one
+/// where the renderer answered `-1`, and the doubled frame that a `1:1` copy under a fitted one
 /// would be. A picture of the buffer cannot say which branch a frame took; these two can.
 const THE_FITS_WIDTH: usize = 0x1_403e_f698;
 const THE_FITS_HEIGHT: usize = 0x1_403e_f69c;
@@ -793,7 +790,7 @@ const THE_WAITS_OWN_COUNT: usize = 0x1_40bc_258c;
 /// is a practice one, `0x14002cc30` — the supervisor's state to two, the decide's own sound queued, the
 /// playback flag at `0x1403ed7b8` cleared, and then by the configuration byte at `0x140bc28c6`: the
 /// music stopped and its track put to `-1` where it is 1 (`0x14002cc9e` on), `0x1400381d0` called on the
-/// sound object instead where it is 2. No arguments; see `th06c/asm.md`. What orb calls where it writes a
+/// sound object instead where it is 2. No arguments. What orb calls where it writes a
 /// run into being — `Th06c::start_a_run`.
 const RUN_START: usize = 0x1_4002_cc00;
 /// **How far into that object [`the_swapchain`] looks for one**, which is as far as the frame itself
@@ -840,8 +837,7 @@ const THE_WINDOWS: Range<usize> = 0x1_407e_3898..0x1_407f_5098;
 ///
 /// **What this does not reach is the CRT's objects off the heap** — an open file's own lock and the table of
 /// its handles — which are the game's heap now and put back with it. A file opened or closed between a
-/// chapter being taken and put back is the case that would read differently; see `th06c/asm.md`'s
-/// *What is not established*.
+/// chapter being taken and put back is the case that would read differently.
 const THE_CRTS_LOCKS: [Range<usize>; 3] = [
     0x1_4095_4730..0x1_4095_4988,
     0x1_4095_4668..0x1_4095_4690,
@@ -1141,7 +1137,7 @@ unsafe extern "win64" fn tops_up_the_sound(_: usize) {
 }
 
 /// **The player**, a static object of `0x9b88` bytes: `0x140049bb0` clears it in two pieces and hands
-/// it to the three `ChainElem`s it builds. `th06c/asm.md` has how it was found.
+/// it to the three `ChainElem`s it builds.
 const PLAYER: usize = 0x1_40bb_89f0;
 
 mod player {
@@ -1154,7 +1150,7 @@ mod player {
     /// took them for: that address is the first of *sixteen* boxes the test walks *before* it reaches
     /// the player's own, each `0x10` bytes of width, height and a centre, and `0x14004a59b` onwards
     /// clears all sixteen every frame — so the `ucomiss` against nought at `0x14004c6fa` is that walk
-    /// finding an empty slot and not a player who cannot be hit. `th06c/asm.md` has both.
+    /// finding an empty slot and not a player who cannot be hit.
     pub const BOX_MIN: usize = 0x410;
     pub const BOX_MAX: usize = 0x41c;
     /// **What one frame of holding a direction moves the player by**, which is four numbers: the switch
@@ -1237,7 +1233,7 @@ const PLAYER_AREA: usize = 0x1_403e_e7f4;
 /// the first and 64 up from the second.
 const FIELD_SIZE: usize = 0x1_403e_d024;
 
-/// The run's own numbers, each a static of its own — `th06c/asm.md` says what each was read off.
+/// The run's own numbers, each a static of its own.
 const LIVES: usize = 0x1_403e_e804;
 const BOMBS: usize = 0x1_403e_e805;
 /// A word, and `0x14002ab8e` holds the cap it is written back at.
@@ -1463,7 +1459,7 @@ const STATE_ENDING: i32 = 10;
 
 /// **The generator**, one word: every draw in the exe is `xor cx,[0x14095538c]; sub cx,0x6553; … ; mov
 /// [0x14095538c],ax`, and the stage callback fills its sixty-four card records from it 2048 draws deep
-/// before the file is parsed over them — see `th06c/asm.md`.
+/// before the file is parsed over them.
 const RNG_SEED: usize = 0x1_4095_538c;
 /// And how many draws have been made of it since the stage seeded it: `inc DWORD PTR [0x140955388]`
 /// beside every draw, cleared at `0x140024e93` as the stage begins.
@@ -1494,7 +1490,7 @@ mod gui_impl {
 const BOSS_PRESENT: usize = 0x1_4095_5364;
 
 /// **The sixty-four spell card records**, `0x40` bytes each, which the score file's `CATK` records are
-/// parsed into and written out of — see `th06c/asm.md`, whose section 4 has every field.
+/// parsed into and written out of.
 const CARD_HISTORY: usize = GAME_MANAGER + game_manager::CARD_HISTORY;
 const CARD_HISTORY_BYTES: usize = CARDS * CARD_BYTES;
 const CARDS: usize = 64;
@@ -1537,8 +1533,8 @@ const STAGE_REGISTER_CHAIN_PROLOGUE: &[u8] = &[
     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x20,
 ];
 
-/// **The calc chain's own head**, the other of the two — see [`THE_DRAW_CHAIN`], and
-/// `th06c/asm.md` for why both are sentinels rather than pointers.
+/// **The calc chain's own head**, the other of the two — see [`THE_DRAW_CHAIN`], which says why both are
+/// sentinels rather than pointers.
 const THE_CALC_CHAIN: usize = 0x1_403e_c5f0;
 
 /// Longer than any chain this game builds, so that a chain caught in a state whose links do not end is a
@@ -1600,7 +1596,7 @@ mod result_screen {
     ///
     /// **The grid is reached off the image base in a register** and not rip-relative —
     /// `[rax + r11 + 0x2c8af0]`, r11 being the base — which is why no search of the exe for a reference
-    /// to it as an operand finds one. `th06c/asm.md` has the sweep that said so.
+    /// to it as an operand finds one.
     pub const CURSOR: usize = 0x0;
 
     /// **The item that ends the entry**, which is the one past the space at `0x5e`: `0x140052036` leaves
@@ -1719,8 +1715,8 @@ fn the_link(element: usize) -> Option<Link> {
 ///
 /// **Because a screen this game keeps on the heap is reached through the job that registers it**, and
 /// which job that is, for a thing no string of the exe is referenced from, is what a launch says rather
-/// than what a listing does — see [`what_a_job_runs_on`], and `th06c/asm.md`'s note on the name
-/// entry's own grid, whose address appears in `.text` as no operand at all. So the chain is walked and
+/// than what a listing does — see [`what_a_job_runs_on`]. The name entry's own grid is the same: its
+/// address appears in `.text` as no operand at all. So the chain is walked and
 /// the callbacks are written down whenever one arrives or leaves: the job added on the frame the last
 /// boss dies is the ending's own.
 ///
@@ -1788,8 +1784,8 @@ unsafe fn the_entry_a_name_is_typed_into() -> Option<usize> {
     .then_some(screen)
 }
 
-/// **The bullets**, a static of `0xf7c20` bytes — see `th06c/asm.md`, where the array was read off
-/// the update's own loop at `0x14000db90`.
+/// **The bullets**, a static of `0xf7c20` bytes, whose array the update's own loop at `0x14000db90`
+/// says the shape of.
 const BULLET_MANAGER: usize = 0x1_4095_5410;
 
 mod bullet_manager {
@@ -1877,8 +1873,8 @@ mod laser {
     /// player, modelled `6.0` wide by this arithmetic, hit it — and a laser's origin is carried by the
     /// script that fired it, which nothing read at the time: th06c's Extra boss fires one twice this
     /// width from where she stands and walks it `6.4` a frame, so the lane that hit was `6.4` from where
-    /// the judgement had it and not twice as wide. What a half cost meanwhile is in `th06c/asm.md`:
-    /// the gaps of a fan of lasers all read as shut, and two hits of an Extra run with `nowhere open to
+    /// the judgement had it and not twice as wide. What a half cost meanwhile: the gaps of a fan of
+    /// lasers all read as shut, and two hits of an Extra run with `nowhere open to
     /// it` on every one of the nine moves.
     pub const HALF_OF_ITS_WIDTH: f32 = 4.0;
     /// How far along it runs, from the near end to the far one. The far end is what grows and the near
@@ -2014,7 +2010,7 @@ mod item {
 const KEYS_IN_A_SNAPSHOT: usize = 256;
 
 /// **The 256 bytes the game plays a run off**, which its own read fills through the table below — see
-/// `th06c/asm.md`, and [`Th06c::presses_into_its_own_keys`], which writes into it for a frame that
+/// [`Th06c::presses_into_its_own_keys`], which writes into it for a frame that
 /// is past the read.
 const THE_KEYS_THE_GAME_READS: usize = 0x1_4042_893c;
 
@@ -2403,7 +2399,7 @@ impl Game for Th06c {
             // **What the CRT linked into this exe reaches the OS through, all three.** `objdump -p` lists
             // `steam_api64.dll`, `KERNEL32.dll`, `USER32.dll` and `ole32.dll` and nothing of the universal
             // CRT's; of `KERNEL32.dll` it takes `GetProcessHeap` and no `HeapCreate` or `VirtualAlloc`,
-            // `CreateThread`, and `CreateFileW` — see `th06c/asm.md`. What that decides is which entries orb
+            // `CreateThread`, and `CreateFileW`. What that decides is which entries orb
             // stands in front of: the build of md5 acadbc0c imported `malloc`, `_beginthreadex` and `fopen`
             // outright, and an install looking for those finds none of them here.
             takes_its_memory: Memory::ProcessHeapImport,
@@ -2430,8 +2426,7 @@ impl Game for Th06c {
     ///
     /// Written into the snapshot the read was given rather than into the game's own key buffer at
     /// `0x14042893c`, because the translation between the two is the game's: a key written here reaches
-    /// that buffer through the table at `0x1402bc0b0` the way the keyboard's own would. See
-    /// `th06c/asm.md`.
+    /// that buffer through the table at `0x1402bc0b0` the way the keyboard's own would.
     ///
     /// **And the keys the word does not hold are written up, not left alone**, which is what makes this
     /// the whole of what the game reads rather than an addition to it. Two things need that. A word held
@@ -2620,8 +2615,8 @@ impl Game for Th06c {
         "th06c"
     }
 
-    /// Which of orb's own bits the front end's two answers are — see [`button`], and
-    /// `th06c/asm.md` for what of this game's own front end has been read, which is nothing.
+    /// Which of orb's own bits the front end's two answers are — see [`button`]. Nothing of this game's
+    /// own front end has been read.
     fn menu_decide(&self) -> u16 {
         button::DECIDE | button::SHOT
     }
@@ -2852,7 +2847,7 @@ impl Game for Th06c {
     /// `crate::dxgi::the_window`, and nought before a swapchain has been taken.
     ///
     /// **Asked of the swapchain and not of the game**, because the game makes its window through a pointer
-    /// it looked up and where it keeps the handle that call answered is not in `th06c/asm.md`. The
+    /// it looked up and where it keeps the handle that call answered was not read. The
     /// swapchain was built for that window and says so, so there is a reading here without one.
     ///
     /// **What it is for is orb's own menus.** `runtime::on_update` polls the keyboard against this handle
@@ -2863,7 +2858,7 @@ impl Game for Th06c {
     }
 
     /// Unread: what this game draws through is a swapchain it built, and nothing of orb's is in front of
-    /// it — see `th06c/asm.md`, where the device's own creation is the next reading.
+    /// it. The device's own creation is the next reading.
     unsafe fn d3d_device(&self) -> orb_api::Device {
         orb_api::Device(0)
     }
@@ -2969,7 +2964,7 @@ impl Game for Th06c {
 
     /// **The field a run is played in, out of the four floats the game keeps it in**: `0x1403ed01c`
     /// onwards, initialised in `.data` to `32`, `16`, `384` and `448` — the corner the field is drawn at on
-    /// its 640x480 output, and the field's own size — see `asm.md`, *The field the player may move in*. The
+    /// its 640x480 output, and the field's own size. The
     /// same four th06 1.02h has, this being that game's space.
     ///
     /// **Nought for a long time and not by mistake**: the overlay's own menus were placed against the

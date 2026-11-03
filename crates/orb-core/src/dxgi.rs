@@ -809,8 +809,8 @@ const A_DESCRIPTION: usize = 72;
 /// **The window this launch's swapchain presents into**, asked of the swapchain itself.
 ///
 /// **Which is the window a game that makes one plays in**, and the reading a game with no field of its own
-/// for the handle has: th06c looks its window creation up and where it keeps what that answered is not in
-/// its `asm.md`, so `Th06c::window` answers out of here instead. What the handle is for is orb's own menus
+/// for the handle has: th06c looks its window creation up and where it keeps what that answered was not
+/// read, so `Th06c::window` answers out of here instead. What the handle is for is orb's own menus
 /// — `runtime::on_update` polls the keyboard against it, and `input::Keyboard::poll` reads nothing at all
 /// for a null one, so a question of orb's over such a game went up and could never be answered.
 ///

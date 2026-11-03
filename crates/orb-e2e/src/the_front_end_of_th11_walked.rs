@@ -4,7 +4,7 @@
 //! `Game::front_end_screen` answers the title's `+0x1c` and `front_end_cursor` its `+0x24`, and the numbers
 //! those come back with are what every recipe of this game is written against: 1 is the main menu, whose item 0
 //! starts a run; 5 the difficulty select, which comes up on Normal; 6 the character select and 7 the partner
-//! select, whose decide asks for the run (0x43d5fc). `orb-core`'s `game/th11/asm.md` has where each was read.
+//! select, whose decide asks for the run (0x43d5fc).
 //!
 //! **Which is what an e2e test over this game can say about the title and the whole of it**: what a press does
 //! on each of those screens is the laid-out game's, so nothing here holds the real game to a screen it does not

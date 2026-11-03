@@ -1,7 +1,7 @@
 //! What a bot playing th10 is told of it, which is this game's own arrays read.
 //!
-//! **Every address here is in `th10/mod.rs` beside its own reading**, and `asm.md` is where each came
-//! from. What this file is, is the shape those readings take for `orb_bot`: the field the player is held
+//! **Every address here is in `th10/mod.rs` beside its own reading**. What this file is, is the shape
+//! those readings take for `orb_bot`: the field the player is held
 //! inside, the player and its own box, its four speeds, one [`Hazard`] per live enemy and per live bullet,
 //! one [`Beam`] per laser that can hit, and one [`Pickup`] per item.
 //!
